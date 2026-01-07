@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(hvigorw assembleHap:*)",
+      "Bash(./hvigorw.bat assembleHap)",
+      "Bash(hvigorw.bat assembleHap:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "HarmonyOS远程控制应用"
+    },
+    {
+      "name": "ScrcpyHmosAbility_desc",
+      "value": "易控·远程控制HarmonyOS版"
+    },
+    {
+      "name": "ScrcpyHmosAbility_label",
+      "value": "易控"
+    },
+    {
+      "name": "app_name",
+      "value": "易控·远程控制"
+    },
+    {
+      "name": "main_device_type_network",
+      "value": "网络连接"
+    },
+    {
+      "name": "device_name",
+      "value": "设备名称"
+    },
+    {
+      "name": "device_address",
+      "value": "地址"
+    },
+    {
+      "name": "device_address_hint",
+      "value": "支持IPv4/v6地址"
+    },
+    {
+      "name": "device_adb_port",
+      "value": "ADB端口"
+    },
+    {
+      "name": "device_server_port",
+      "value": "服务端口"
+    },
+    {
+      "name": "device_button",
+      "value": "确认"
+    },
+    {
+      "name": "loading_text",
+      "value": "连接中..."
+    },
+    {
+      "name": "toast_success",
+      "value": "成功"
+    },
+    {
+      "name": "toast_fail",
+      "value": "失败"
+    },
+    {
+      "name": "toast_connect_server",
+      "value": "连接被控端失败"
+    },
+    {
+      "name": "permission_internet_reason",
+      "value": "需要网络权限连接被控设备"
+    },
+    {
+      "name": "permission_network_info_reason",
+      "value": "需要获取网络信息权限"
+    },
+    {
+      "name": "permission_microphone_reason",
+      "value": "需要麦克风权限传输音频"
+    }
+  ]
+}

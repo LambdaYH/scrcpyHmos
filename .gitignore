@@ -1,0 +1,35 @@
+# HarmonyOS / DevEco Studio
+.hvigor/
+.idea/
+.preview/
+.cxx/
+build/
+oh_modules/
+node_modules/
+
+# Local Configuration
+local.properties
+
+# Build & Test
+.clangd/
+.clang-format
+.clang-tidy
+.test/
+.appanalyzer/
+
+# Binary / Output
+*.hap
+*.har
+*.app
+
+# OS System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# External / Reference Projects (Keep these out of the main repo)
+crypto-framework
+applications_app_samples-master-code-BasicFeature-Media-AVCodec
+scrcpy
+scrcpy-mobile
+easycontrol
