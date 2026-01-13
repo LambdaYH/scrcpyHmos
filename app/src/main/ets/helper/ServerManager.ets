@@ -12,7 +12,7 @@ export class ServerManager {
     try {
       // 使用runAdbCmd执行检查命令
       const result = await adb.runAdbCmd(`ls ${ServerManager.SERVER_PATH} && echo FILE_EXISTS || echo FILE_NOT_FOUND`);
-      console.info('Check server result:', result);
+      console.debug('Check server result:', result);
 
       if (result.includes('No such file') || result.includes('FILE_NOT_FOUND')) {
         console.info('Server.jar does NOT exist on device');
@@ -218,7 +218,7 @@ export class ServerManager {
     // Match Android exactly: app_process -Djava.class.path=<jar> / <class> <params>
     const cmd = `app_process -Djava.class.path=${ServerManager.SERVER_PATH} / top.saymzx.easycontrol.server.Server ${params} \n`;
     await stream.write(buffer.from(cmd, 'utf-8').buffer);
-    console.info('Server started with command:', cmd);
+    console.debug('Server started with command:', cmd);
     return stream;
   }
 

@@ -106,8 +106,8 @@ export class Adb {
 
       if (message.command === AdbProtocol.CMD_AUTH) {
         // 需要发送公钥
-        console.info('请在Android设备上点击"允许"授权');
-        console.info('ADB: Public key bytes length:', keyPair.publicKeyBytes.length);
+        // console.info('请在Android设备上点击"允许"授权');
+        // console.info('ADB: Public key bytes length:', keyPair.publicKeyBytes.length);
         
         // 重要：不能直接使用 Uint8Array.buffer，因为它可能指向一个更大的底层buffer
         // 必须创建一个新的正确大小的ArrayBuffer
@@ -115,12 +115,12 @@ export class Adb {
         const pubKeyView = new Uint8Array(pubKeyBuffer);
         pubKeyView.set(keyPair.publicKeyBytes);
         
-        console.info('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
+        console.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
         
         try {
           uiContext.getPromptAction().showDialog({
             title: '身份验证',
-            message: '正在请求设备授权。\n请在手机上查看并点击 [允许] USB调试。',
+            message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
             buttons: [{ text: '好的', color: '#007AFF' }]
           });
         } catch (e) {
@@ -158,7 +158,7 @@ export class Adb {
 
         // 新连接
         if (isNeedNotify) {
-          console.info(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
+          console.debug(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
           bufferStream = this.createNewStream(message.arg1, message.arg0, message.arg1 > 0);
         }
 

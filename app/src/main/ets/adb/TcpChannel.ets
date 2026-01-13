@@ -26,7 +26,7 @@ export class TcpChannel implements AdbChannel {
 
   async connect(address: string, port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.info(`TcpChannel: Attempting to connect to ${address}:${port}`);
+      console.debug(`TcpChannel: Attempting to connect to ${address}:${port}`);
 
       const timeoutId = setTimeout(() => {
         console.error(`TcpChannel: Connection timeout after 10 seconds`);

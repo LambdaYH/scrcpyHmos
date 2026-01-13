@@ -230,7 +230,7 @@ struct ControlPage {
         .onLoad(() => {
           this.surfaceId = this.xComponentController.getXComponentSurfaceId();
           this.surfaceReady = true;
-          console.info('XComponent surfaceId:', this.surfaceId);
+          console.debug('XComponent surfaceId:', this.surfaceId);
           
           // 如果client已经就绪,立即初始化视频解码器
           if (this.clientReady && this.client) {
@@ -244,7 +244,7 @@ struct ControlPage {
           // 获取组件实际尺寸(px)
           this.componentWidth = newArea.width as number;
           this.componentHeight = newArea.height as number;
-          console.info(`XComponent size: ${this.componentWidth}x${this.componentHeight}`);
+          console.debug(`XComponent size: ${this.componentWidth}x${this.componentHeight}`);
           this.initFabPosition();
         })
         .gesture(

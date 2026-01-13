@@ -37,7 +37,7 @@ struct AdbManagePage {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.arrow_left'))
             .fontSize(24)
-            .fontColor(['#333333'])
+            .fontColor([$r('app.color.text_primary')])
         }
         .width(40)
         .height(40)
@@ -49,7 +49,7 @@ struct AdbManagePage {
         Text('密钥管理')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#333333')
+          .fontColor($r('app.color.text_primary'))
           .margin({ left: 16 })
       }
       .width('100%')
@@ -57,7 +57,7 @@ struct AdbManagePage {
       .padding({ left: 16, right: 16, top: 38 })
       
       Column() {
-        Image($r('app.media.startIcon')) // 假设有个图标，或者用Symbol
+        Image($r('app.media.icon_startwindow'))
           .width(80)
           .height(80)
           .margin({ top: 48, bottom: 24 })
@@ -82,8 +82,8 @@ struct AdbManagePage {
           .width('85%')
           .height(100)
           .fontSize(12)
-          .fontColor('#333333')
-          .backgroundColor('#FFFFFF')
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.bg_card'))
           .margin({ bottom: 16 })
           .focusable(false)
           .copyOption(CopyOptions.LocalDevice)
@@ -98,8 +98,8 @@ struct AdbManagePage {
           .width('85%')
           .height(100)
           .fontSize(12)
-          .fontColor('#333333')
-          .backgroundColor('#FFFFFF')
+          .fontColor($r('app.color.text_primary'))
+          .backgroundColor($r('app.color.bg_card'))
           .margin({ bottom: 24 })
           .focusable(false)
           .copyOption(CopyOptions.LocalDevice)
@@ -109,14 +109,14 @@ struct AdbManagePage {
           .height(48)
           .fontSize(16)
           .type(ButtonType.Capsule)
-          .backgroundColor('#007AFF')
+          .backgroundColor($r('app.color.btn_primary'))
           .onClick(() => {
              this.regenerateKey();
           })
           
         Text('注意：重新生成密钥后，所有已连接的设备都需要重新授权。')
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor($r('app.color.text_tertiary'))
           .margin({ top: 24 })
           .padding({ left: 32, right: 32 })
           .textAlign(TextAlign.Center)
@@ -126,7 +126,7 @@ struct AdbManagePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
@@ -136,8 +136,8 @@ struct AdbManagePage {
         title: '确认重新生成',
         message: '这将重置所有设备的连接授权状态。连接设备时需要在手机上重新点击"允许调试"。是否继续？',
         buttons: [
-          { text: '取消', color: '#666666' },
-          { text: '确定', color: '#007AFF' }
+          { text: '取消', color: $r('app.color.text_secondary') },
+          { text: '确定', color: $r('app.color.btn_primary') }
         ]
       });
       

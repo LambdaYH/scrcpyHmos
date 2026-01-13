@@ -374,9 +374,9 @@ export class ClientStream {
 
   // 读取一帧视频数据（先读4字节大小，再读帧数据）
   async readFrameFromVideo(): Promise<ArrayBuffer> {
-    console.info('[ClientStream] Reading frame size (4 bytes)...');
+    console.debug('[ClientStream] Reading frame size (4 bytes)...');
     const frameSize = await this.readIntFromVideo();
-    console.info(`[ClientStream] Frame size: ${frameSize} bytes`);
+    console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
     if (frameSize <= 0 || frameSize > 10 * 1024 * 1024) { // 最大10MB
       throw new Error(`Invalid frame size: ${frameSize}`);
     }

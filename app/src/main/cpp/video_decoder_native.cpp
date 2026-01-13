@@ -48,7 +48,7 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         context->inputBuffers.push(buffer);  // 保存buffer指针
     }
     context->waitForFirstBuffer = false;
-    OH_LOG_INFO(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
+    OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
                 index, buffer ? "valid" : "null", context->inputBufferQueue.size());
 }
 
@@ -182,7 +182,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     }
 
     if (!hasBuffer) {
-        OH_LOG_WARN(LOG_APP, "[Native] PushData: no available input buffer");
+        OH_LOG_DEBUG(LOG_APP, "[Native] PushData: no available input buffer");
         return -2;  // 表示暂时没有可用buffer
     }
 

@@ -14,7 +14,7 @@ struct AboutPage {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.arrow_left'))
             .fontSize(24)
-            .fontColor(['#333333'])
+            .fontColor([$r('app.color.text_primary')])
         }
         .width(40)
         .height(40)
@@ -26,7 +26,7 @@ struct AboutPage {
         Text('关于 / 开源说明')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#333333')
+          .fontColor($r('app.color.text_primary'))
           .margin({ left: 16 })
       }
       .width('100%')
@@ -35,7 +35,7 @@ struct AboutPage {
       
       Scroll() {
         Column() {
-          Image($r('app.media.startIcon'))
+          Image($r('app.media.icon_startwindow'))
             .width(80)
             .height(80)
             .margin({ top: 24, bottom: 16 })
@@ -47,7 +47,7 @@ struct AboutPage {
             
           Text('v1.0.0')
             .fontSize(14)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_tertiary'))
             .margin({ bottom: 32 })
             
           // Project Info
@@ -60,7 +60,7 @@ struct AboutPage {
               
             Text(this.scrcpyRepo)
               .fontSize(14)
-              .fontColor('#007AFF')
+              .fontColor($r('app.color.btn_primary'))
               .alignSelf(ItemAlign.Start)
               .onClick(() => {
                 // In a real app we might want to open a webview or copy to clipboard
@@ -76,19 +76,19 @@ struct AboutPage {
               
             Text('本项目源代码部分衍生自 mingzhixian 的 Easycontrol 项目。')
               .fontSize(14)
-              .fontColor('#333333')
+              .fontColor($r('app.color.text_primary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 4 })
               
             Text(this.easyControlRepo)
               .fontSize(14)
-              .fontColor('#007AFF')
+              .fontColor($r('app.color.btn_primary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 8 })
               
             Text('Easycontrol 遵循 GPL-3.0 开源协议。本项目同样遵循 GPL-3.0 协议发布。')
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 24 })
               
@@ -110,14 +110,14 @@ of this license document, but changing it is not allowed.
               .width('100%')
               .height(150)
               .fontSize(12)
-              .fontColor('#333333')
-              .backgroundColor('#F0F0F0')
+              .fontColor($r('app.color.text_primary'))
+              .backgroundColor($r('app.color.bg_primary'))
               .focusable(false)
               .margin({ bottom: 24 })
           }
           .width('90%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
         }
         .width('100%')
@@ -126,7 +126,7 @@ of this license document, but changing it is not allowed.
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

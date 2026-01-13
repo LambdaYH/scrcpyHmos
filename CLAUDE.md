@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ScrcpyHmos is a HarmonyOS remote control application for Android devices, inspired by scrcpy and EasyControl. It allows HarmonyOS devices (phones/tablets) to remotely control Android devices over ADB via network connection.
 
-**Bundle Name:** cc.cinte.scrcpyHmos
+**Bundle Name:** com.lambdayh.scrcpyHmos
 **Target SDK:** HarmonyOS API 9+ (6.0.0)
 **Language:** ArkTS (HarmonyOS TypeScript) with native C++ for video decoding
 

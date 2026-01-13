@@ -38,7 +38,7 @@ struct DeviceDetail {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.chevron_left'))
             .fontSize(24)
-            .fontColor(['#181818'])
+            .fontColor([$r('app.color.text_title')])
         }
         .width(40)
         .height(40)
@@ -50,7 +50,7 @@ struct DeviceDetail {
         Text(this.isEdit ? '编辑设备' : '添加设备')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#181818')
+          .fontColor($r('app.color.text_title'))
           .textAlign(TextAlign.Center)
           .layoutWeight(1)
         
@@ -70,7 +70,7 @@ struct DeviceDetail {
           Column({ space: 8 }) {
             Text($r('app.string.device_name'))
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.device.name })
               .onChange((value: string) => {
                 this.device.name = value;
@@ -83,7 +83,7 @@ struct DeviceDetail {
           Column({ space: 8 }) {
             Text($r('app.string.device_address'))
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.device.address, placeholder: '192.168.1.100' })
               .onChange((value: string) => {
                 this.device.address = value;
@@ -96,7 +96,7 @@ struct DeviceDetail {
           Column({ space: 8 }) {
             Text($r('app.string.device_adb_port'))
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.device.adbPort.toString(), placeholder: '5555' })
               .type(InputType.Number)
               .onChange((value: string) => {
@@ -110,7 +110,7 @@ struct DeviceDetail {
           Column({ space: 8 }) {
             Text($r('app.string.device_server_port'))
               .fontSize(14)
-              .fontColor('#666666')
+              .fontColor($r('app.color.text_secondary'))
             TextInput({ text: this.device.serverPort.toString(), placeholder: '12580' })
               .type(InputType.Number)
               .onChange((value: string) => {
@@ -189,7 +189,7 @@ struct DeviceDetail {
           }
           .width('100%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
 
           // 运行时操作
@@ -250,7 +250,7 @@ struct DeviceDetail {
           }
           .width('100%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
 
           // 断开时操作
@@ -291,7 +291,7 @@ struct DeviceDetail {
           }
           .width('100%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
 
           // 投屏参数
@@ -351,7 +351,7 @@ struct DeviceDetail {
           }
           .width('100%')
           .padding(16)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
         }
         .padding(16)
@@ -363,8 +363,8 @@ struct DeviceDetail {
         if (this.isEdit) {
           Button('删除', { type: ButtonType.Capsule, stateEffect: true })
             .fontSize(16)
-            .backgroundColor('#FFF0F2')
-            .fontColor('#FF4444')
+            .backgroundColor($r('app.color.btn_danger_bg'))
+            .fontColor($r('app.color.btn_danger_text'))
             .width(120)
             .height(44)
             .onClick(() => {
@@ -374,7 +374,7 @@ struct DeviceDetail {
         
         Button($r('app.string.device_button'), { type: ButtonType.Capsule, stateEffect: true })
           .fontSize(16)
-          .backgroundColor('#007DFF')
+          .backgroundColor($r('app.color.btn_primary'))
           .width(120)
           .height(44)
           .layoutWeight(1)
@@ -387,7 +387,7 @@ struct DeviceDetail {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 

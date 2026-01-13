@@ -10,11 +10,11 @@
     },
     {
       "name": "ScrcpyHmosAbility_label",
-      "value": "易控"
+      "value": "scrcpyHmos"
     },
     {
       "name": "app_name",
-      "value": "易控·远程控制"
+      "value": "scrcpyHmos"
     },
     {
       "name": "main_device_type_network",

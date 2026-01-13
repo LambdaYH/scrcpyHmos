@@ -40,13 +40,13 @@ struct Index {
         Text('Scrcpy设备')
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#333333')
+          .fontColor($r('app.color.text_primary'))
         
         Row() {
           Button({ type: ButtonType.Circle, stateEffect: true }) {
             SymbolGlyph($r('sys.symbol.plus'))
               .fontSize(24)
-              .fontColor(['#333333'])
+              .fontColor([$r('app.color.text_primary')])
           }
           .width(40)
           .height(40)
@@ -61,7 +61,7 @@ struct Index {
           Button({ type: ButtonType.Circle, stateEffect: true }) {
             SymbolGlyph($r('sys.symbol.dot_grid_2x2'))
               .fontSize(24)
-              .fontColor(['#333333'])
+              .fontColor([$r('app.color.text_primary')])
           }
           .width(40)
           .height(40)
@@ -93,10 +93,10 @@ struct Index {
         Column() {
           Text('暂无设备')
             .fontSize(16)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_tertiary'))
           Text('点击右上角添加设备')
             .fontSize(14)
-            .fontColor('#CCCCCC')
+            .fontColor($r('app.color.text_placeholder'))
             .margin({ top: 8 })
         }
         .width('100%')
@@ -128,7 +128,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
   
@@ -140,10 +140,10 @@ struct Index {
           Text(device.name)
             .fontSize(18)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#333333')
+            .fontColor($r('app.color.text_primary'))
           Text(`${device.address}:${device.adbPort}`)
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor($r('app.color.text_secondary'))
             .margin({ top: 4 })
         }
         .alignItems(HorizontalAlign.Start)
@@ -161,7 +161,7 @@ struct Index {
     }
     .width('100%')
     .padding(16)
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.bg_card'))
     .borderRadius(8)
   }
   
@@ -182,11 +182,11 @@ struct Index {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.square_and_pencil'))
             .fontSize(20)
-            .fontColor([Color.Blue])
+            .fontColor([$r('app.color.icon_blue')])
         }
         .width(40)
         .height(40)
-        .backgroundColor('#F0F8FF')
+        .backgroundColor($r('app.color.bg_action_blue'))
         .onClick(() => {
           this.editDevice(device);
         })
@@ -199,11 +199,11 @@ struct Index {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.trash'))
             .fontSize(20)
-            .fontColor([Color.Red])
+            .fontColor([$r('app.color.icon_red')])
         }
         .width(40)
         .height(40)
-        .backgroundColor('#FFF0F0')
+        .backgroundColor($r('app.color.bg_action_red'))
         .onClick(() => {
           this.deleteDevice(device);
         })

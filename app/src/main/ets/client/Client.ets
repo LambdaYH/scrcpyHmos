@@ -142,31 +142,31 @@ export class Client {
     
     const loadConfig = async (): Promise<void> => {
       try {
-        console.info('📹 Preloading video configuration...');
+        console.debug('Preloading video configuration...');
         
         if (!this.clientStream) {
           throw new Error('clientStream became null during preload');
         }
         
         // 读取视频配置 - 按Java版本顺序
-        console.info('Reading useH265 byte...');
+        console.debug('Reading useH265 byte...');
         const useH265Byte: number = await this.clientStream.readByteFromVideo();
-        console.info(`useH265Byte raw value: ${useH265Byte} (0x${useH265Byte.toString(16)})`);
+        console.debug(`useH265Byte raw value: ${useH265Byte} (0x${useH265Byte.toString(16)})`);
         const useH265: boolean = useH265Byte === 1;
-        console.info(`useH265 = ${useH265}`);
+        console.debug(`useH265 = ${useH265}`);
         
         console.info('Reading width...');
         const widthData: ArrayBuffer = await this.clientStream.readBytesFromVideo(4);
         const widthBytes = new Uint8Array(widthData);
-        console.info(`width bytes: [${Array.from(widthBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
+        console.debug(`width bytes: [${Array.from(widthBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
         const widthView = new DataView(widthData);
         const width: number = widthView.getInt32(0, false);
-        console.info(`width = ${width}`);
+        console.debug(`width = ${width}`);
         
-        console.info('Reading height...');
+        console.debug('Reading height...');
         const heightData: ArrayBuffer = await this.clientStream.readBytesFromVideo(4);
         const heightBytes = new Uint8Array(heightData);
-        console.info(`height bytes: [${Array.from(heightBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
+        console.debug(`height bytes: [${Array.from(heightBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
         const heightView = new DataView(heightData);
         const height: number = heightView.getInt32(0, false);
         console.info(`height = ${height}`);
@@ -206,11 +206,11 @@ export class Client {
     };
     
     // 异步加载，不阻塞连接流程
-    console.info('Calling loadConfig()...');
+    console.debug('Calling loadConfig()...');
     loadConfig().catch((err: Error) => {
       console.error('loadConfig() promise rejected:', err.message);
     });
-    console.info('loadConfig() call initiated');
+    console.debug('loadConfig() call initiated');
   }
   
   async initVideoDecoder(surfaceId: string): Promise<void> {
@@ -220,7 +220,7 @@ export class Client {
     
     try {
       console.info('Initializing video decoder...');
-      console.info('Waiting for video config (timeout: 5 seconds)...');
+      console.debug('Waiting for video config (timeout: 5 seconds)...');
       
       // 等待视频配置预加载完成
       let retries = 0;
@@ -271,15 +271,15 @@ export class Client {
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
             // 读取帧大小
-            console.info(`[Frame ${frameCount}] Reading frame size...`);
+            console.debug(`[Frame ${frameCount}] Reading frame size...`);
             const frameData = await this.clientStream.readFrameFromVideo();
-            console.info(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
+            console.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
               // 解码帧 (PTS由解码器内部处理)
-              console.info(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
+              console.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
               await this.videoDecoder.decode(frameData, 0);
-              console.info(`[Frame ${frameCount}] videoDecoder.decode() completed`);
+              console.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
               frameCount++;
             } else {
               console.warn(`[Frame ${frameCount}] Empty frame received: videoDecoder=${!!this.videoDecoder}`);
@@ -456,11 +456,11 @@ export class Client {
 
           switch (eventType) {
             case 1: // 音频事件 - 暂不处理
-              console.warn('[MainLoop] Received audio event (not supported)');
+              console.debug('[MainLoop] Received audio event (not supported)');
               break;
 
             case 2: // 剪贴板事件
-              console.info('[MainLoop] Received clipboard event');
+              console.debug('[MainLoop] Received clipboard event');
               const clipSize = await this.clientStream.readIntFromMain();
               if (clipSize > 0 && clipSize <= 5000) {
                 const clipData = await this.clientStream.readBytesFromMain(clipSize);
@@ -469,18 +469,18 @@ export class Client {
               break;
 
             case 3: // 视频大小改变事件
-              console.info('[MainLoop] Received video size event');
+              console.debug('[MainLoop] Received video size event');
               const sizeData = await this.clientStream.readBytesFromMain(8);
               this.handleVideoSizeEvent(sizeData);
               break;
 
             default:
-              console.warn(`[MainLoop] Unknown event type: ${eventType}`);
+              console.debug(`[MainLoop] Unknown event type: ${eventType}`);
               break;
           }
         } catch (err) {
           if (this.isClosed) {
-            console.info('[MainLoop] Client closed, exiting loop');
+            console.debug('[MainLoop] Client closed, exiting loop');
             break;
           }
 
