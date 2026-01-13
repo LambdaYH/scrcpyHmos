@@ -26,7 +26,7 @@ struct ControlPage {
   
   private client: Client | null = null;
   private xComponentController: XComponentController = new XComponentController();
-  private pointerDownTime: Map<number, number> = new Map();
+  private pointerDownTime: Map<number, number> = new Map();  // 存储毫秒时间戳
   private surfaceReady: boolean = false;
   private clientReady: boolean = false;
   private autoHideTimer: number = -1;
@@ -34,6 +34,9 @@ struct ControlPage {
   // 临时存储拖动开始时的位置
   private dragStartX: number = 0;
   private dragStartY: number = 0;
+  // 追踪是否正在滑动，防止 TapGesture 干扰滑动操作
+  private isPanning: boolean = false;
+  private panMoveCount: number = 0;  // 记录 MOVE 事件数量
   
   aboutToAppear() {
     try {
@@ -407,12 +410,16 @@ struct ControlPage {
   handleTap(event: GestureEvent) {
     if (!this.client) return;
     
+    // 如果正在滑动或刚滑动过（有MOVE事件），忽略 TAP 事件
+    // 这是因为 PanGesture 和 TapGesture 并行运行，滑动结束时 TAP 会错误触发
+    if (this.isPanning || this.panMoveCount > 0) {
+      return;
+    }
+    
     const localX = event.fingerList[0].localX;
     const localY = event.fingerList[0].localY;
     const x = localX / this.componentWidth;
     const y = localY / this.componentHeight;
-    
-    console.info(`[Touch] TAP: localPos=(${localX.toFixed(1)}, ${localY.toFixed(1)}), normalizedPos=(${x.toFixed(4)}, ${y.toFixed(4)}), componentSize=(${this.componentWidth}, ${this.componentHeight})`);
     
     // 模拟点击（按下-抬起）
     this.client.sendTouchEvent(TouchAction.ACTION_DOWN, 0, x, y, 0);
@@ -424,17 +431,23 @@ struct ControlPage {
   handleTouchStart(event: GestureEvent) {
     if (!this.client) return;
     
-    console.info(`[Touch] START: fingerCount=${event.fingerList.length}`);
-    event.fingerList.forEach((finger, index) => {
+    // 标记开始滑动
+    this.isPanning = true;
+    this.panMoveCount = 0;
+    
+    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
+    // 注意：模拟器上 timestamp 可能返回0
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
+    
+    event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
       const x = localX / this.componentWidth;
       const y = localY / this.componentHeight;
       const pointerId = finger.id;
       
-      console.info(`[Touch] START[${index}]: pointerId=${pointerId}, localPos=(${localX.toFixed(1)}, ${localY.toFixed(1)}), normalizedPos=(${x.toFixed(4)}, ${y.toFixed(4)})`);
-      
-      this.pointerDownTime.set(pointerId, Date.now());
+      // 存储毫秒时间戳
+      this.pointerDownTime.set(pointerId, eventTimestampMs);
       this.client?.sendTouchEvent(TouchAction.ACTION_DOWN, pointerId, x, y, 0);
     });
   }
@@ -442,16 +455,20 @@ struct ControlPage {
   handleTouchMove(event: GestureEvent) {
     if (!this.client) return;
     
-    event.fingerList.forEach((finger, index) => {
+    // 增加 MOVE 事件计数
+    this.panMoveCount++;
+    
+    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
+    
+    event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
       const x = localX / this.componentWidth;
       const y = localY / this.componentHeight;
       const pointerId = finger.id;
-      const downTime = this.pointerDownTime.get(pointerId) || Date.now();
-      const offsetTime = Date.now() - downTime;
-      
-      console.info(`[Touch] MOVE[${index}]: pointerId=${pointerId}, localPos=(${localX.toFixed(1)}, ${localY.toFixed(1)}), normalizedPos=(${x.toFixed(4)}, ${y.toFixed(4)}), offsetTime=${offsetTime}ms`);
+      const downTimeMs = this.pointerDownTime.get(pointerId) || eventTimestampMs;
+      const offsetTime = eventTimestampMs - downTimeMs;
       
       this.client?.sendTouchEvent(TouchAction.ACTION_MOVE, pointerId, x, y, offsetTime);
     });
@@ -460,22 +477,30 @@ struct ControlPage {
   handleTouchEnd(event: GestureEvent) {
     if (!this.client) return;
     
-    console.info(`[Touch] END: fingerCount=${event.fingerList.length}`);
-    event.fingerList.forEach((finger, index) => {
+    // 结束滑动
+    this.isPanning = false;
+    // 延迟重置 panMoveCount，给 TapGesture 时间先触发并被忽略
+    setTimeout(() => {
+      this.panMoveCount = 0;
+    }, 100);
+    
+    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
+    
+    event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
       const x = localX / this.componentWidth;
       const y = localY / this.componentHeight;
       const pointerId = finger.id;
-      const downTime = this.pointerDownTime.get(pointerId) || Date.now();
-      const offsetTime = Date.now() - downTime;
-      
-      console.info(`[Touch] END[${index}]: pointerId=${pointerId}, localPos=(${localX.toFixed(1)}, ${localY.toFixed(1)}), normalizedPos=(${x.toFixed(4)}, ${y.toFixed(4)}), offsetTime=${offsetTime}ms`);
+      const downTimeMs = this.pointerDownTime.get(pointerId) || eventTimestampMs;
+      const offsetTime = eventTimestampMs - downTimeMs;
       
       this.client?.sendTouchEvent(TouchAction.ACTION_UP, pointerId, x, y, offsetTime);
       this.pointerDownTime.delete(pointerId);
     });
   }
+
   
   // 初始化视频解码器的辅助方法
   private initVideoDecoder(): void {

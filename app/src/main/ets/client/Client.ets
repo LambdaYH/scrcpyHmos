@@ -411,24 +411,14 @@ export class Client {
 
   // 发送触摸事件
   async sendTouchEvent(action: TouchAction, pointerId: number, x: number, y: number, offsetTime: number = 0): Promise<void> {
-    const actionName = action === TouchAction.ACTION_DOWN ? 'DOWN' : action === TouchAction.ACTION_UP ? 'UP' : action === TouchAction.ACTION_MOVE ? 'MOVE' : `${action}`;
-    console.info(`[Client] sendTouchEvent: action=${actionName}, pointerId=${pointerId}, pos=(${x.toFixed(4)}, ${y.toFixed(4)}), offsetTime=${offsetTime}ms`);
-    
     if (!this.clientStream) {
-      console.error('[Client] sendTouchEvent: clientStream is null, cannot send touch event');
       return;
     }
     
     const packet = ControlPacket.createTouchEvent(action, pointerId, x, y, offsetTime);
-    console.info(`[Client] sendTouchEvent: packet created, size=${packet.byteLength} bytes`);
-    
-    try {
-      await this.clientStream.writeMain(packet);
-      console.info(`[Client] sendTouchEvent: packet sent successfully`);
-    } catch (err) {
-      console.error(`[Client] sendTouchEvent: failed to send packet:`, err);
-    }
+    await this.clientStream.writeMain(packet);
   }
+
   
   // 发送按键事件
   async sendKeyEvent(keyCode: KeyCode, metaState: number = 0): Promise<void> {

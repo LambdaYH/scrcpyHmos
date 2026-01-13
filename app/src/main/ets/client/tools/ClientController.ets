@@ -38,11 +38,8 @@ export class ClientController {
     const normalizedX = this.normalizeX(x);
     const normalizedY = this.normalizeY(y);
 
-    console.info(`[Controller] TouchDown: pointerId=${pointerId}, rawPos=(${x.toFixed(1)}, ${y.toFixed(1)}), normalizedPos=(${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}), surfaceSize=(${this.surfaceWidth}, ${this.surfaceHeight})`);
-
     this.pointerDownTime.set(pointerId, Date.now());
     const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_DOWN, pointerId, normalizedX, normalizedY, 0);
-    console.info(`[Controller] TouchDown: sending packet, length=${packet.byteLength}`);
     await this.clientStream.writeMain(packet);
   }
 
@@ -53,8 +50,6 @@ export class ClientController {
 
     const downTime = this.pointerDownTime.get(pointerId) || Date.now();
     const offsetTime = Date.now() - downTime;
-
-    console.info(`[Controller] TouchMove: pointerId=${pointerId}, rawPos=(${x.toFixed(1)}, ${y.toFixed(1)}), normalizedPos=(${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}), offsetTime=${offsetTime}ms`);
 
     const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_MOVE, pointerId, normalizedX, normalizedY, offsetTime);
     await this.clientStream.writeMain(packet);
@@ -68,10 +63,7 @@ export class ClientController {
     const downTime = this.pointerDownTime.get(pointerId) || Date.now();
     const offsetTime = Date.now() - downTime;
 
-    console.info(`[Controller] TouchUp: pointerId=${pointerId}, rawPos=(${x.toFixed(1)}, ${y.toFixed(1)}), normalizedPos=(${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}), offsetTime=${offsetTime}ms`);
-
     const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_UP, pointerId, normalizedX, normalizedY, offsetTime);
-    console.info(`[Controller] TouchUp: sending packet, length=${packet.byteLength}`);
     await this.clientStream.writeMain(packet);
     this.pointerDownTime.delete(pointerId);
   }
