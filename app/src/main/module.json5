@@ -48,7 +48,7 @@
         "name": "ScrcpyHmosAbility",
         "srcEntry": "./ets/scrcpyhmosability/ScrcpyHmosAbility.ets",
         "description": "$string:ScrcpyHmosAbility_desc",
-        "icon": "$media:icon_startwindow",
+        "icon": "$media:layered_image",
         "label": "$string:ScrcpyHmosAbility_label",
         "startWindowIcon": "$media:icon_startwindow",
         "startWindowBackground": "$color:start_window_background",
