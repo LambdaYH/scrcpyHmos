@@ -38,9 +38,14 @@ struct Index {
     Row() {
       // Tab 1: Home
       Column() {
-        SymbolGlyph(this.currentIndex === 0 ? $r('sys.symbol.house') : $r('sys.symbol.house'))
-          .fontSize(24)
+        SymbolGlyph($r('sys.symbol.house'))
+          .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
+        Text('设备')
+          .fontSize(10) // Standard 10fp
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
+          .margin({ top: 4 }) // Standard 4vp spacing
       }
       .layoutWeight(1)
       .height('100%')
@@ -50,33 +55,37 @@ struct Index {
         this.tabsController.changeIndex(0);
       })
 
-      // Tab 2: Add Device (Center Button)
+      // Tab 2: Add Device (Standard Action)
       Column() {
-         Button({ type: ButtonType.Circle, stateEffect: true }) {
-          SymbolGlyph($r('sys.symbol.plus'))
-            .fontSize(30)
-            .fontColor(['#FFFFFF'])
-            .fontWeight(FontWeight.Bold)
-        }
-        .width(56)
-        .height(56)
-        .backgroundColor($r('app.color.btn_primary'))
-        // .shadow({ radius: 8, color: '#40000000', offsetY: 4 }) // Shadow handled by container
-        .onClick(() => {
-           router.pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
-             console.error('Navigate failed:', err);
-           });
-        })
+        SymbolGlyph($r('sys.symbol.plus_square'))
+          .fontSize(24) // Standard 24vp
+          .fontColor([$r('app.color.text_tertiary')])
+        Text('添加')
+           .fontSize(10)
+           .fontWeight(FontWeight.Medium)
+           .fontColor($r('app.color.text_tertiary'))
+           .margin({ top: 4 })
       }
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .onClick(() => {
+        // Direct action
+        router.pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
+          console.error('Navigate failed:', err);
+        });
+      })
 
       // Tab 3: More
       Column() {
-        SymbolGlyph(this.currentIndex === 2 ? $r('sys.symbol.gearshape_fill') : $r('sys.symbol.gearshape'))
-          .fontSize(24)
+        SymbolGlyph($r('sys.symbol.gearshape'))
+          .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
+        Text('更多')
+          .fontSize(10) // Standard 10fp
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
+          .margin({ top: 4 }) // Standard 4vp spacing
       }
       .layoutWeight(1)
       .height('100%')
@@ -86,12 +95,12 @@ struct Index {
         this.tabsController.changeIndex(2);
       })
     }
-    .width('90%')
-    .height(70)
-    .backgroundColor($r('app.color.bg_card'))
-    .borderRadius(35) // Capsule shape
-    .shadow({ radius: 10, color: '#1A000000', offsetY: 5 })
-    .margin({ bottom: 20 })
+    .width('100%')
+    .height(56 + 12) // 56vp content + bottom padding (approx)
+    .padding({ bottom: 12 }) // Safe area padding
+    .backgroundColor(Color.Transparent)
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK) // Glassmorphism
+    .border({ width: { top: 0.5 }, color: '#1A000000' }) // Subtle top border
   }
 
   build() {
@@ -149,8 +158,8 @@ struct Index {
           .fontColor($r('app.color.text_primary'))
       }
       .width('100%')
-      .height(56)
-      .padding({ left: 16, right: 16, top: 38 })
+      .height(56 + 38)
+      .padding({ left: 24, right: 24, top: 38 })
       .alignItems(VerticalAlign.Center)
 
       // Device List
@@ -196,8 +205,8 @@ struct Index {
           .fontColor($r('app.color.text_primary'))
       }
       .width('100%')
-      .height(56)
-      .padding({ left: 16, right: 16, top: 38 })
+      .height(56 + 38)
+      .padding({ left: 24, right: 24, top: 38 })
       .alignItems(VerticalAlign.Center)
 
       Column() {
@@ -234,12 +243,12 @@ struct Index {
           ListItem() {
              Row() {
               Row() {
-                SymbolGlyph($r('sys.symbol.info_circle'))
+                SymbolGlyph($r('sys.symbol.doc_text'))
                   .fontSize(24)
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('关于 / 开源说明')
+                Text('使用说明')
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -253,7 +262,7 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/AboutPage' });
+              router.pushUrl({ url: 'pages/HelpPage' });
             })
           }
            .backgroundColor($r('app.color.bg_card'))
@@ -264,15 +273,7 @@ struct Index {
       }
       .layoutWeight(1)
 
-      // Footer
-      Text('开源说明')
-        .fontSize(14)
-        .fontColor($r('app.color.btn_primary')) // Blue text
-        .margin({ bottom: 24 })
-        .onClick(() => {
-           // Optionally link to about page as well or just a text
-           router.pushUrl({ url: 'pages/AboutPage' });
-        })
+
     }
     .width('100%')
     .height('100%')

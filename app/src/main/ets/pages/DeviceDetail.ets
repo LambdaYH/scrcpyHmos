@@ -36,7 +36,7 @@ struct DeviceDetail {
       // 标题栏
       Row() {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
-          SymbolGlyph($r('sys.symbol.chevron_left'))
+          SymbolGlyph($r('sys.symbol.arrow_left'))
             .fontSize(24)
             .fontColor([$r('app.color.text_title')])
         }
@@ -48,18 +48,15 @@ struct DeviceDetail {
         })
         
         Text(this.isEdit ? '编辑设备' : '添加设备')
-          .fontSize(18)
+          .fontSize(20) // 20fp
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
-          .textAlign(TextAlign.Center)
-          .layoutWeight(1)
-        
-        // 占位以保持标题居中
-        Blank().width(40)
+          .textAlign(TextAlign.Start) // Left aligned
+          .margin({ left: 12 }) // Gap 12vp
       }
       .width('100%')
-      .height(56 + 38) // Add status bar height
-      .padding({ top: 38, left: 16, right: 16 })
+      .height(56 + 38)
+      .padding({ top: 38, left: 12, right: 24 }) // Padding: Left 12, Right 24
       .backgroundColor(Color.Transparent)
       .alignItems(VerticalAlign.Center)
 

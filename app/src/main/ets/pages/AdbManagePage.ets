@@ -50,11 +50,11 @@ struct AdbManagePage {
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
-          .margin({ left: 16 })
+          .margin({ left: 12 }) // Gap 12vp
       }
       .width('100%')
       .height(56 + 38)
-      .padding({ left: 16, right: 16, top: 38 })
+      .padding({ left: 12, right: 24, top: 38 }) // Padding: Left 12, Right 24
       
       Column() {
         Image($r('app.media.icon_startwindow'))

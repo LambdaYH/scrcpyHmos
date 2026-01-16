@@ -4,6 +4,7 @@
     "pages/DeviceDetail",
     "pages/ControlPage",
     "pages/AdbManagePage",
-    "pages/AboutPage"
+    "pages/AboutPage",
+    "pages/HelpPage"
   ]
 }
