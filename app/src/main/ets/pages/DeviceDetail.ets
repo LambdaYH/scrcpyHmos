@@ -11,6 +11,21 @@ struct DeviceDetail {
   @State isEdit: boolean = false;
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
 
+  // 视频编码选项
+  private videoCodecOptions: SelectOption[] = [
+    { value: 'h264' },
+    { value: 'h265' },
+    { value: 'av1' }
+  ];
+
+  // 音频编码选项
+  private audioCodecOptions: SelectOption[] = [
+    { value: 'opus' },
+    { value: 'aac' },
+    { value: 'flac' },
+    { value: 'raw' }
+  ];
+
   aboutToAppear() {
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
@@ -33,7 +48,6 @@ struct DeviceDetail {
   build() {
     Column() {
       // 标题栏
-      // 标题栏
       Row() {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.arrow_left'))
@@ -46,24 +60,24 @@ struct DeviceDetail {
         .onClick(() => {
           this.getUIContext().getRouter().back();
         })
-        
+
         Text(this.isEdit ? '编辑设备' : '添加设备')
-          .fontSize(20) // 20fp
+          .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
-          .textAlign(TextAlign.Start) // Left aligned
-          .margin({ left: 12 }) // Gap 12vp
+          .textAlign(TextAlign.Start)
+          .margin({ left: 12 })
       }
       .width('100%')
       .height(56 + 38)
-      .padding({ top: 38, left: 12, right: 24 }) // Padding: Left 12, Right 24
+      .padding({ top: 38, left: 12, right: 24 })
       .backgroundColor(Color.Transparent)
       .alignItems(VerticalAlign.Center)
 
       // 表单内容
       Scroll() {
         Column({ space: 16 }) {
-          // 设备名称
+          // 基本信息
           Column({ space: 8 }) {
             Text($r('app.string.device_name'))
               .fontSize(14)
@@ -76,7 +90,6 @@ struct DeviceDetail {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // 设备地址
           Column({ space: 8 }) {
             Text($r('app.string.device_address'))
               .fontSize(14)
@@ -89,7 +102,6 @@ struct DeviceDetail {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ADB端口
           Column({ space: 8 }) {
             Text($r('app.string.device_adb_port'))
               .fontSize(14)
@@ -103,26 +115,198 @@ struct DeviceDetail {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // 服务端口
-          Column({ space: 8 }) {
-            Text($r('app.string.device_server_port'))
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.device.serverPort.toString(), placeholder: '12580' })
-              .type(InputType.Number)
-              .onChange((value: string) => {
-                this.device.serverPort = parseInt(value) || 12580;
-              })
+          // 视频设置
+          Column({ space: 12 }) {
+            Text('视频设置')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+
+            Row() {
+              Text('视频编码')
+                .layoutWeight(1)
+              Select(this.videoCodecOptions)
+                .selected(this.getVideoCodecIndex())
+                .value(this.device.videoCodec.toUpperCase())
+                .onSelect((index: number) => {
+                  this.device.videoCodec = this.videoCodecOptions[index].value as string;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Text('最大尺寸')
+                .layoutWeight(1)
+              TextInput({ text: this.device.maxSize.toString(), placeholder: '1920' })
+                .type(InputType.Number)
+                .width(100)
+                .textAlign(TextAlign.End)
+                .onChange((value: string) => {
+                  this.device.maxSize = parseInt(value) || 1920;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Text('最大帧率')
+                .layoutWeight(1)
+              TextInput({ text: this.device.maxFps.toString(), placeholder: '60' })
+                .type(InputType.Number)
+                .width(100)
+                .textAlign(TextAlign.End)
+                .onChange((value: string) => {
+                  this.device.maxFps = parseInt(value) || 60;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Text('比特率 (bps)')
+                .layoutWeight(1)
+              TextInput({ text: this.device.maxVideoBit.toString(), placeholder: '8000000' })
+                .type(InputType.Number)
+                .width(120)
+                .textAlign(TextAlign.End)
+                .onChange((value: string) => {
+                  this.device.maxVideoBit = parseInt(value) || 8000000;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Text('裁剪区域')
+                .layoutWeight(1)
+              TextInput({ text: this.device.crop, placeholder: '宽:高:X:Y' })
+                .width(150)
+                .textAlign(TextAlign.End)
+                .onChange((value: string) => {
+                  this.device.crop = value;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Text('显示器ID')
+                .layoutWeight(1)
+              TextInput({ text: this.device.displayId.toString(), placeholder: '0' })
+                .type(InputType.Number)
+                .width(80)
+                .textAlign(TextAlign.End)
+                .onChange((value: string) => {
+                  this.device.displayId = parseInt(value) || 0;
+                })
+            }
+            .width('100%')
           }
-          .alignItems(HorizontalAlign.Start)
           .width('100%')
+          .padding(16)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(8)
+
+          // 音频设置
+          Column({ space: 12 }) {
+            Text('音频设置')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+
+            Row() {
+              Text('启用音频')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.isAudio })
+                .onChange((isOn: boolean) => {
+                  this.device.isAudio = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+
+            if (this.device.isAudio) {
+              Row() {
+                Text('音频编码')
+                  .layoutWeight(1)
+                Select(this.audioCodecOptions)
+                  .selected(this.getAudioCodecIndex())
+                  .value(this.device.audioCodec.toUpperCase())
+                  .onSelect((index: number) => {
+                    this.device.audioCodec = this.audioCodecOptions[index].value as string;
+                  })
+              }
+              .width('100%')
+
+              Row() {
+                Text('音频比特率 (bps)')
+                  .layoutWeight(1)
+                TextInput({ text: this.device.maxAudioBit.toString(), placeholder: '128000' })
+                  .type(InputType.Number)
+                  .width(120)
+                  .textAlign(TextAlign.End)
+                  .onChange((value: string) => {
+                    this.device.maxAudioBit = parseInt(value) || 128000;
+                  })
+              }
+              .width('100%')
+            }
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(8)
+
+          // 行为设置
+          Column({ space: 12 }) {
+            Text('行为设置')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+
+            Row() {
+              Text('显示触摸点')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.showTouches })
+                .onChange((isOn: boolean) => {
+                  this.device.showTouches = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+
+            Row() {
+              Text('保持唤醒')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.stayAwake })
+                .onChange((isOn: boolean) => {
+                  this.device.stayAwake = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+
+            Row() {
+              Text('剪贴板同步')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.clipboardAutosync })
+                .onChange((isOn: boolean) => {
+                  this.device.clipboardAutosync = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+
+            Row() {
+              Text('断开时熄屏')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.powerOffScreenOnClose })
+                .onChange((isOn: boolean) => {
+                  this.device.powerOffScreenOnClose = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(8)
 
           // 连接时操作
           Column({ space: 12 }) {
             Text('连接时操作')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
-            
+
             Row() {
               Text('唤醒屏幕')
               Toggle({ type: ToggleType.Switch, isOn: this.device.wakeOnConnect })
@@ -171,9 +355,9 @@ struct DeviceDetail {
                   .onChange((value: string) => {
                     this.device.customResolutionWidth = parseInt(value) || 1920;
                   })
-                
+
                 Text('x')
-                
+
                 TextInput({ text: this.device.customResolutionHeight.toString(), placeholder: 'Height' })
                   .type(InputType.Number)
                   .layoutWeight(1)
@@ -189,73 +373,12 @@ struct DeviceDetail {
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
 
-          // 运行时操作
-          Column({ space: 12 }) {
-            Text('运行时操作')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-            
-            Row() {
-              Text('保持唤醒')
-              Toggle({ type: ToggleType.Switch, isOn: this.device.keepAwake })
-                .onChange((isOn: boolean) => {
-                  this.device.keepAwake = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text('运行时修改分辨率')
-              Toggle({ type: ToggleType.Switch, isOn: this.device.changeResolutionOnRunning })
-                .onChange((isOn: boolean) => {
-                  this.device.changeResolutionOnRunning = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-            
-            Row() {
-              Text('剪贴板同步')
-              Toggle({ type: ToggleType.Switch, isOn: this.device.listenClipOnRunning })
-                .onChange((isOn: boolean) => {
-                  this.device.listenClipOnRunning = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text('启用音频')
-              Toggle({ type: ToggleType.Switch, isOn: this.device.isAudio })
-                .onChange((isOn: boolean) => {
-                  this.device.isAudio = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-            
-            Row() {
-              Text('使用H265编码')
-              Toggle({ type: ToggleType.Switch, isOn: this.device.useH265 })
-                .onChange((isOn: boolean) => {
-                  this.device.useH265 = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-          }
-          .width('100%')
-          .padding(16)
-          .backgroundColor($r('app.color.bg_card'))
-          .borderRadius(8)
-
           // 断开时操作
           Column({ space: 12 }) {
             Text('断开时操作')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
-            
+
             Row() {
               Text('断开时锁屏')
               Toggle({ type: ToggleType.Switch, isOn: this.device.lockOnClose })
@@ -291,51 +414,22 @@ struct DeviceDetail {
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(8)
 
-          // 投屏参数
+          // 高级选项
           Column({ space: 12 }) {
-            Text('投屏参数')
+            Text('高级选项')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('最大尺寸')
-                .layoutWeight(1)
-              TextInput({ text: this.device.maxSize.toString(), placeholder: '1920' })
-                .type(InputType.Number)
-                .width(100)
-                .textAlign(TextAlign.End)
-                .onChange((value: string) => {
-                  this.device.maxSize = parseInt(value) || 1920;
+              Text('错误时降低分辨率')
+              Toggle({ type: ToggleType.Switch, isOn: this.device.downsizeOnError })
+                .onChange((isOn: boolean) => {
+                  this.device.downsizeOnError = isOn;
                 })
             }
             .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
 
-            Row() {
-              Text('最大帧率')
-                .layoutWeight(1)
-              TextInput({ text: this.device.maxFps.toString(), placeholder: '60' })
-                .type(InputType.Number)
-                .width(100)
-                .textAlign(TextAlign.End)
-                .onChange((value: string) => {
-                  this.device.maxFps = parseInt(value) || 60;
-                })
-            }
-            .width('100%')
-
-            Row() {
-              Text('比特率 (Mbps)')
-                .layoutWeight(1)
-              TextInput({ text: this.device.maxVideoBit.toString(), placeholder: '4' })
-                .type(InputType.Number)
-                .width(100)
-                .textAlign(TextAlign.End)
-                .onChange((value: string) => {
-                  this.device.maxVideoBit = parseInt(value) || 4;
-                })
-            }
-            .width('100%')
-            
             Row() {
               Text('开机自动连接')
               Toggle({ type: ToggleType.Switch, isOn: this.device.connectOnStart })
@@ -368,7 +462,7 @@ struct DeviceDetail {
               this.deleteDevice();
             })
         }
-        
+
         Button($r('app.string.device_button'), { type: ButtonType.Capsule, stateEffect: true })
           .fontSize(16)
           .backgroundColor($r('app.color.btn_primary'))
@@ -380,12 +474,22 @@ struct DeviceDetail {
           })
       }
       .width('100%')
-      .padding({ left: 16, right: 16, bottom: 16 + 24 }) // Add nav bar height
+      .padding({ left: 16, right: 16, bottom: 16 + 24 })
     }
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+  }
+
+  getVideoCodecIndex(): number {
+    const index = this.videoCodecOptions.findIndex(opt => opt.value === this.device.videoCodec);
+    return index >= 0 ? index : 0;
+  }
+
+  getAudioCodecIndex(): number {
+    const index = this.audioCodecOptions.findIndex(opt => opt.value === this.device.audioCodec);
+    return index >= 0 ? index : 0;
   }
 
   async saveDevice() {

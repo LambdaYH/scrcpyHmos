@@ -1,6 +1,7 @@
 import { Device } from '../entity/Device';
 import { ClientStream } from './tools/ClientStream';
 import { VideoDecoder } from './decode/VideoDecoder';
+import { AudioDecoder } from './decode/AudioDecoder';
 import { ControlPacket, Action, TouchAction, KeyCode } from './tools/ControlPacket';
 import pasteboard from '@ohos.pasteboard';
 import { util } from '@kit.ArkTS';
@@ -8,7 +9,7 @@ import { common } from '@kit.AbilityKit';
 
 // 视频配置接口
 interface VideoConfig {
-  useH265: boolean;
+  codecType: string; // 'h264', 'h265', 'av1'
   width: number;
   height: number;
   csd0: ArrayBuffer;
@@ -107,7 +108,7 @@ export class Client {
     const text = decoder.decodeToString(textBytes);
     
     // 设置剪贴板
-    if (this.device.listenClipOnRunning) {
+    if (this.device.clipboardAutosync) {
       try {
         const systemPasteboard = pasteboard.getSystemPasteboard();
         const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
@@ -148,12 +149,18 @@ export class Client {
           throw new Error('clientStream became null during preload');
         }
         
-        // 读取视频配置 - 按Java版本顺序
-        console.debug('Reading useH265 byte...');
-        const useH265Byte: number = await this.clientStream.readByteFromVideo();
-        console.debug(`useH265Byte raw value: ${useH265Byte} (0x${useH265Byte.toString(16)})`);
-        const useH265: boolean = useH265Byte === 1;
-        console.debug(`useH265 = ${useH265}`);
+        // 读取视频配置 - 按官方scrcpy协议顺序
+        console.debug('Reading codec byte...');
+        const codecByte: number = await this.clientStream.readByteFromVideo();
+        console.debug(`codecByte raw value: ${codecByte} (0x${codecByte.toString(16)})`);
+        // 0=H264, 1=H265, 2=AV1
+        let codecType: string = 'h264';
+        if (codecByte === 1) {
+          codecType = 'h265';
+        } else if (codecByte === 2) {
+          codecType = 'av1';
+        }
+        console.debug(`codecType = ${codecType}`);
         
         console.info('Reading width...');
         const widthData: ArrayBuffer = await this.clientStream.readBytesFromVideo(4);
@@ -171,16 +178,16 @@ export class Client {
         const height: number = heightView.getInt32(0, false);
         console.info(`height = ${height}`);
         
-        console.info(`Video config preloaded: ${useH265 ? 'H265' : 'H264'}, ${width}x${height}`);
+        console.info(`Video config preloaded: ${codecType.toUpperCase()}, ${width}x${height}`);
         
         // 读取csd-0 (SPS for H264, or VPS/SPS for H265)
         console.info('Reading CSD-0...');
         const csd0: ArrayBuffer = await this.clientStream.readFrameFromVideo();
         console.info(`CSD-0 size: ${csd0.byteLength}`);
         
-        // H264需要csd-1 (PPS)
+        // H264需要csd-1 (PPS), H265/AV1不需要
         let csd1: ArrayBuffer | undefined = undefined;
-        if (!useH265) {
+        if (codecType === 'h264') {
           console.info('Reading CSD-1...');
           csd1 = await this.clientStream.readFrameFromVideo();
           console.info(`CSD-1 size: ${csd1.byteLength}`);
@@ -188,7 +195,7 @@ export class Client {
         
         // 保存配置
         const config: VideoConfig = {
-          useH265: useH265,
+          codecType: codecType,
           width: width,
           height: height,
           csd0: csd0,
@@ -236,16 +243,16 @@ export class Client {
         throw new Error('Video configuration not available');
       }
       
-      const useH265 = this.videoConfig.useH265;
+      const codecType = this.videoConfig.codecType;
       const width = this.videoConfig.width;
       const height = this.videoConfig.height;
       const csd0 = this.videoConfig.csd0;
       const csd1 = this.videoConfig.csd1;
-      console.info(`Using preloaded config: ${useH265 ? 'H265' : 'H264'}, ${width}x${height}`);
+      console.info(`Using preloaded config: ${codecType.toUpperCase()}, ${width}x${height}`);
       
       // 初始化解码器
       this.videoDecoder = new VideoDecoder();
-      await this.videoDecoder.init(useH265, surfaceId, width, height, csd0, csd1);
+      await this.videoDecoder.init(codecType, surfaceId, width, height, csd0, csd1);
       
       console.info('Video decoder initialized, starting video loop...');
       

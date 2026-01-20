@@ -4,7 +4,7 @@ import { Device } from '../../entity/Device';
 import { Adb, AdbKeyPair } from '../../adb/Adb';
 import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
-import { ServerManager } from '../../helper/ServerManager';
+import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
 import socket from '@ohos.net.socket';
 import { buffer } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
@@ -15,7 +15,9 @@ export class ClientStream {
   private videoSocket?: socket.TCPSocket;
   private mainStream?: BufferStream;  // ADB转发的主stream
   private videoStream?: BufferStream; // ADB转发的视频stream
+  private controlStream?: BufferStream; // ADB转发的控制stream
   private shellStream?: BufferStream; // 保存shell stream用于读取服务器日志
+  private currentScid: string = ''; // 当前连接的SCID
   private isConnected: boolean = false;
   private connectDirect: boolean = false; // 是否直连（true）或ADB转发（false）
   private device: Device;
@@ -67,12 +69,17 @@ export class ClientStream {
         }
       }
 
-      // 3. 启动服务端
-      const config: string = this.buildServerArgs();
-      console.info(`Starting server with args: ${config}`);
+      // 3. 启动服务端 - 使用ServerManager的scrcpy启动命令
+      console.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
 
-      this.shellStream = await ServerManager.startServer(adb, config);
+      const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
+      this.shellStream = serverResult.shellStream;
+      this.currentScid = serverResult.scid;
       this.adb = adb;
+      
+      // 构建socket名称
+      const socketName = `scrcpy_${this.currentScid}`;
+      console.info(`Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
 
       // 4. 等待服务器启动并连接
       console.info('Waiting for server to start...');
@@ -84,13 +91,19 @@ export class ClientStream {
       
       for (let i = 0; i < reTry; i++) {
         try {
+          // scrcpy使用localabstract socket（tunnel_forward模式）
+          // socket名称格式: scrcpy_<SCID>
           if (!this.mainStream) {
-            this.mainStream = await adb.tcpForward(this.device.serverPort);
-            console.info('Main stream forwarded via ADB tcpForward');
+            this.mainStream = await adb.localSocketForward(socketName);
+            console.info('Main stream connected via localabstract socket');
           }
           if (!this.videoStream) {
-            this.videoStream = await adb.tcpForward(this.device.serverPort);
-            console.info('Video stream forwarded via ADB tcpForward');
+            this.videoStream = await adb.localSocketForward(socketName);
+            console.info('Audio stream connected via localabstract socket');
+          }
+          if (!this.controlStream) {
+            this.controlStream = await adb.localSocketForward(socketName);
+            console.info('Control stream connected via localabstract socket');
           }
           break;
         } catch (err) {
@@ -98,13 +111,14 @@ export class ClientStream {
           console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
           this.mainStream = undefined;
           this.videoStream = undefined;
+          this.controlStream = undefined;
           if (i < reTry - 1) {
             await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
           }
         }
       }
       
-      if (!this.mainStream || !this.videoStream) {
+      if (!this.mainStream || !this.videoStream || !this.controlStream) {
         throw new Error('Failed to connect to server after all retries');
       }
 
@@ -133,49 +147,33 @@ export class ClientStream {
     }
   }
 
+  // 旧的buildServerArgs已经移到ServerManager，此方法仅为向后兼容保留
   private buildServerArgs(): string {
-     return `serverPort=${this.device.serverPort}` +
-      ` listenClip=${this.device.listenClipOnRunning ? 1 : 0}` +
-      ` isAudio=${this.device.isAudio ? 1 : 0}` +
-      ` maxSize=${this.device.maxSize}` +
-      ` maxFps=${this.device.maxFps}` +
-      ` maxVideoBit=${this.device.maxVideoBit}` +
-      ` keepAwake=${this.device.keepAwake ? 1 : 0}` +
-      ` supportH265=${this.device.useH265 ? 1 : 0}` +
-      ` supportOpus=1` +
-      ` startApp=`;
+    // 返回空字符串，实际参数由ServerManager.buildServerArgs构建
+    return '';
   }
 
-  // 使用ServerManager启动服务器
+  // 使用ServerManager启动服务器 - 旧方法，已迁移到connect()
   private async startServer(context: common.UIAbilityContext, adb: Adb): Promise<void> {
     // 检查服务器是否存在
     const exists = await ServerManager.checkServerExists(adb);
     
     if (!exists) {
       console.info('Server not found, pushing new server...');
-      const resMgr = context.resourceManager;
-      const rawFileData = await resMgr.getRawFileContent('server.jar');
-      // ServerManager.pushServer handles verification internally
-      await ServerManager.pushServer(adb, rawFileData.buffer as ArrayBuffer);
+      const serverData = await ServerManager.loadServerFromRawfile(context);
+      if (!serverData) {
+        throw new Error('Load server.jar failed');
+      }
+      await ServerManager.pushServer(adb, serverData);
     } else {
       console.info('Server already exists');
     }
 
-    // 构建启动参数
-    const params = `serverPort=${this.device.serverPort}` +
-      ` listenClip=${this.device.listenClipOnRunning ? 1 : 0}` +
-      ` isAudio=${this.device.isAudio ? 1 : 0}` +
-      ` maxSize=${this.device.maxSize}` +
-      ` maxFps=${this.device.maxFps}` +
-      ` maxVideoBit=${this.device.maxVideoBit}` +
-      ` keepAwake=${this.device.keepAwake ? 1 : 0}` +
-      ` supportH265=${this.device.useH265 ? 1 : 0}` +
-      ` supportOpus=1` +
-      ` startApp=`;
-
-    // 启动服务器 and save shell stream
-    console.info(`Server params: keepAwake=${this.device.keepAwake}`);
-    this.shellStream = await ServerManager.startServer(adb, params);
+    // 启动服务器
+    console.info(`Server params: stayAwake=${this.device.stayAwake}`);
+    const result = await ServerManager.startServer(adb, this.device);
+    this.shellStream = result.shellStream;
+    this.currentScid = result.scid;
     console.info('Server start command sent via ServerManager');
   }
 
@@ -242,12 +240,16 @@ export class ClientStream {
     for (let i = 0; i < reTry; i++) {
       try {
         if (!this.mainStream) {
-          this.mainStream = await this.adb.tcpForward(this.device.serverPort);
+          // scrcpy使用固定端口27183
+          const scrcpyPort = 27183;
+          this.mainStream = await this.adb.tcpForward(scrcpyPort);
           console.info('Main stream forwarded via ADB');
         }
 
         if (!this.videoStream) {
-          this.videoStream = await this.adb.tcpForward(this.device.serverPort);
+          // scrcpy使用固定端口27183
+          const scrcpyPort = 27183;
+          this.videoStream = await this.adb.tcpForward(scrcpyPort);
           console.info('Video stream forwarded via ADB');
         }
 

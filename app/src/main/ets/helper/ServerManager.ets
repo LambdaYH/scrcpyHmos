@@ -1,11 +1,28 @@
 // ServerManager - 服务端管理器
-// 更新为使用新的Adb接口
+// Scrcpy官方服务端启动逻辑
 import { Adb } from '../adb/Adb';
 import { BufferStream } from '../buffer/BufferStream';
+import { Device } from '../entity/Device';
 import { buffer, util } from '@kit.ArkTS';
 
+// 服务器启动结果
+export interface ServerStartResult {
+  shellStream: BufferStream;
+  scid: string; // 8位十六进制字符串
+}
+
 export class ServerManager {
-  private static SERVER_PATH = '/data/local/tmp/easycontrol-server.jar';
+  // Scrcpy版本号 - 必须与rawfile中的服务端版本匹配
+  private static readonly SCRCPY_VERSION = '3.3.4';
+  private static readonly SERVER_PATH = '/data/local/tmp/scrcpy-server.jar';
+  
+  // 最后生成的SCID
+  private static lastScid: string = '';
+
+  // 获取当前Scrcpy版本
+  static getVersion(): string {
+    return ServerManager.SCRCPY_VERSION;
+  }
 
   // 检查服务端是否存在
   static async checkServerExists(adb: Adb): Promise<boolean> {
@@ -197,14 +214,13 @@ export class ServerManager {
     }
   }
 
-  // 将ArrayBuffer转换为base64字符串
-
-
-  // 从rawfile加载server.jar
+  // 从rawfile加载server
   static async loadServerFromRawfile(context: Context): Promise<ArrayBuffer | null> {
     try {
       const resMgr = context.resourceManager;
-      const rawFileData = await resMgr.getRawFileContent('server.jar');
+      const fileName = `scrcpy-server-v${ServerManager.SCRCPY_VERSION}`;
+      console.info(`Loading server from rawfile: ${fileName}`);
+      const rawFileData = await resMgr.getRawFileContent(fileName);
       return rawFileData.buffer;
     } catch (err) {
       console.error('Load rawfile failed:', err);
@@ -212,20 +228,96 @@ export class ServerManager {
     }
   }
 
-  // 启动服务端
-  static async startServer(adb: Adb, params: string): Promise<BufferStream> {
+  // 生成随机scid（31位非负整数的十六进制表示，避免Java端NumberFormatException）
+  private static generateScid(): string {
+    // Generate a random integer between 0 and 0x7FFFFFFF (31-bit positive integer)
+    const scid = Math.floor(Math.random() * 0x80000000);
+    const scidHex = scid.toString(16).padStart(8, '0');
+    ServerManager.lastScid = scidHex;
+    return scidHex;
+  }
+  
+  // 获取最后生成的SCID（用于连接socket）
+  static getLastScid(): string {
+    return ServerManager.lastScid;
+  }
+  
+  // 获取socket名称
+  static getSocketName(): string {
+    return `scrcpy_${ServerManager.lastScid}`;
+  }
+
+  // 构建scrcpy启动参数
+  static buildServerArgs(device: Device): string {
+    const args: string[] = [];
+
+    // 必需参数
+    args.push(`scid=${ServerManager.generateScid()}`);
+
+    // 视频参数
+    args.push(`video=true`);
+    args.push(`video_codec=${device.videoCodec}`);
+    args.push(`max_size=${device.maxSize}`);
+    args.push(`max_fps=${device.maxFps}`);
+    args.push(`video_bit_rate=${device.maxVideoBit}`);
+    if (device.crop) {
+      args.push(`crop=${device.crop}`);
+    }
+    if (device.displayId !== 0) {
+      args.push(`display_id=${device.displayId}`);
+    }
+
+    // 音频参数
+    args.push(`audio=${device.isAudio}`);
+    if (device.isAudio) {
+      args.push(`audio_codec=${device.audioCodec}`);
+      args.push(`audio_bit_rate=${device.maxAudioBit}`);
+    }
+
+    // 控制和行为参数
+    args.push(`control=true`);
+    args.push(`tunnel_forward=true`);
+    args.push(`show_touches=${device.showTouches}`);
+    args.push(`stay_awake=${device.stayAwake}`);
+    args.push(`power_off_on_close=${device.powerOffScreenOnClose}`);
+    args.push(`clipboard_autosync=${device.clipboardAutosync}`);
+    args.push(`downsize_on_error=${device.downsizeOnError}`);
+    args.push(`cleanup=false`);
+
+    // 元数据参数（用于客户端解析）
+    args.push(`send_device_meta=true`);
+    args.push(`send_frame_meta=true`);
+    args.push(`send_dummy_byte=true`);
+    args.push(`send_codec_meta=true`);
+
+    return args.join(' ');
+  }
+
+  // 启动服务端 - 返回shell stream和scid
+  static async startServer(adb: Adb, device: Device): Promise<ServerStartResult> {
     const stream = await adb.getShell();
-    // Match Android exactly: app_process -Djava.class.path=<jar> / <class> <params>
-    const cmd = `app_process -Djava.class.path=${ServerManager.SERVER_PATH} / top.saymzx.easycontrol.server.Server ${params} \n`;
+
+    // 构建参数
+    const params = ServerManager.buildServerArgs(device);
+
+    // 官方scrcpy启动命令格式:
+    // app_process -Djava.class.path=<jar_path> / com.genymobile.scrcpy.Server <version> <args...>
+    const cmd = `CLASSPATH=${ServerManager.SERVER_PATH} app_process / com.genymobile.scrcpy.Server ${ServerManager.SCRCPY_VERSION} ${params}\n`;
+
+    console.info('Starting scrcpy server with command:', cmd);
     await stream.write(buffer.from(cmd, 'utf-8').buffer);
-    console.debug('Server started with command:', cmd);
-    return stream;
+    console.debug('Server started with scrcpy version:', ServerManager.SCRCPY_VERSION);
+    
+    return {
+      shellStream: stream,
+      scid: ServerManager.lastScid
+    };
   }
 
   // 停止服务端
   static async stopServer(adb: Adb): Promise<void> {
     try {
-      await adb.runAdbCmd('pkill -f easycontrol-server');
+      await adb.runAdbCmd('pkill -f scrcpy');
     } catch (err) {
       console.error('Stop server failed:', err);
     }
