@@ -102,21 +102,42 @@ export class ClientStream {
       
       for (let i = 0; i < reTry; i++) {
         try {
-          // scrcpy使用localabstract socket（tunnel_forward模式）
-          // Connection order: Video -> Audio -> Control
+          // Sequential Connection & Handshake logic matching official client
+          // Server sends dummy byte ONLY on the FIRST accepted socket (DesktopConnection.java:68-88)
+          // So we only read from Video stream, not Audio or Control.
           
-          if (!this.vidStream) {
-            this.vidStream = await adb.localSocketForward(socketName);
-            console.info('Video stream connected (1/3)');
+          // 1. Connect Video -> Read Dummy (FIRST socket, gets dummy byte)
+          console.info('Connecting Video Stream...');
+          this.vidStream = await adb.localSocketForward(socketName);
+          console.debug('Reading video dummy byte...');
+          await this.vidStream.readByteArray(1);
+
+          // Auto-detect audio support (Android 11+ required)
+          if (this.device.isAudio) {
+             try {
+               const sdkStr = await adb.runAdbCmd('shell getprop ro.build.version.sdk');
+               const sdk = parseInt(sdkStr.trim());
+               if (!isNaN(sdk) && sdk < 30) {
+                 console.warn(`Device SDK ${sdk} < 30 (Android 11), disabling audio automatically.`);
+                 this.device.isAudio = false;
+               }
+             } catch (e) {
+               console.warn('Failed to check Android version, assuming audio supported:', e);
+             }
           }
-          if (!this.audStream) {
+
+          // 2. Connect Audio (NO dummy byte - server already set sendDummyByte=false)
+          if (this.device.isAudio) {
+            console.info('Connecting Audio Stream...');
             this.audStream = await adb.localSocketForward(socketName);
-            console.info('Audio stream connected (2/3)');
+            // No dummy byte read - server only sends on first socket
           }
-          if (!this.msgStream) {
-            this.msgStream = await adb.localSocketForward(socketName);
-            console.info('Control stream connected (3/3)');
-          }
+
+          // 3. Connect Control (NO dummy byte)
+          console.info('Connecting Control Stream...');
+          this.msgStream = await adb.localSocketForward(socketName);
+          // No dummy byte read - server only sends on first socket
+          
           break;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -134,9 +155,9 @@ export class ClientStream {
         throw new Error('Failed to connect to server streams after all retries');
       }
 
-      // 5. Perform Handshake
-      console.info('Performing handshake...');
-      await this.performHandshake();
+      // 5. Perform Handshake (Rest)
+      console.info('Performing handshake (Device Name, Codec)...');
+      await this.performHandshakeRest();
 
       // 连接成功后才开始读取shell输出
       this.readShellOutputAsync();
@@ -237,18 +258,13 @@ export class ClientStream {
     readLoop();
   }
 
-  // Handshake implementation
-  private async performHandshake(): Promise<void> {
-    if (!this.vidStream || !this.audStream || !this.msgStream) {
-      throw new Error('Streams not connected');
+  // Remaining Handshake implementation (Device Name, Codec Meta)
+  private async performHandshakeRest(): Promise<void> {
+    if (!this.vidStream) {
+      throw new Error('Video stream not connected');
     }
 
-    // 1. Read Dummy Byte (Skipped as send_dummy_byte=false)
-    // console.debug('Reading dummy bytes...');
-    // await this.vidStream.readByteArray(1);
-    // await this.audStream.readByteArray(1);
-    // await this.msgStream.readByteArray(1);
-    // console.debug('Dummy bytes read');
+    // Dummy bytes already read in connect()
 
     // 2. Read Device Name (64 bytes) from Video Stream
     console.debug('Reading device name...');

@@ -284,11 +284,16 @@ export class ServerManager {
     args.push(`downsize_on_error=${device.downsizeOnError}`);
     args.push(`cleanup=false`);
 
+    args.push(`log_level=${device.logLevel}`);
+    
     // 元数据参数（用于客户端解析）
-    args.push(`send_device_meta=true`);
-    args.push(`send_frame_meta=true`);
-    args.push(`send_dummy_byte=false`);
-    args.push(`send_codec_meta=true`);
+    // 官方客户端不传递以下Meta参数，使用默认值(true)。
+    // 但为了解决某些设备的握手超时问题，我们需要显式禁用send_dummy_byte。
+    // args.push(`send_device_meta=true`);
+    // args.push(`send_frame_meta=true`);
+    // args.push(`send_codec_meta=true`);
+    
+    // args.push(`send_dummy_byte=false`);
 
     return args.join(' ');
   }

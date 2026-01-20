@@ -439,6 +439,26 @@ struct DeviceDetail {
             }
             .width('100%')
             .justifyContent(FlexAlign.SpaceBetween)
+
+            Row() {
+              Text('日志级别')
+                .layoutWeight(1)
+              Select([
+                { value: 'verbose' },
+                { value: 'debug' },
+                { value: 'info' },
+                { value: 'warn' },
+                { value: 'error' }
+              ])
+                .selected(['verbose', 'debug', 'info', 'warn', 'error'].indexOf(this.device.logLevel))
+                .value(this.device.logLevel)
+                .onSelect((index: number) => {
+                  const levels = ['verbose', 'debug', 'info', 'warn', 'error'];
+                  this.device.logLevel = levels[index];
+                })
+                .width(100)
+            }
+            .width('100%')
           }
           .width('100%')
           .padding(16)

@@ -100,6 +100,7 @@ export class PreferencesHelper {
     // 高级选项
     target.downsizeOnError = source.downsizeOnError ?? true;
     target.connectOnStart = source.connectOnStart ?? false;
+    target.logLevel = source.logLevel ?? 'info';
   }
 
   async saveDevices(): Promise<void> {

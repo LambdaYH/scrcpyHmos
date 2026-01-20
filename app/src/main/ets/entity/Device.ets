@@ -42,6 +42,7 @@ export class Device {
   // 高级选项
   downsizeOnError: boolean = true;
   connectOnStart: boolean = false;
+  logLevel: string = 'info'; // 'verbose', 'debug', 'info', 'warn', 'error'
 
   static readonly TYPE_NETWORK: number = 0;
 
