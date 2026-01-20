@@ -287,7 +287,7 @@ export class ServerManager {
     // 元数据参数（用于客户端解析）
     args.push(`send_device_meta=true`);
     args.push(`send_frame_meta=true`);
-    args.push(`send_dummy_byte=true`);
+    args.push(`send_dummy_byte=false`);
     args.push(`send_codec_meta=true`);
 
     return args.join(' ');

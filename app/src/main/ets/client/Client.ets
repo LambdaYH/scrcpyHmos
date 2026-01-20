@@ -8,13 +8,8 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 
 // 视频配置接口
-interface VideoConfig {
-  codecType: string; // 'h264', 'h265', 'av1'
-  width: number;
-  height: number;
-  csd0: ArrayBuffer;
-  csd1?: ArrayBuffer;
-}
+// 视频配置接口（使用ClientStream中的定义）
+import { VideoConfig } from './tools/ClientStream';
 
 // 客户端管理器
 export class Client {
@@ -60,7 +55,13 @@ export class Client {
       }
       
       // 2. 立即开始读取视频配置(不等待surface),防止服务器超时
-      this.preloadVideoConfig();
+      // 2. Video config is already loaded during handshake
+      const videoConfig = this.clientStream.getVideoConfig();
+      if (videoConfig) {
+        console.info(`Video config loaded: ${videoConfig.width}x${videoConfig.height}`);
+      } else {
+        console.warn('Video config not available after connect');
+      }
       
       // 3. 启动保活定时器
       this.startKeepAlive();
@@ -95,17 +96,9 @@ export class Client {
     }
   }
   
-  private handleClipboardEvent(data: ArrayBuffer): void {
-    if (data.byteLength < 5) return;
-    
-    const view = new DataView(data);
-    const textLen = view.getUint32(1, true);
-    
-    if (data.byteLength < 5 + textLen) return;
-    
-    const textBytes = new Uint8Array(data, 5, textLen);
+  private handleClipboardText(data: ArrayBuffer): void {
     const decoder = util.TextDecoder.create('utf-8');
-    const text = decoder.decodeToString(textBytes);
+    const text = decoder.decodeToString(new Uint8Array(data));
     
     // 设置剪贴板
     if (this.device.clipboardAutosync) {
@@ -130,95 +123,8 @@ export class Client {
     // TODO: 更新视频解码器配置
   }
   
-  // 预加载视频配置 - 立即读取防止服务器超时
-  private preloadVideoConfig(): void {
-    console.info('preloadVideoConfig() called');
-    
-    if (!this.clientStream) {
-      console.error('preloadVideoConfig: clientStream is null');
-      return;
-    }
-    
-    console.info('Starting async video config loading...');
-    
-    const loadConfig = async (): Promise<void> => {
-      try {
-        console.debug('Preloading video configuration...');
-        
-        if (!this.clientStream) {
-          throw new Error('clientStream became null during preload');
-        }
-        
-        // 读取视频配置 - 按官方scrcpy协议顺序
-        console.debug('Reading codec byte...');
-        const codecByte: number = await this.clientStream.readByteFromVideo();
-        console.debug(`codecByte raw value: ${codecByte} (0x${codecByte.toString(16)})`);
-        // 0=H264, 1=H265, 2=AV1
-        let codecType: string = 'h264';
-        if (codecByte === 1) {
-          codecType = 'h265';
-        } else if (codecByte === 2) {
-          codecType = 'av1';
-        }
-        console.debug(`codecType = ${codecType}`);
-        
-        console.info('Reading width...');
-        const widthData: ArrayBuffer = await this.clientStream.readBytesFromVideo(4);
-        const widthBytes = new Uint8Array(widthData);
-        console.debug(`width bytes: [${Array.from(widthBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
-        const widthView = new DataView(widthData);
-        const width: number = widthView.getInt32(0, false);
-        console.debug(`width = ${width}`);
-        
-        console.debug('Reading height...');
-        const heightData: ArrayBuffer = await this.clientStream.readBytesFromVideo(4);
-        const heightBytes = new Uint8Array(heightData);
-        console.debug(`height bytes: [${Array.from(heightBytes).map(b => '0x' + b.toString(16)).join(', ')}]`);
-        const heightView = new DataView(heightData);
-        const height: number = heightView.getInt32(0, false);
-        console.info(`height = ${height}`);
-        
-        console.info(`Video config preloaded: ${codecType.toUpperCase()}, ${width}x${height}`);
-        
-        // 读取csd-0 (SPS for H264, or VPS/SPS for H265)
-        console.info('Reading CSD-0...');
-        const csd0: ArrayBuffer = await this.clientStream.readFrameFromVideo();
-        console.info(`CSD-0 size: ${csd0.byteLength}`);
-        
-        // H264需要csd-1 (PPS), H265/AV1不需要
-        let csd1: ArrayBuffer | undefined = undefined;
-        if (codecType === 'h264') {
-          console.info('Reading CSD-1...');
-          csd1 = await this.clientStream.readFrameFromVideo();
-          console.info(`CSD-1 size: ${csd1.byteLength}`);
-        }
-        
-        // 保存配置
-        const config: VideoConfig = {
-          codecType: codecType,
-          width: width,
-          height: height,
-          csd0: csd0,
-          csd1: csd1
-        };
-        this.videoConfig = config;
-        console.info('✅ Video configuration preloaded successfully');
-      } catch (err) {
-        const error = err as Error;
-        console.error('❌ Failed to preload video config:', error.message);
-        if (error.stack) {
-          console.error('Stack:', error.stack);
-        }
-      }
-    };
-    
-    // 异步加载，不阻塞连接流程
-    console.debug('Calling loadConfig()...');
-    loadConfig().catch((err: Error) => {
-      console.error('loadConfig() promise rejected:', err.message);
-    });
-    console.debug('loadConfig() call initiated');
-  }
+  // 预加载视频配置 - 已移至 ClientStream.performHandshake
+  // private preloadVideoConfig(): void { ... }
   
   async initVideoDecoder(surfaceId: string): Promise<void> {
     if (!this.clientStream) {
@@ -231,24 +137,26 @@ export class Client {
       
       // 等待视频配置预加载完成
       let retries = 0;
-      while (!this.videoConfig && retries < 50) {
-        await new Promise<void>((resolve: (value: void) => void) => setTimeout(resolve, 100));
-        retries++;
-        if (retries % 10 === 0) {
-          console.info(`Still waiting for video config... (${retries * 100}ms elapsed)`);
-        }
+      const config = this.clientStream.getVideoConfig();
+      if (!config) {
+         throw new Error('Video configuration not available from handshake');
       }
+
+      // 映射codecId到string
+      // 0=H264, 1=H265, 2=AV1
+      let codecType = 'h264';
+      if (config.codecId === 1) codecType = 'h265';
+      if (config.codecId === 2) codecType = 'av1';
+
+      const width = config.width;
+      const height = config.height;
       
-      if (!this.videoConfig) {
-        throw new Error('Video configuration not available');
-      }
+      // scrcpy 2.x+ 协议中，SPS/PPS (csd) 是作为普通视频帧发送的，而不是在头部
+      // 所以这里不需要初始化csd
+      const csd0: ArrayBuffer = new ArrayBuffer(0);
+      const csd1: ArrayBuffer | undefined = undefined;
       
-      const codecType = this.videoConfig.codecType;
-      const width = this.videoConfig.width;
-      const height = this.videoConfig.height;
-      const csd0 = this.videoConfig.csd0;
-      const csd1 = this.videoConfig.csd1;
-      console.info(`Using preloaded config: ${codecType.toUpperCase()}, ${width}x${height}`);
+      console.info(`Using handshake config: ${codecType.toUpperCase()}, ${width}x${height}`);
       
       // 初始化解码器
       this.videoDecoder = new VideoDecoder();
@@ -452,23 +360,32 @@ export class Client {
           if (this.isClosed) break;
 
           switch (eventType) {
-            case 1: // 音频事件 - 暂不处理
-              console.debug('[MainLoop] Received audio event (not supported)');
-              break;
-
-            case 2: // 剪贴板事件
+            case 0: // DEVICE_MSG_TYPE_CLIPBOARD
               console.debug('[MainLoop] Received clipboard event');
-              const clipSize = await this.clientStream.readIntFromMain();
-              if (clipSize > 0 && clipSize <= 5000) {
-                const clipData = await this.clientStream.readBytesFromMain(clipSize);
-                this.handleClipboardEvent(clipData);
+              // clipboard message: type(1) + length(4) + text
+              const clipLen = await this.clientStream.readIntFromMain();
+              if (clipLen > 0 && clipLen <= 100000) { // Limit sanity check
+                const clipTextData = await this.clientStream.readBytesFromMain(clipLen);
+                this.handleClipboardText(clipTextData);
               }
               break;
 
-            case 3: // 视频大小改变事件
-              console.debug('[MainLoop] Received video size event');
-              const sizeData = await this.clientStream.readBytesFromMain(8);
-              this.handleVideoSizeEvent(sizeData);
+            case 1: // DEVICE_MSG_TYPE_ACK_CLIPBOARD
+              console.debug('[MainLoop] Received ack clipboard event');
+              // ack clipboard: type(1) + sequence(8)
+              await this.clientStream.readBytesFromMain(8); // Ignore sequence
+              break;
+              
+            case 2: // DEVICE_MSG_TYPE_UHID_OUTPUT
+              console.debug('[MainLoop] Received UHID output event');
+               // uhid output: type(1) + id(2) + size(2) + data
+              const id = (await this.clientStream.readBytesFromMain(2)); // read 2 bytes
+              const sizeData = await this.clientStream.readBytesFromMain(2);
+              const view = new DataView(sizeData);
+              const size = view.getUint16(0, false);
+              if (size > 0) {
+                await this.clientStream.readBytesFromMain(size);
+              }
               break;
 
             default:

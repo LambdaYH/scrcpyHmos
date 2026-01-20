@@ -6,25 +6,36 @@ import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
 import socket from '@ohos.net.socket';
-import { buffer } from '@kit.ArkTS';
+import { buffer, util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 
-// 客户端流管理
+// Video configuration from handshake
+export interface VideoConfig {
+  codecId: number;
+  width: number;
+  height: number;
+}
+
 export class ClientStream {
   private mainSocket?: socket.TCPSocket;
   private videoSocket?: socket.TCPSocket;
-  private mainStream?: BufferStream;  // ADB转发的主stream
-  private videoStream?: BufferStream; // ADB转发的视频stream
-  private controlStream?: BufferStream; // ADB转发的控制stream
-  private shellStream?: BufferStream; // 保存shell stream用于读取服务器日志
-  private currentScid: string = ''; // 当前连接的SCID
+  
+  // Correctly mapped streams
+  private vidStream?: BufferStream; // 1st connection: Video
+  private audStream?: BufferStream; // 2nd connection: Audio
+  private msgStream?: BufferStream; // 3rd connection: Control
+  
+  private shellStream?: BufferStream;
+  private currentScid: string = '';
   private isConnected: boolean = false;
-  private connectDirect: boolean = false; // 是否直连（true）或ADB转发（false）
+  private connectDirect: boolean = false;
   private device: Device;
-  private adb?: Adb; // 保存adb实例用于转发
+  private adb?: Adb;
+  
+  // Handshake data
+  private deviceName: string = '';
+  private videoConfig?: VideoConfig;
 
-  // 完全按照原版：服务器名称包含版本号
-  // private static readonly serverName = '/data/local/tmp/easycontrol_server_1000000.jar'; // Moved to ServerManager
   private static readonly timeoutDelay = 15000;
 
   constructor(device: Device) {
@@ -92,35 +103,40 @@ export class ClientStream {
       for (let i = 0; i < reTry; i++) {
         try {
           // scrcpy使用localabstract socket（tunnel_forward模式）
-          // socket名称格式: scrcpy_<SCID>
-          if (!this.mainStream) {
-            this.mainStream = await adb.localSocketForward(socketName);
-            console.info('Main stream connected via localabstract socket');
+          // Connection order: Video -> Audio -> Control
+          
+          if (!this.vidStream) {
+            this.vidStream = await adb.localSocketForward(socketName);
+            console.info('Video stream connected (1/3)');
           }
-          if (!this.videoStream) {
-            this.videoStream = await adb.localSocketForward(socketName);
-            console.info('Audio stream connected via localabstract socket');
+          if (!this.audStream) {
+            this.audStream = await adb.localSocketForward(socketName);
+            console.info('Audio stream connected (2/3)');
           }
-          if (!this.controlStream) {
-            this.controlStream = await adb.localSocketForward(socketName);
-            console.info('Control stream connected via localabstract socket');
+          if (!this.msgStream) {
+            this.msgStream = await adb.localSocketForward(socketName);
+            console.info('Control stream connected (3/3)');
           }
           break;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
-          this.mainStream = undefined;
-          this.videoStream = undefined;
-          this.controlStream = undefined;
+          this.vidStream = undefined;
+          this.audStream = undefined;
+          this.msgStream = undefined;
           if (i < reTry - 1) {
             await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
           }
         }
       }
       
-      if (!this.mainStream || !this.videoStream || !this.controlStream) {
-        throw new Error('Failed to connect to server after all retries');
+      if (!this.vidStream || !this.audStream || !this.msgStream) {
+        throw new Error('Failed to connect to server streams after all retries');
       }
+
+      // 5. Perform Handshake
+      console.info('Performing handshake...');
+      await this.performHandshake();
 
       // 连接成功后才开始读取shell输出
       this.readShellOutputAsync();
@@ -221,56 +237,44 @@ export class ClientStream {
     readLoop();
   }
 
-  // 连接服务器 - 直接使用ADB转发（远程设备必须使用转发）
-  private async connectServer(): Promise<void> {
-    // 等待服务器启动 - 减少到100ms，服务器只等20秒超时
-    await this.delay(100);
-
-    const reTry = 40;
-    const reTryTime = 15000 / reTry;
-
-    // 对于远程ADB设备，必须使用ADB转发，不能直连
-    // 因为服务器监听的是Android设备本地的端口
-    console.info('Using ADB TCP forward (required for remote devices)...');
-
-    if (!this.adb) {
-      throw new Error('ADB instance not available');
+  // Handshake implementation
+  private async performHandshake(): Promise<void> {
+    if (!this.vidStream || !this.audStream || !this.msgStream) {
+      throw new Error('Streams not connected');
     }
 
-    for (let i = 0; i < reTry; i++) {
-      try {
-        if (!this.mainStream) {
-          // scrcpy使用固定端口27183
-          const scrcpyPort = 27183;
-          this.mainStream = await this.adb.tcpForward(scrcpyPort);
-          console.info('Main stream forwarded via ADB');
-        }
+    // 1. Read Dummy Byte (Skipped as send_dummy_byte=false)
+    // console.debug('Reading dummy bytes...');
+    // await this.vidStream.readByteArray(1);
+    // await this.audStream.readByteArray(1);
+    // await this.msgStream.readByteArray(1);
+    // console.debug('Dummy bytes read');
 
-        if (!this.videoStream) {
-          // scrcpy使用固定端口27183
-          const scrcpyPort = 27183;
-          this.videoStream = await this.adb.tcpForward(scrcpyPort);
-          console.info('Video stream forwarded via ADB');
-        }
+    // 2. Read Device Name (64 bytes) from Video Stream
+    console.debug('Reading device name...');
+    const deviceNameData = await this.vidStream.readByteArray(64);
+    const decoder = util.TextDecoder.create('utf-8');
+    this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
+    console.info(`Device Name: ${this.deviceName}`);
 
-        this.connectDirect = false;
-        console.info('ADB forward connection established');
-        return;
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.warn(`ADB forward attempt ${i + 1}/${reTry} failed:`, errMsg);
-
-        // 清理失败的stream
-        this.mainStream = undefined;
-        this.videoStream = undefined;
-
-        if (i < reTry - 1) {
-          await this.delay(reTryTime);
-        }
-      }
-    }
-
-    throw new Error('Failed to connect to server after all retries');
+    // 3. Read Codec Metadata (12 bytes) from Video Stream
+    console.debug('Reading codec metadata...');
+    const codecData = await this.vidStream.readByteArray(12);
+    const view = new DataView(codecData);
+    const codecId = view.getInt32(0, false);
+    const width = view.getInt32(4, false);
+    const height = view.getInt32(8, false);
+    
+    this.videoConfig = {
+      codecId: codecId,
+      width: width,
+      height: height
+    };
+    console.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
+  }
+  
+  getVideoConfig(): VideoConfig | undefined {
+    return this.videoConfig;
   }
 
   private async connectSocket(tcpSocket: socket.TCPSocket, address: string, port: number): Promise<void> {
@@ -308,8 +312,8 @@ export class ClientStream {
     try {
       if (this.connectDirect && this.mainSocket) {
         await this.mainSocket.send({ data: data });
-      } else if (!this.connectDirect && this.mainStream) {
-        await this.mainStream.write(data);
+      } else if (!this.connectDirect && this.msgStream) {
+        await this.msgStream.write(data);
       } else {
         throw new Error('No valid main connection');
       }
@@ -324,8 +328,8 @@ export class ClientStream {
     if (this.connectDirect) {
       // TODO: 实现从socket读取
       return new ArrayBuffer(0);
-    } else if (this.mainStream) {
-      return await this.mainStream.readByteArray(length);
+    } else if (this.msgStream) {
+      return await this.msgStream.readByteArray(length);
     }
     return new ArrayBuffer(0);
   }
@@ -345,10 +349,10 @@ export class ClientStream {
 
   // 从main stream读取指定长度的字节
   async readBytesFromMain(length: number): Promise<ArrayBuffer> {
-    if (!this.mainStream) {
-      throw new Error('Main stream not connected');
+    if (!this.msgStream) {
+      throw new Error('Message stream not connected');
     }
-    return await this.mainStream.readByteArray(length);
+    return await this.msgStream.readByteArray(length);
   }
 
   // 从video stream读取一个字节
@@ -366,25 +370,43 @@ export class ClientStream {
 
   // 从video stream读取指定长度的字节
   async readBytesFromVideo(length: number): Promise<ArrayBuffer> {
-    if (!this.videoStream) {
+    if (!this.vidStream) {
       throw new Error('Video stream not connected');
     }
 
     // 从BufferStream读取
-    return await this.videoStream.readByteArray(length);
+    return await this.vidStream.readByteArray(length);
   }
 
-  // 读取一帧视频数据（先读4字节大小，再读帧数据）
+  // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
   async readFrameFromVideo(): Promise<ArrayBuffer> {
-    console.debug('[ClientStream] Reading frame size (4 bytes)...');
+    // console.debug('[ClientStream] Reading frame header...');
+    
+    // 1. Read PTS (8 bytes)
+    const ptsBytes = await this.readBytesFromVideo(8);
+    const view = new DataView(ptsBytes);
+    const pts = view.getBigInt64(0, false);
+    
+    // Check Config Packet flag (bit 63)
+    const PACKET_FLAG_CONFIG = 1n << 63n;
+    const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
+    
+    if (isConfig) {
+       console.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
+    }
+
+    // 2. Read Size (4 bytes)
     const frameSize = await this.readIntFromVideo();
-    console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
-    if (frameSize <= 0 || frameSize > 10 * 1024 * 1024) { // 最大10MB
+    // console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
+    
+    if (frameSize <= 0 || frameSize > 20 * 1024 * 1024) { // Increase limit to 20MB for I-frames
       throw new Error(`Invalid frame size: ${frameSize}`);
     }
-    console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
+
+    // 3. Read Data
+    // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
     const frameData = await this.readBytesFromVideo(frameSize);
-    console.debug(`[ClientStream] Frame data read complete`);
+    // console.debug(`[ClientStream] Frame data read complete`);
     return frameData;
   }
 
@@ -392,8 +414,8 @@ export class ClientStream {
     if (this.connectDirect) {
       // TODO: 实现从socket读取
       return new ArrayBuffer(0);
-    } else if (this.videoStream) {
-      return await this.videoStream.readByteArray(length);
+    } else if (this.vidStream) {
+      return await this.vidStream.readByteArray(length);
     }
     return new ArrayBuffer(0);
   }
@@ -438,21 +460,29 @@ export class ClientStream {
     }
 
     // 关闭ADB转发streams
-    if (this.mainStream) {
+    if (this.vidStream) {
       try {
-        this.mainStream.close();
-      } catch (err) {
-        console.error('Close main stream failed:', err);
-      }
-      this.mainStream = undefined;
-    }
-    if (this.videoStream) {
-      try {
-        this.videoStream.close();
+        this.vidStream.close();
       } catch (err) {
         console.error('Close video stream failed:', err);
       }
-      this.videoStream = undefined;
+      this.vidStream = undefined;
+    }
+    if (this.audStream) {
+      try {
+        this.audStream.close();
+      } catch (err) {
+        console.error('Close audio stream failed:', err);
+      }
+      this.audStream = undefined;
+    }
+    if (this.msgStream) {
+      try {
+        this.msgStream.close();
+      } catch (err) {
+        console.error('Close msg stream failed:', err);
+      }
+      this.msgStream = undefined;
     }
     if (this.shellStream) {
       try {

@@ -173,8 +173,14 @@ export class Adb {
           case AdbProtocol.CMD_WRTE:
             bufferStream.pushSource(message.payload!);
             wrteCount++;
+            // 收到数据，打印日志
+            if (message.payload!.byteLength < 100) {
+                 console.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}, data=${Array.from(new Uint8Array(message.payload!)).map(b => b.toString(16)).join(',')}`);
+            } else {
+                 console.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}`);
+            }
             if (wrteCount % 30 === 0) {
-              // console.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}, size=${message.payload?.byteLength || 0}`);
+              console.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}`);
             }
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
