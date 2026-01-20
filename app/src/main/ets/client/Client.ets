@@ -27,6 +27,11 @@ export class Client {
     this.device = device;
   }
   
+  // 获取视频尺寸 (用于触摸坐标计算)
+  getVideoSize(): VideoConfig | null {
+    return this.videoConfig || null;
+  }
+  
   static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext): Promise<Client | null> {
     if (Client.allClients.has(device.uuid)) {
       return Client.allClients.get(device.uuid) || null;
@@ -141,6 +146,9 @@ export class Client {
       if (!config) {
          throw new Error('Video configuration not available from handshake');
       }
+      
+      // 保存配置供 getVideoSize() 使用
+      this.videoConfig = config;
 
       // 映射codecId到string
       // 0=H264, 1=H265, 2=AV1
@@ -235,41 +243,47 @@ export class Client {
           // HarmonyOS 不支持多窗口模式，暂不处理
           break;
 
-        // 按钮操作 - 对应 Java 版本
+        // 按钮操作 - 使用 Scrcpy 官方协议
         case Action.BUTTON_BACK:
-          this.writeToMain(ControlPacket.createKeyEvent(KeyCode.KEYCODE_BACK, 0));
+          // 使用 BACK_OR_SCREEN_ON 类型，ACTION_DOWN 触发返回
+          this.writeToMain(ControlPacket.createBackOrScreenOn(0)); // ACTION_DOWN
           break;
         case Action.BUTTON_HOME:
-          this.writeToMain(ControlPacket.createKeyEvent(KeyCode.KEYCODE_HOME, 0));
+          for (const pkt of ControlPacket.createHomeKey()) {
+            this.writeToMain(pkt);
+          }
           break;
         case Action.BUTTON_SWITCH:
-          this.writeToMain(ControlPacket.createKeyEvent(KeyCode.KEYCODE_APP_SWITCH, 0));
+          for (const pkt of ControlPacket.createAppSwitchKey()) {
+            this.writeToMain(pkt);
+          }
           break;
         case Action.BUTTON_ROTATE:
-          this.writeToMain(ControlPacket.createRotateDeviceEvent());
+          this.writeToMain(ControlPacket.createRotateDevice());
           break;
         case Action.BUTTON_POWER:
-          this.writeToMain(ControlPacket.createPowerEvent(-1));
+          for (const pkt of ControlPacket.createPowerKey()) {
+            this.writeToMain(pkt);
+          }
           break;
         case Action.BUTTON_WAKE:
-          this.writeToMain(ControlPacket.createPowerEvent(1));
+          this.writeToMain(ControlPacket.createScreenOn());
           break;
         case Action.BUTTON_LOCK:
-          this.writeToMain(ControlPacket.createPowerEvent(0));
+          this.writeToMain(ControlPacket.createScreenOff());
           break;
         case Action.BUTTON_LIGHT:
-          // Android: Display.STATE_ON (2) then Display.STATE_OFF (1) - this is a wake/toggle sequence
-          this.writeToMain(ControlPacket.createLightEvent(2)); // Display.STATE_ON
-          this.writeToMain(ControlPacket.createLightEvent(1)); // Display.STATE_OFF
+          // 切换屏幕状态
+          this.writeToMain(ControlPacket.createScreenOn());
           break;
         case Action.BUTTON_LIGHT_OFF:
-          // Android: Display.STATE_UNKNOWN (0) - turns off screen while keeping stream
-          this.writeToMain(ControlPacket.createLightEvent(0)); // Display.STATE_UNKNOWN
+          this.writeToMain(ControlPacket.createScreenOff());
           break;
 
-        // 系统操作
+        // 系统操作 - Scrcpy 没有 keepalive，使用空操作或跳过
         case Action.KEEP_ALIVE:
-          this.writeToMain(ControlPacket.createKeepAliveEvent());
+          // Scrcpy 不需要 keepalive，可以发送一个无害的消息如 GET_CLIPBOARD
+          // 或直接跳过
           break;
         case Action.CHECK_SIZE_AND_SITE:
           // HarmonyOS 不需要检查悬浮窗位置
@@ -324,21 +338,51 @@ export class Client {
     }
   }
 
-  // 发送触摸事件
-  async sendTouchEvent(action: TouchAction, pointerId: number, x: number, y: number, offsetTime: number = 0): Promise<void> {
+  // 发送触摸事件 - Scrcpy 协议格式
+  // x, y: 屏幕坐标 (像素值)
+  // screenWidth, screenHeight: 屏幕尺寸
+  async sendTouchEvent(
+    action: TouchAction, 
+    pointerId: number, 
+    x: number, 
+    y: number, 
+    screenWidth: number,
+    screenHeight: number,
+    pressure: number = 1.0
+  ): Promise<void> {
     if (!this.clientStream) {
+      console.warn('[Control] sendTouchEvent: clientStream is null');
       return;
     }
     
-    const packet = ControlPacket.createTouchEvent(action, pointerId, x, y, offsetTime);
+    console.debug(`[Control] sendTouchEvent: action=${action}, pointerId=${pointerId}, pos=(${x},${y}), screen=${screenWidth}x${screenHeight}`);
+    
+    const packet = ControlPacket.createInjectTouchEvent(
+      action, 
+      BigInt(pointerId), 
+      Math.round(x), 
+      Math.round(y), 
+      screenWidth, 
+      screenHeight,
+      pressure
+    );
     await this.clientStream.writeMain(packet);
   }
 
   
-  // 发送按键事件
+  // 发送按键事件 - 发送按下和抬起
   async sendKeyEvent(keyCode: KeyCode, metaState: number = 0): Promise<void> {
-    const packet = ControlPacket.createKeyEvent(keyCode, metaState);
-    await this.clientStream?.writeMain(packet);
+    if (!this.clientStream) {
+      console.warn('[Control] sendKeyEvent: clientStream is null');
+      return;
+    }
+    
+    console.debug(`[Control] sendKeyEvent: keyCode=${keyCode}, metaState=${metaState}`);
+    
+    const packets = ControlPacket.createKeyEventPair(keyCode, metaState);
+    for (const packet of packets) {
+      await this.clientStream.writeMain(packet);
+    }
   }
 
   private startKeepAlive(): void {

@@ -1,6 +1,28 @@
 import { buffer } from '@kit.ArkTS';
 
-// Action 常量 - 对应 Java ClientController.handleAction
+// Scrcpy Control Message Types - 匹配 ControlMessage.java
+export class ControlMessageType {
+  static readonly TYPE_INJECT_KEYCODE = 0;
+  static readonly TYPE_INJECT_TEXT = 1;
+  static readonly TYPE_INJECT_TOUCH_EVENT = 2;
+  static readonly TYPE_INJECT_SCROLL_EVENT = 3;
+  static readonly TYPE_BACK_OR_SCREEN_ON = 4;
+  static readonly TYPE_EXPAND_NOTIFICATION_PANEL = 5;
+  static readonly TYPE_EXPAND_SETTINGS_PANEL = 6;
+  static readonly TYPE_COLLAPSE_PANELS = 7;
+  static readonly TYPE_GET_CLIPBOARD = 8;
+  static readonly TYPE_SET_CLIPBOARD = 9;
+  static readonly TYPE_SET_DISPLAY_POWER = 10;
+  static readonly TYPE_ROTATE_DEVICE = 11;
+  static readonly TYPE_UHID_CREATE = 12;
+  static readonly TYPE_UHID_INPUT = 13;
+  static readonly TYPE_UHID_DESTROY = 14;
+  static readonly TYPE_OPEN_HARD_KEYBOARD_SETTINGS = 15;
+  static readonly TYPE_START_APP = 16;
+  static readonly TYPE_RESET_VIDEO = 17;
+}
+
+// Action 常量 - 用于 handleAction 分发
 export class Action {
   // 界面切换
   static readonly CHANGE_TO_SMALL = "changeToSmall";
@@ -32,119 +54,229 @@ export class Action {
   static readonly CLOSE = "close";
 }
 
-// 控制包工具类 - 完全对应Java ControlPacket.java
-// 注意：Java ByteBuffer默认是大端序(big-endian)
+// Scrcpy控制包工具类 - 匹配 ControlMessageReader.java 格式
+// 注意：Scrcpy 使用大端序(big-endian)
 export class ControlPacket {
-  // 触摸事件 - 类型1
-  // Java: 1 + action(1) + pointerId(1) + x(4) + y(4) + offsetTime(4) = 15字节
-  static createTouchEvent(action: number, pointerId: number, x: number, y: number, offsetTime: number): ArrayBuffer {
-    // 边界检查
-    if (x < 0) x = 0;
-    if (x > 1) x = 1;
-    if (y < 0) y = 0;
-    if (y > 1) y = 1;
-    
-    const buf = new ArrayBuffer(15);
+  
+  // ============ TYPE_INJECT_KEYCODE (0) ============
+  // 格式: type(1) + action(1) + keycode(4) + repeat(4) + metaState(4) = 14 bytes
+  static createInjectKeycode(action: number, keycode: number, repeat: number = 0, metaState: number = 0): ArrayBuffer {
+    const buf = new ArrayBuffer(14);
     const view = new DataView(buf);
-    view.setUint8(0, 1);  // 触摸事件类型
-    view.setUint8(1, action);
-    view.setUint8(2, pointerId);
-    view.setFloat32(3, x, false);  // big-endian
-    view.setFloat32(7, y, false);  // big-endian
-    view.setInt32(11, offsetTime, false);  // big-endian
-    
+    view.setUint8(0, ControlMessageType.TYPE_INJECT_KEYCODE);
+    view.setUint8(1, action);  // ACTION_DOWN=0, ACTION_UP=1
+    view.setInt32(2, keycode, false);  // big-endian
+    view.setInt32(6, repeat, false);   // big-endian
+    view.setInt32(10, metaState, false); // big-endian
     return buf;
   }
-  
-  // 按键事件 - 类型2
-  // Java: 2 + key(4) + meta(4) = 9字节
-  static createKeyEvent(keyCode: number, metaState: number = 0): ArrayBuffer {
-    const buf = new ArrayBuffer(9);
-    const view = new DataView(buf);
-    view.setUint8(0, 2);  // 按键事件类型
-    view.setInt32(1, keyCode, false);  // big-endian
-    view.setInt32(5, metaState, false);  // big-endian
-    
-    return buf;
+
+  // 发送按键事件 (按下+抬起)
+  static createKeyEventPair(keycode: number, metaState: number = 0): ArrayBuffer[] {
+    return [
+      ControlPacket.createInjectKeycode(KeyAction.ACTION_DOWN, keycode, 0, metaState),
+      ControlPacket.createInjectKeycode(KeyAction.ACTION_UP, keycode, 0, metaState)
+    ];
   }
-  
-  // 剪贴板事件 - 类型3
-  // Java: 3 + length(4) + text(N)
-  static createClipboardEvent(text: string): ArrayBuffer {
+
+  // ============ TYPE_INJECT_TEXT (1) ============
+  // 格式: type(1) + length(4) + text(N) = 5+N bytes
+  static createInjectText(text: string): ArrayBuffer {
     const textBytes = buffer.from(text, 'utf-8');
-    const textBytesLen: number = textBytes.buffer.byteLength;
-    const buf = new ArrayBuffer(5 + textBytesLen);
+    const textLen = textBytes.buffer.byteLength;
+    const buf = new ArrayBuffer(5 + textLen);
     const view = new DataView(buf);
-    view.setUint8(0, 3);  // 剪贴板事件类型
-    view.setInt32(1, textBytesLen, false);  // big-endian
+    view.setUint8(0, ControlMessageType.TYPE_INJECT_TEXT);
+    view.setInt32(1, textLen, false);  // big-endian
     
     const result = new Uint8Array(buf);
     result.set(new Uint8Array(textBytes.buffer), 5);
+    return buf;
+  }
+
+  // ============ TYPE_INJECT_TOUCH_EVENT (2) ============
+  // 格式: type(1) + action(1) + pointerId(8) + x(4) + y(4) + screenWidth(2) + screenHeight(2) + pressure(2) + actionButton(4) + buttons(4) = 32 bytes
+  static createInjectTouchEvent(
+    action: number, 
+    pointerId: bigint, 
+    x: number, 
+    y: number, 
+    screenWidth: number, 
+    screenHeight: number,
+    pressure: number = 1.0,
+    actionButton: number = 0,
+    buttons: number = 0
+  ): ArrayBuffer {
+    const buf = new ArrayBuffer(32);
+    const view = new DataView(buf);
+    
+    view.setUint8(0, ControlMessageType.TYPE_INJECT_TOUCH_EVENT);
+    view.setUint8(1, action);
+    view.setBigInt64(2, pointerId, false);  // big-endian
+    view.setInt32(10, x, false);            // big-endian
+    view.setInt32(14, y, false);            // big-endian
+    view.setUint16(18, screenWidth, false); // big-endian
+    view.setUint16(20, screenHeight, false);// big-endian
+    
+    // pressure: u16 fixed-point (0-65535 maps to 0.0-1.0)
+    const pressureU16 = Math.round(Math.min(1.0, Math.max(0, pressure)) * 0xFFFF);
+    view.setUint16(22, pressureU16, false);
+    
+    view.setInt32(24, actionButton, false); // big-endian
+    view.setInt32(28, buttons, false);      // big-endian
     
     return buf;
   }
-  
-  // 保活包 - 类型4
-  static createKeepAliveEvent(): ArrayBuffer {
-    const buf = new ArrayBuffer(1);
+
+  // ============ TYPE_INJECT_SCROLL_EVENT (3) ============
+  // 格式: type(1) + x(4) + y(4) + screenWidth(2) + screenHeight(2) + hScroll(2) + vScroll(2) + buttons(4) = 21 bytes
+  static createInjectScrollEvent(
+    x: number, 
+    y: number, 
+    screenWidth: number, 
+    screenHeight: number,
+    hScroll: number,
+    vScroll: number,
+    buttons: number = 0
+  ): ArrayBuffer {
+    const buf = new ArrayBuffer(21);
     const view = new DataView(buf);
-    view.setUint8(0, 4);  // 保活事件类型
+    
+    view.setUint8(0, ControlMessageType.TYPE_INJECT_SCROLL_EVENT);
+    view.setInt32(1, x, false);             // big-endian
+    view.setInt32(5, y, false);             // big-endian
+    view.setUint16(9, screenWidth, false);  // big-endian
+    view.setUint16(11, screenHeight, false);// big-endian
+    
+    // hScroll/vScroll: i16 fixed-point, range [-16, 16] mapped to [-32768, 32767]
+    const hScrollI16 = Math.round((hScroll / 16) * 32767);
+    const vScrollI16 = Math.round((vScroll / 16) * 32767);
+    view.setInt16(13, hScrollI16, false);
+    view.setInt16(15, vScrollI16, false);
+    
+    view.setInt32(17, buttons, false);
+    
     return buf;
   }
-  
-  // 修改分辨率（比例）- 类型5
-  // Java: 5 + scale(4) = 5字节
-  static createChangeResolutionEvent(scale: number): ArrayBuffer {
-    const buf = new ArrayBuffer(5);
-    const view = new DataView(buf);
-    view.setUint8(0, 5);  // 分辨率事件类型
-    view.setFloat32(1, scale, false);  // big-endian
-    return buf;
-  }
-  
-  // 旋转设备 - 类型6
-  static createRotateDeviceEvent(): ArrayBuffer {
-    const buf = new ArrayBuffer(1);
-    const view = new DataView(buf);
-    view.setUint8(0, 6);  // 旋转事件类型
-    return buf;
-  }
-  
-  // 屏幕背光控制 - 类型7
-  // Java: 7 + mode(1) = 2字节
-  static createLightEvent(mode: number): ArrayBuffer {
+
+  // ============ TYPE_BACK_OR_SCREEN_ON (4) ============
+  // 格式: type(1) + action(1) = 2 bytes
+  static createBackOrScreenOn(action: number): ArrayBuffer {
     const buf = new ArrayBuffer(2);
     const view = new DataView(buf);
-    view.setUint8(0, 7);  // 背光事件类型
-    view.setUint8(1, mode);
+    view.setUint8(0, ControlMessageType.TYPE_BACK_OR_SCREEN_ON);
+    view.setUint8(1, action);  // ACTION_DOWN=0 triggers back, ACTION_UP=1 does nothing
     return buf;
   }
-  
-  // 屏幕电源模式 - 类型8
-  // Java: 8 + mode(4) = 5字节
-  static createPowerEvent(mode: number): ArrayBuffer {
-    const buf = new ArrayBuffer(5);
+
+  // ============ TYPE_GET_CLIPBOARD (8) ============
+  // 格式: type(1) + copyKey(1) = 2 bytes
+  static createGetClipboard(copyKey: number = 0): ArrayBuffer {
+    const buf = new ArrayBuffer(2);
     const view = new DataView(buf);
-    view.setUint8(0, 8);  // 电源事件类型
-    view.setInt32(1, mode, false);  // big-endian
+    view.setUint8(0, ControlMessageType.TYPE_GET_CLIPBOARD);
+    view.setUint8(1, copyKey);  // COPY_KEY_NONE=0, COPY_KEY_COPY=1, COPY_KEY_CUT=2
     return buf;
   }
-  
-  // 修改分辨率（具体值）- 类型9
-  // Java: 9 + width(4) + height(4) = 9字节
-  static createChangeResolutionEventExact(width: number, height: number): ArrayBuffer {
-    const buf = new ArrayBuffer(9);
+
+  // ============ TYPE_SET_CLIPBOARD (9) ============
+  // 格式: type(1) + sequence(8) + paste(1) + length(4) + text(N) = 14+N bytes
+  static createSetClipboard(text: string, sequence: bigint = 0n, paste: boolean = false): ArrayBuffer {
+    const textBytes = buffer.from(text, 'utf-8');
+    const textLen = textBytes.buffer.byteLength;
+    const buf = new ArrayBuffer(14 + textLen);
     const view = new DataView(buf);
-    view.setUint8(0, 9);  // 具体分辨率事件类型
-    view.setInt32(1, width, false);  // big-endian
-    view.setInt32(5, height, false);  // big-endian
+    
+    view.setUint8(0, ControlMessageType.TYPE_SET_CLIPBOARD);
+    view.setBigInt64(1, sequence, false);  // big-endian
+    view.setUint8(9, paste ? 1 : 0);
+    view.setInt32(10, textLen, false);     // big-endian
+    
+    const result = new Uint8Array(buf);
+    result.set(new Uint8Array(textBytes.buffer), 14);
     return buf;
   }
-  
-  // 兼容性：旧的屏幕电源控制（映射到LightEvent）
-  static createScreenPowerEvent(mode: number): ArrayBuffer {
-    return ControlPacket.createLightEvent(mode);
+
+  // ============ TYPE_SET_DISPLAY_POWER (10) ============
+  // 格式: type(1) + on(1) = 2 bytes
+  static createSetDisplayPower(on: boolean): ArrayBuffer {
+    const buf = new ArrayBuffer(2);
+    const view = new DataView(buf);
+    view.setUint8(0, ControlMessageType.TYPE_SET_DISPLAY_POWER);
+    view.setUint8(1, on ? 1 : 0);
+    return buf;
   }
+
+  // ============ TYPE_ROTATE_DEVICE (11) ============
+  // 格式: type(1) = 1 byte
+  static createRotateDevice(): ArrayBuffer {
+    const buf = new ArrayBuffer(1);
+    const view = new DataView(buf);
+    view.setUint8(0, ControlMessageType.TYPE_ROTATE_DEVICE);
+    return buf;
+  }
+
+  // ============ TYPE_EXPAND_NOTIFICATION_PANEL (5) ============
+  static createExpandNotificationPanel(): ArrayBuffer {
+    const buf = new ArrayBuffer(1);
+    const view = new DataView(buf);
+    view.setUint8(0, ControlMessageType.TYPE_EXPAND_NOTIFICATION_PANEL);
+    return buf;
+  }
+
+  // ============ TYPE_EXPAND_SETTINGS_PANEL (6) ============
+  static createExpandSettingsPanel(): ArrayBuffer {
+    const buf = new ArrayBuffer(1);
+    const view = new DataView(buf);
+    view.setUint8(0, ControlMessageType.TYPE_EXPAND_SETTINGS_PANEL);
+    return buf;
+  }
+
+  // ============ TYPE_COLLAPSE_PANELS (7) ============
+  static createCollapsePanels(): ArrayBuffer {
+    const buf = new ArrayBuffer(1);
+    const view = new DataView(buf);
+    view.setUint8(0, ControlMessageType.TYPE_COLLAPSE_PANELS);
+    return buf;
+  }
+
+  // ============ 便捷方法 ============
+  
+  // 发送Back键 (使用 BACK_OR_SCREEN_ON)
+  static createBackKey(): ArrayBuffer {
+    return ControlPacket.createBackOrScreenOn(KeyAction.ACTION_DOWN);
+  }
+
+  // 发送Home键
+  static createHomeKey(): ArrayBuffer[] {
+    return ControlPacket.createKeyEventPair(KeyCode.KEYCODE_HOME);
+  }
+
+  // 发送App Switch键
+  static createAppSwitchKey(): ArrayBuffer[] {
+    return ControlPacket.createKeyEventPair(KeyCode.KEYCODE_APP_SWITCH);
+  }
+
+  // 发送电源键
+  static createPowerKey(): ArrayBuffer[] {
+    return ControlPacket.createKeyEventPair(KeyCode.KEYCODE_POWER);
+  }
+
+  // 打开屏幕
+  static createScreenOn(): ArrayBuffer {
+    return ControlPacket.createSetDisplayPower(true);
+  }
+
+  // 关闭屏幕
+  static createScreenOff(): ArrayBuffer {
+    return ControlPacket.createSetDisplayPower(false);
+  }
+}
+
+// 按键动作常量
+export enum KeyAction {
+  ACTION_DOWN = 0,
+  ACTION_UP = 1
 }
 
 // 触摸动作常量 - 对应Android MotionEvent
@@ -153,6 +285,7 @@ export enum TouchAction {
   ACTION_UP = 1,
   ACTION_MOVE = 2,
   ACTION_CANCEL = 3,
+  ACTION_OUTSIDE = 4,
   ACTION_POINTER_DOWN = 5,
   ACTION_POINTER_UP = 6
 }
@@ -188,17 +321,9 @@ export enum MetaState {
   META_CTRL_ON = 0x1000
 }
 
-// 屏幕电源模式
-export enum ScreenPowerMode {
-  POWER_MODE_OFF = 0,
-  POWER_MODE_DOZE = 1,
-  POWER_MODE_NORMAL = 2,
-  POWER_MODE_DOZE_SUSPEND = 3
-}
-
-// 背光模式
-export enum LightMode {
-  LIGHT_OFF = 0,
-  LIGHT_ON = 1,
-  LIGHT_TOGGLE = 2
+// 鼠标按钮
+export enum MouseButton {
+  BUTTON_PRIMARY = 1,
+  BUTTON_SECONDARY = 2,
+  BUTTON_TERTIARY = 4
 }

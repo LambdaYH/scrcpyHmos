@@ -418,13 +418,15 @@ struct ControlPage {
     
     const localX = event.fingerList[0].localX;
     const localY = event.fingerList[0].localY;
-    const x = localX / this.componentWidth;
-    const y = localY / this.componentHeight;
+    
+    // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+    const x = Math.round((localX / this.componentWidth) * this.videoWidth);
+    const y = Math.round((localY / this.componentHeight) * this.videoHeight);
     
     // 模拟点击（按下-抬起）
-    this.client.sendTouchEvent(TouchAction.ACTION_DOWN, 0, x, y, 0);
+    this.client.sendTouchEvent(TouchAction.ACTION_DOWN, 0, x, y, this.videoWidth, this.videoHeight);
     setTimeout(() => {
-      this.client?.sendTouchEvent(TouchAction.ACTION_UP, 0, x, y, 50);
+      this.client?.sendTouchEvent(TouchAction.ACTION_UP, 0, x, y, this.videoWidth, this.videoHeight);
     }, 50);
   }
   
@@ -442,13 +444,15 @@ struct ControlPage {
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      const x = localX / this.componentWidth;
-      const y = localY / this.componentHeight;
+      
+      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
+      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
       
       // 存储毫秒时间戳
       this.pointerDownTime.set(pointerId, eventTimestampMs);
-      this.client?.sendTouchEvent(TouchAction.ACTION_DOWN, pointerId, x, y, 0);
+      this.client?.sendTouchEvent(TouchAction.ACTION_DOWN, pointerId, x, y, this.videoWidth, this.videoHeight);
     });
   }
   
@@ -464,13 +468,13 @@ struct ControlPage {
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      const x = localX / this.componentWidth;
-      const y = localY / this.componentHeight;
-      const pointerId = finger.id;
-      const downTimeMs = this.pointerDownTime.get(pointerId) || eventTimestampMs;
-      const offsetTime = eventTimestampMs - downTimeMs;
       
-      this.client?.sendTouchEvent(TouchAction.ACTION_MOVE, pointerId, x, y, offsetTime);
+      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
+      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
+      const pointerId = finger.id;
+      
+      this.client?.sendTouchEvent(TouchAction.ACTION_MOVE, pointerId, x, y, this.videoWidth, this.videoHeight);
     });
   }
   
@@ -490,13 +494,13 @@ struct ControlPage {
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      const x = localX / this.componentWidth;
-      const y = localY / this.componentHeight;
-      const pointerId = finger.id;
-      const downTimeMs = this.pointerDownTime.get(pointerId) || eventTimestampMs;
-      const offsetTime = eventTimestampMs - downTimeMs;
       
-      this.client?.sendTouchEvent(TouchAction.ACTION_UP, pointerId, x, y, offsetTime);
+      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
+      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
+      const pointerId = finger.id;
+      
+      this.client?.sendTouchEvent(TouchAction.ACTION_UP, pointerId, x, y, this.videoWidth, this.videoHeight);
       this.pointerDownTime.delete(pointerId);
     });
   }
@@ -510,7 +514,15 @@ struct ControlPage {
     }
     
     console.info('Initializing video decoder with surfaceId:', this.surfaceId);
-    this.client.initVideoDecoder(this.surfaceId).catch((err: Error) => {
+    this.client.initVideoDecoder(this.surfaceId).then(() => {
+      // 从 Client 获取实际视频尺寸
+      const videoSize = this.client?.getVideoSize();
+      if (videoSize) {
+        this.videoWidth = videoSize.width;
+        this.videoHeight = videoSize.height;
+        console.info(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+      }
+    }).catch((err: Error) => {
       console.error('Failed to init video decoder:', err.message);
       this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
     });

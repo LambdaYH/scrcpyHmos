@@ -326,6 +326,12 @@ export class ClientStream {
 
   async writeMain(data: ArrayBuffer): Promise<void> {
     try {
+      // Debug: Log control message being sent
+      const view = new DataView(data);
+      const msgType = view.getUint8(0);
+      const msgSize = data.byteLength;
+      console.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
+      
       if (this.connectDirect && this.mainSocket) {
         await this.mainSocket.send({ data: data });
       } else if (!this.connectDirect && this.msgStream) {
@@ -333,6 +339,8 @@ export class ClientStream {
       } else {
         throw new Error('No valid main connection');
       }
+      
+      console.debug(`[Control] Message sent successfully`);
     } catch (err) {
       console.error('Write to main socket failed:', err);
       const error = err instanceof Error ? err : new Error(String(err));
