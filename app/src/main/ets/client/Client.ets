@@ -22,6 +22,8 @@ export class Client {
   private videoLoopRunning: boolean = false;
   // 预加载的视频配置
   private videoConfig?: VideoConfig;
+  // 断开连接回调
+  private onDisconnectCallback?: (reason: string) => void;
   
   constructor(device: Device) {
     this.device = device;
@@ -30,6 +32,20 @@ export class Client {
   // 获取视频尺寸 (用于触摸坐标计算)
   getVideoSize(): VideoConfig | null {
     return this.videoConfig || null;
+  }
+  
+  // 设置断开连接回调
+  setOnDisconnect(callback: (reason: string) => void): void {
+    this.onDisconnectCallback = callback;
+  }
+  
+  // 触发断开回调
+  private triggerDisconnect(reason: string): void {
+    console.warn(`[Client] Disconnect triggered: ${reason}`);
+    if (this.onDisconnectCallback && !this.isClosed) {
+      this.onDisconnectCallback(reason);
+    }
+    this.close();
   }
   
   static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext): Promise<Client | null> {
@@ -188,6 +204,7 @@ export class Client {
     this.videoLoopRunning = true;
 
     const readLoop = async () => {
+      let disconnectReason = '';
       try {
         console.info('📺 Video loop started, waiting for frames...');
         let frameCount = 0;
@@ -213,14 +230,22 @@ export class Client {
             if (frameErr instanceof Error && frameErr.stack) {
               console.error('Stack:', frameErr.stack);
             }
+            disconnectReason = '连接已断开: ' + errMsg;
             break;
           }
         }
       } catch (err) {
-        console.error('Video loop error:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('Video loop error:', errMsg);
+        disconnectReason = '视频循环错误: ' + errMsg;
       } finally {
         this.videoLoopRunning = false;
         console.info('Video loop stopped');
+        
+        // 如果不是正常关闭，触发断开回调
+        if (disconnectReason && !this.isClosed) {
+          this.triggerDisconnect(disconnectReason);
+        }
       }
     };
 

@@ -91,6 +91,24 @@ struct ControlPage {
         this.clientReady = true;
         console.info('ControlPage: Device connected successfully');
         
+        // 设置断开连接回调 - 自动返回上一页
+        this.client.setOnDisconnect((reason: string) => {
+          console.warn('[ControlPage] Disconnected:', reason);
+          try {
+            this.getUIContext().getPromptAction().showToast({ message: reason });
+          } catch (e) {
+            console.error('Show toast failed:', e);
+          }
+          // 延迟返回，让用户看到提示
+          setTimeout(() => {
+            try {
+              this.getUIContext().getRouter().back();
+            } catch (e) {
+              console.error('Router back failed:', e);
+            }
+          }, 1000);
+        });
+        
         // 如果surface已经就绪，立即初始化视频解码器
         if (this.surfaceReady && this.surfaceId) {
           this.initVideoDecoder();
