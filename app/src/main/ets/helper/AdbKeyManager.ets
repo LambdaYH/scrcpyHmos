@@ -511,4 +511,63 @@ export class AdbKeyManager {
     }
   }
 
+  // 导入自定义密钥
+  async importCustomKey(privateKeyStr: string, publicKeyStr: string): Promise<void> {
+    try {
+      if (!privateKeyStr || !publicKeyStr) {
+        throw new Error('Keys cannot be empty');
+      }
+
+      console.info('ADB: Importing custom key...');
+      
+      // 验证密钥格式（尝试重建KeyPair）
+      const base64Helper = new util.Base64Helper();
+      
+      // 简单清理可能包含的头尾标记 (虽然用户应该只粘贴内容，但做个防备)
+      const cleanPriv = privateKeyStr.replace(/-----BEGIN PRIVATE KEY-----/g, '').replace(/-----END PRIVATE KEY-----/g, '').replace(/\s/g, '');
+      const cleanPub = publicKeyStr.replace(/-----BEGIN PUBLIC KEY-----/g, '').replace(/-----END PUBLIC KEY-----/g, '').replace(/\s/g, '');
+
+      let priKeyData: Uint8Array;
+      let pubKeyData: Uint8Array;
+      
+      try {
+         priKeyData = base64Helper.decodeSync(cleanPriv);
+         pubKeyData = base64Helper.decodeSync(cleanPub);
+      } catch (e) {
+         throw new Error('Invalid Base64 format');
+      }
+
+      const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');
+      const priKeyBlob: cryptoFramework.DataBlob = { data: priKeyData };
+      const pubKeyBlob: cryptoFramework.DataBlob = { data: pubKeyData };
+      
+      // 尝试转换，如果失败会抛出异常，说明密钥无效
+      const keyPair = await rsaGenerator.convertKey(pubKeyBlob, priKeyBlob);
+      
+      // 密钥有效，保存
+      this.cachedKeyPair = keyPair;
+      this.privateKeyBase64 = cleanPriv;
+      this.publicKeyBase64 = cleanPub;
+      this.keyGeneration++; // 视为新的一代
+      
+      // 生成ADB格式公钥
+      const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
+      if (adbFormatKey && adbFormatKey.byteLength > 0) {
+        this.adbPublicKeyBase64 = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
+      } else {
+        // 如果转换ADB格式失败，清空旧的ADB key，回头使用fallback
+        this.adbPublicKeyBase64 = '';
+        console.warn('ADB: Could not convert imported key to ADB format');
+      }
+      
+      await this.saveKeys();
+      console.info('ADB: Custom key imported successfully');
+
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error('Import custom key failed:', error.message);
+      throw error;
+    }
+  }
+
 }

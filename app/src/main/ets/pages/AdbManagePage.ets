@@ -113,6 +113,17 @@ struct AdbManagePage {
           .onClick(() => {
              this.regenerateKey();
           })
+
+        Button('自定义密钥')
+          .width('80%')
+          .height(48)
+          .fontSize(16)
+          .type(ButtonType.Capsule)
+          .backgroundColor('#808080')
+          .margin({ top: 12 })
+          .onClick(() => {
+            this.showCustomKeyDialog();
+          })
           
         Text('注意：重新生成密钥后，所有已连接的设备都需要重新授权。')
           .fontSize(12)
@@ -128,6 +139,43 @@ struct AdbManagePage {
     .height('100%')
     .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+  }
+
+  // 自定义密钥弹框
+  @State inputPublicKey: string = '';
+  @State inputPrivateKey: string = '';
+
+  private customKeyDialog: CustomDialogController = new CustomDialogController({
+    builder: CustomKeyDialog({
+      onConfirm: (pub: string, pri: string) => this.handleImportKey(pub, pri)
+    }),
+    autoCancel: true,
+    customStyle: true
+  })
+
+  showCustomKeyDialog(): void {
+    this.customKeyDialog.open();
+  }
+
+  async handleImportKey(pub: string, pri: string): Promise<void> {
+    try {
+      await this.adbKeyManager.importCustomKey(pri, pub);
+      promptAction.showToast({ message: '自定义密钥已保存' });
+      this.refreshData();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error('Import custom key failed:', error);
+      
+      let friendMsg = '导入失败，请检查密钥格式是否正确';
+      // 简单的错误映射
+      if (error.message.includes('empty')) {
+        friendMsg = '导入失败：公钥或私钥不能为空';
+      } else if (error.message.includes('Base64')) {
+        friendMsg = '导入失败：密钥包含非法字符或格式错误';
+      }
+      
+      promptAction.showToast({ message: friendMsg });
+    }
   }
 
   async regenerateKey() {
@@ -150,5 +198,70 @@ struct AdbManagePage {
       console.error('Regenerate key failed:', err);
       promptAction.showToast({ message: '操作失败' });
     }
+  }
+}
+
+@CustomDialog
+struct CustomKeyDialog {
+  controller?: CustomDialogController;
+  onConfirm?: (pub: string, pri: string) => void;
+  @State publicKey: string = '';
+  @State privateKey: string = '';
+
+  build() {
+    Column() {
+      Text('自定义 ADB 密钥')
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .margin({ bottom: 16 })
+      
+      Text('Private Key (PKCS#8 Base64)')
+        .fontSize(12)
+        .alignSelf(ItemAlign.Start)
+        .fontColor('#666666')
+        .margin({ bottom: 4 })
+      TextArea({ placeholder: '在此粘贴私钥内容...' })
+        .height(100)
+        .fontSize(12)
+        .onChange((val) => this.privateKey = val)
+        .margin({ bottom: 12 })
+        
+      Text('Public Key (PKCS#8 Base64)')
+        .fontSize(12)
+        .alignSelf(ItemAlign.Start)
+        .fontColor('#666666')
+        .margin({ bottom: 4 })
+      TextArea({ placeholder: '在此粘贴公钥内容...' })
+        .height(100)
+        .fontSize(12)
+        .onChange((val) => this.publicKey = val)
+        .margin({ bottom: 24 })
+        
+      Row() {
+        Button('取消')
+          .width('40%')
+          .backgroundColor('#F5F5F5')
+          .fontColor('#000000')
+          .onClick(() => {
+            this.controller?.close();
+          })
+          
+        Button('保存并应用')
+          .width('40%')
+          .backgroundColor($r('app.color.btn_primary'))
+          .onClick(() => {
+            if (this.onConfirm) {
+              this.onConfirm(this.publicKey, this.privateKey);
+            }
+            this.controller?.close();
+          })
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.SpaceBetween)
+    }
+    .width('90%')
+    .padding(24)
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(16)
   }
 }
