@@ -61,6 +61,38 @@ struct ControlPage {
     this.setFullScreen();
   }
   
+  aboutToDisappear() {
+    console.info('ControlPage: aboutToDisappear - cleaning up');
+    
+    // 停止自动隐藏定时器
+    if (this.autoHideTimer !== -1) {
+      clearTimeout(this.autoHideTimer);
+      this.autoHideTimer = -1;
+    }
+    
+    // 关闭客户端连接
+    if (this.client) {
+      console.info('ControlPage: Closing client connection');
+      this.client.close();
+      this.client = null;
+    }
+    
+    // 恢复窗口状态
+    this.restoreWindow();
+  }
+  
+  async restoreWindow() {
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const windowClass = await window.getLastWindow(ctx);
+      // 恢复状态栏和导航栏
+      await windowClass.setWindowSystemBarEnable(['status', 'navigation']);
+      await windowClass.setWindowLayoutFullScreen(false);
+    } catch (err) {
+      console.error('Restore window failed:', err);
+    }
+  }
+  
   // 从已连接的客户端初始化
   private initFromExistingClient(): void {
     if (!this.device) return;
@@ -205,23 +237,6 @@ struct ControlPage {
       } catch (e) {
         console.error('Show toast failed:', e);
       }
-    }
-  }
-  
-  aboutToDisappear() {
-    this.clearAutoHideTimer();
-    this.client?.close();
-    // 恢复系统栏
-    this.restoreSystemBar();
-  }
-  
-  async restoreSystemBar() {
-    try {
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const windowClass = await window.getLastWindow(ctx);
-      await windowClass.setWindowSystemBarEnable(['status', 'navigation']);
-    } catch (err) {
-      console.error('Restore system bar failed:', err);
     }
   }
   

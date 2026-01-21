@@ -153,6 +153,13 @@ export class Adb {
       let wrteCount = 0;
       while (this.handleInRunning && !this.isClosed) {
         const message = await AdbMessage.parseAdbMessage(this.channel);
+        
+        // 检查是否已关闭，如果是则立即退出
+        if (this.isClosed || !this.handleInRunning) {
+          console.info('[ADB] handleIn: Connection closed, exiting loop');
+          break;
+        }
+        
         let bufferStream: BufferStream | undefined = this.connectionStreams.get(message.arg1);
         let isNeedNotify = bufferStream === undefined;
 
@@ -171,6 +178,9 @@ export class Adb {
             await bufferStream.setCanWrite(true);
             break;
           case AdbProtocol.CMD_WRTE:
+            // 如果已关闭，不处理新数据
+            if (this.isClosed) break;
+            
             bufferStream.pushSource(message.payload!);
             wrteCount++;
             // 收到数据，打印日志
@@ -195,8 +205,13 @@ export class Adb {
           this.notifyAll();
         }
       }
+      console.info('[ADB] handleIn loop exited normally');
     } catch (err) {
-      console.error('ADB handleIn error:', err);
+      if (!this.isClosed) {
+        console.error('ADB handleIn error:', err);
+      } else {
+        console.info('[ADB] handleIn exited due to close');
+      }
       this.close();
     }
   }
