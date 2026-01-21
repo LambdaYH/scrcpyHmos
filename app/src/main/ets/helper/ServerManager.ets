@@ -283,7 +283,7 @@ export class ServerManager {
     args.push(`power_off_on_close=${device.powerOffScreenOnClose}`);
     args.push(`clipboard_autosync=${device.clipboardAutosync}`);
     args.push(`downsize_on_error=${device.downsizeOnError}`);
-    args.push(`cleanup=false`);
+    args.push(`cleanup=true`);
 
     args.push(`log_level=${device.logLevel}`);
     
