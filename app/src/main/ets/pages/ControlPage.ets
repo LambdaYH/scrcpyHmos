@@ -43,7 +43,15 @@ struct ControlPage {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
       if (params && params['device']) {
         this.device = params['device'] as Device;
-        this.connectDevice();
+        
+        // 检查是否是从 Index 页面预连接后跳转的
+        if (params['clientReady'] === true) {
+          // 客户端已连接，从缓存获取
+          this.initFromExistingClient();
+        } else {
+          // 旧的流程 - 在本页面连接 (兼容性保留)
+          this.connectDevice();
+        }
       }
     } catch (e) {
       console.error('Failed to get router params:', e);
@@ -53,6 +61,59 @@ struct ControlPage {
     this.setFullScreen();
   }
   
+  // 从已连接的客户端初始化
+  private initFromExistingClient(): void {
+    if (!this.device) return;
+    
+    // 从 Client 缓存获取已连接的实例
+    this.client = Client.getClient(this.device.uuid);
+    
+    if (this.client) {
+      this.isConnected = true;
+      this.showLoading = false;  // 已经有视频流了
+      this.connectionStatus = 'Connected';
+      this.clientReady = true;
+      console.info('ControlPage: Using existing client connection');
+      
+      // 重新设置断开回调
+      this.client.setOnDisconnect((reason: string) => {
+        console.warn('[ControlPage] Disconnected:', reason);
+        this.showLoading = false;
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: reason });
+        } catch (e) {
+          console.error('Show toast failed:', e);
+        }
+        setTimeout(() => {
+          try {
+            this.getUIContext().getRouter().back();
+          } catch (e) {
+            console.error('Router back failed:', e);
+          }
+        }, 1000);
+      });
+      
+      // 获取视频尺寸
+      const videoSize = this.client.getVideoSize();
+      if (videoSize) {
+        this.videoWidth = videoSize.width;
+        this.videoHeight = videoSize.height;
+        console.info(`[ControlPage] Video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+      }
+      
+      // 如果surface已经就绪，立即初始化视频解码器
+      if (this.surfaceReady && this.surfaceId) {
+        this.initVideoDecoder();
+      }
+      
+      // 启动自动隐藏定时器
+      this.startAutoHideTimer();
+    } else {
+      console.error('ControlPage: Client not found in cache, falling back to connect');
+      this.connectDevice();
+    }
+  }
+
   async setFullScreen() {
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;

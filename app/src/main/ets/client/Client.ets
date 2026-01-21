@@ -24,6 +24,9 @@ export class Client {
   private videoConfig?: VideoConfig;
   // 断开连接回调
   private onDisconnectCallback?: (reason: string) => void;
+  // 首帧回调 - 视频开始传输时触发
+  private onFirstFrameCallback?: () => void;
+  private firstFrameReceived: boolean = false;
   
   constructor(device: Device) {
     this.device = device;
@@ -46,6 +49,16 @@ export class Client {
       this.onDisconnectCallback(reason);
     }
     this.close();
+  }
+
+  // 设置首帧回调 - 视频开始传输时触发
+  setOnFirstFrame(callback: () => void): void {
+    this.onFirstFrameCallback = callback;
+  }
+  
+  // 从缓存获取已连接的客户端
+  static getClient(uuid: string): Client | null {
+    return Client.allClients.get(uuid) || null;
   }
   
   static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext): Promise<Client | null> {
@@ -220,6 +233,14 @@ export class Client {
               console.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
               await this.videoDecoder.decode(frameData, 0);
               console.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
+              
+              // 首帧回调 - 通知UI视频已开始传输
+              if (!this.firstFrameReceived && this.onFirstFrameCallback) {
+                this.firstFrameReceived = true;
+                console.info('🎬 First frame received, triggering callback');
+                this.onFirstFrameCallback();
+              }
+              
               frameCount++;
             } else {
               console.warn(`[Frame ${frameCount}] Empty frame received: videoDecoder=${!!this.videoDecoder}`);
@@ -512,10 +533,6 @@ export class Client {
     Client.allClients.delete(this.device.uuid);
     
     console.info('Client closed');
-  }
-  
-  static getClient(uuid: string): Client | undefined {
-    return Client.allClients.get(uuid);
   }
   
   static async closeAll(): Promise<void> {

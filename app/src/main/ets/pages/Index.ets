@@ -1,15 +1,20 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
+import { Client } from '../client/Client';
 import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
+import { common } from '@kit.AbilityKit';
 
 @Entry
 @Component
 struct Index {
   @State devicesList: Device[] = [];
   @State currentIndex: number = 0;
+  @State isConnecting: boolean = false;
+  @State connectionStatus: string = '';
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
   private tabsController: TabsController = new TabsController();
+  private connectingClient: Client | null = null;
 
   aboutToAppear() {
     this.initPreferences();
@@ -140,6 +145,49 @@ struct Index {
 
       // Layer 2: Custom Floating Navigation Bar
       this.CustomTabBar()
+      
+      // Layer 3: Connection Loading Overlay
+      if (this.isConnecting) {
+        Column() {
+          Column() {
+            Text('连接中')
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
+              .margin({ bottom: 16 })
+            
+            Text(this.connectionStatus)
+              .fontSize(16)
+              .fontColor($r('app.color.text_secondary'))
+              .textAlign(TextAlign.Center)
+              .margin({ bottom: 24 })
+            
+            Button('取消')
+              .fontSize(16)
+              .fontColor($r('app.color.btn_primary'))
+              .backgroundColor(Color.Transparent)
+              .width(80)
+              .height(40)
+              .onClick(() => {
+                console.info('[Index] Cancel button clicked');
+                this.cancelConnect();
+              })
+          }
+          .width('80%')
+          .padding(24)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(16)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#99000000')
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        .zIndex(999)
+        .onClick(() => {
+          // 点击遮罩层不做任何事，阻止点击穿透到下层
+        })
+      }
     }
     .width('100%')
     .height('100%')
@@ -312,13 +360,57 @@ struct Index {
     .borderRadius(8)
   }
   
-  connectDevice(device: Device) {
-    this.getUIContext().getRouter().pushUrl({
-      url: 'pages/ControlPage',
-      params: { device: device }
-    }).catch(() => {
-      this.getUIContext().getPromptAction().showToast({ message: '连接失败' });
-    });
+  async connectDevice(device: Device) {
+    if (this.isConnecting) return;
+    
+    this.isConnecting = true;
+    
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      
+      // 第一阶段：等待ADB授权 (在连接开始前提示)
+      this.connectionStatus = '正在等待ADB授权...';
+      
+      // 启动连接
+      // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
+      this.connectingClient = await Client.startDevice(device, ctx, this.getUIContext());
+      
+      if (this.connectingClient) {
+        // 连接成功，立即跳转到控制页面
+        // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
+        console.info('[Index] Connection successful, navigating to ControlPage');
+        this.isConnecting = false;
+        
+        // 跳转到控制页面，传递已连接的 client
+        this.getUIContext().getRouter().pushUrl({
+          url: 'pages/ControlPage',
+          params: { device: device, clientReady: true }
+        }).catch(() => {
+          this.getUIContext().getPromptAction().showToast({ message: '跳转失败' });
+        });
+        
+      } else {
+        this.isConnecting = false;
+        this.getUIContext().getPromptAction().showToast({ 
+          message: '连接失败。请检查设备是否开启ADB，并在设备上授权USB调试。' 
+        });
+      }
+    } catch (err) {
+      this.isConnecting = false;
+      this.connectingClient = null;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('Connect device failed:', errMsg);
+      this.getUIContext().getPromptAction().showToast({ message: '连接错误: ' + errMsg });
+    }
+  }
+  
+  // 取消连接
+  cancelConnect() {
+    if (this.connectingClient) {
+      this.connectingClient.close();
+      this.connectingClient = null;
+    }
+    this.isConnecting = false;
   }
 
   @Builder
