@@ -14,6 +14,11 @@ struct ControlPage {
   @State videoHeight: number = 1080;
   @State componentWidth: number = 0;  // 实际组件宽度(px)
   @State componentHeight: number = 0;  // 实际组件高度(px)
+  @State containerWidth: number = 0;    // 容器宽度(px)
+  @State containerHeight: number = 0;   // 容器高度(px)
+  @State displayXComponentWidth: number = 0; // 计算后的显示宽度
+  @State displayXComponentHeight: number = 0; // 计算后的显示高度
+
   @State isConnected: boolean = false;
   @State connectionStatus: string = 'Connecting...';
   @State showLoading: boolean = true;
@@ -140,6 +145,8 @@ struct ControlPage {
         this.videoWidth = videoSize.width;
         this.videoHeight = videoSize.height;
         console.info(`[ControlPage] Video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        // 尝试重新计算布局
+        this.calcVideoDisplaySize();
       }
       
       // 如果surface已经就绪，立即初始化视频解码器
@@ -302,6 +309,39 @@ struct ControlPage {
        this.checkFabPosition = true;
     }
   }
+
+  // 计算视频显示尺寸 - 保持比例
+  calcVideoDisplaySize() {
+    if (this.containerWidth === 0 || this.containerHeight === 0 || this.videoWidth === 0 || this.videoHeight === 0) {
+      return;
+    }
+
+    const containerRatio = this.containerWidth / this.containerHeight;
+    const videoRatio = this.videoWidth / this.videoHeight;
+
+    if (containerRatio > videoRatio) {
+      // 容器比视频宽，以高度为基准
+      this.displayXComponentHeight = this.containerHeight;
+      this.displayXComponentWidth = this.containerHeight * videoRatio;
+    } else {
+      // 容器比视频窄，以宽度为基准
+      this.displayXComponentWidth = this.containerWidth;
+      this.displayXComponentHeight = this.containerWidth / videoRatio;
+    }
+    
+    // 更新组件实际尺寸，用于触摸映射和UI布局
+    this.componentWidth = this.displayXComponentWidth;
+    this.componentHeight = this.displayXComponentHeight;
+    
+    console.info(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
+    
+    // 重新校准悬浮按钮位置（如果有必要）
+    if (this.checkFabPosition) {
+      // 简单的越界检查，防止resize后按钮跑到看不见的地方
+       if (this.fabX > this.componentWidth) this.fabX = this.componentWidth - this.FAB_SIZE;
+       if (this.fabY > this.componentHeight) this.fabY = this.componentHeight - this.FAB_SIZE;
+    }
+  }
   
   build() {
     Stack() {
@@ -321,54 +361,65 @@ struct ControlPage {
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .backgroundColor('#000000')
+        .zIndex(100)
       }
       
-      // 视频显示区域
-      XComponent({
-        id: 'video_surface',
-        type: 'surface',
-        controller: this.xComponentController
-      })
-        .onLoad(() => {
-          this.surfaceId = this.xComponentController.getXComponentSurfaceId();
-          this.surfaceReady = true;
-          console.debug('XComponent surfaceId:', this.surfaceId);
-          
-          // 如果client已经就绪,立即初始化视频解码器
-          if (this.clientReady && this.client) {
-            this.initVideoDecoder();
-          }
+      // 视频显示区域容器 - 用于获取可用空间
+      Stack({ alignContent: Alignment.Center }) {
+        XComponent({
+          id: 'video_surface',
+          type: 'surface',
+          controller: this.xComponentController
         })
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#000000')
-        .onAreaChange((oldArea: Area, newArea: Area) => {
-          // 获取组件实际尺寸(px)
-          this.componentWidth = newArea.width as number;
-          this.componentHeight = newArea.height as number;
-          console.debug(`XComponent size: ${this.componentWidth}x${this.componentHeight}`);
-          this.initFabPosition();
-        })
-        .gesture(
-          GestureGroup(GestureMode.Parallel,
-            // 触摸手势
-            TapGesture({ count: 1, fingers: 1 })
-              .onAction((event: GestureEvent) => {
-                this.handleTap(event);
-              }),
-            // 多指触摸
-            PanGesture({ fingers: 1, distance: 0 })
-              .onActionStart((event: GestureEvent) => {
-                this.handleTouchStart(event);
-              })
-              .onActionUpdate((event: GestureEvent) => {
-                this.handleTouchMove(event);
-              })
-              .onActionEnd((event: GestureEvent) => {
-                this.handleTouchEnd(event);
-              })
+          .onLoad(() => {
+            this.surfaceId = this.xComponentController.getXComponentSurfaceId();
+            this.surfaceReady = true;
+            console.debug('XComponent surfaceId:', this.surfaceId);
+            
+            // 如果client已经就绪,立即初始化视频解码器
+            if (this.clientReady && this.client) {
+              this.initVideoDecoder();
+            }
+          })
+          .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
+          .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
+          .backgroundColor('#000000')
+          .gesture(
+            GestureGroup(GestureMode.Parallel,
+              // 触摸手势
+              TapGesture({ count: 1, fingers: 1 })
+                .onAction((event: GestureEvent) => {
+                  this.handleTap(event);
+                }),
+              // 多指触摸
+              PanGesture({ fingers: 1, distance: 0 })
+                .onActionStart((event: GestureEvent) => {
+                  this.handleTouchStart(event);
+                }),
+              PanGesture({ fingers: 1, distance: 0 })
+                .onActionUpdate((event: GestureEvent) => {
+                  this.handleTouchMove(event);
+                }),
+              PanGesture({ fingers: 1, distance: 0 })
+                .onActionEnd((event: GestureEvent) => {
+                  this.handleTouchEnd(event);
+                })
+            )
           )
-        )
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#000000') // 背景黑色，作为信箱模式的黑边
+      .onAreaChange((oldArea: Area, newArea: Area) => {
+        // 获取容器容器实际尺寸(px)
+        this.containerWidth = newArea.width as number;
+        this.containerHeight = newArea.height as number;
+        console.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
+        
+        // 重新计算视频显示尺寸
+        this.calcVideoDisplaySize();
+        this.initFabPosition();
+      })
       
       // 悬浮控制按钮
       Column() {
