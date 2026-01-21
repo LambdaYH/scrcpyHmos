@@ -74,6 +74,9 @@ export class Client {
       return client;
     }
     
+    // 连接失败，确保清理资源
+    console.info('[Client] startDevice failed, cleaning up...');
+    await client.close();
     return null;
   }
   
@@ -85,6 +88,9 @@ export class Client {
       
       if (!connected) {
         console.error('ClientStream connection failed');
+        // 连接失败，关闭流
+        await this.clientStream.close();
+        this.clientStream = undefined;
         return false;
       }
       
@@ -126,6 +132,11 @@ export class Client {
       return true;
     } catch (err) {
       console.error('Client connect failed:', err);
+      // 发生异常，确保关闭流
+      if (this.clientStream) {
+        await this.clientStream.close();
+        this.clientStream = undefined;
+      }
       return false;
     }
   }

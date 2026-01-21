@@ -14,7 +14,8 @@ export interface ServerStartResult {
 export class ServerManager {
   // Scrcpy版本号 - 必须与rawfile中的服务端版本匹配
   private static readonly SCRCPY_VERSION = '3.3.4';
-  private static readonly SERVER_PATH = '/data/local/tmp/scrcpy-server.jar';
+  // 服务端文件名包含版本号，确保版本更新后不混淆
+  private static readonly SERVER_PATH = `/data/local/tmp/scrcpy-server-${ServerManager.SCRCPY_VERSION}`;
   
   // 最后生成的SCID
   private static lastScid: string = '';
