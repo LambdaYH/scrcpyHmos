@@ -61,13 +61,13 @@ export class Client {
     return Client.allClients.get(uuid) || null;
   }
   
-  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext): Promise<Client | null> {
+  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void): Promise<Client | null> {
     if (Client.allClients.has(device.uuid)) {
       return Client.allClients.get(device.uuid) || null;
     }
     
     const client = new Client(device);
-    const success = await client.connect(context, uiContext);
+    const success = await client.connect(context, uiContext, onStatusChange);
     
     if (success) {
       Client.allClients.set(device.uuid, client);
@@ -80,10 +80,12 @@ export class Client {
     return null;
   }
   
-  private async connect(context: common.UIAbilityContext, uiContext: UIContext): Promise<boolean> {
+  private async connect(context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void): Promise<boolean> {
     try {
       // 1. 建立流连接
       this.clientStream = new ClientStream(this.device);
+      
+      if (onStatusChange) onStatusChange('正在建立连接...');
       const connected = await this.clientStream.connect(context, uiContext);
       
       if (!connected) {
@@ -94,6 +96,7 @@ export class Client {
         return false;
       }
       
+      if (onStatusChange) onStatusChange('正在获取视频配置...');
       // 2. 立即开始读取视频配置(不等待surface),防止服务器超时
       // 2. Video config is already loaded during handshake
       const videoConfig = this.clientStream.getVideoConfig();

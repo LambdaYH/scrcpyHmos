@@ -373,7 +373,10 @@ struct Index {
       
       // 启动连接
       // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
-      this.connectingClient = await Client.startDevice(device, ctx, this.getUIContext());
+      this.connectingClient = await Client.startDevice(device, ctx, this.getUIContext(), (status: string) => {
+        // 更新连接状态
+        this.connectionStatus = status;
+      });
       
       if (this.connectingClient) {
         // 连接成功，立即跳转到控制页面
