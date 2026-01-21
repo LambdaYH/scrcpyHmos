@@ -87,9 +87,22 @@ struct ControlPage {
       const windowClass = await window.getLastWindow(ctx);
       // 恢复状态栏和导航栏
       await windowClass.setWindowSystemBarEnable(['status', 'navigation']);
-      await windowClass.setWindowLayoutFullScreen(false);
+      // 保持全屏布局，避免跳动，因为主页也是全屏布局
+      await windowClass.setWindowLayoutFullScreen(true);
     } catch (err) {
       console.error('Restore window failed:', err);
+    }
+  }
+
+  // 统一退出页面逻辑
+  async exitPage() {
+    // 先恢复窗口状态
+    await this.restoreWindow();
+    // 再返回
+    try {
+      this.getUIContext().getRouter().back();
+    } catch (e) {
+      console.error('Router back failed:', e);
     }
   }
   
@@ -117,11 +130,7 @@ struct ControlPage {
           console.error('Show toast failed:', e);
         }
         setTimeout(() => {
-          try {
-            this.getUIContext().getRouter().back();
-          } catch (e) {
-            console.error('Router back failed:', e);
-          }
+          this.exitPage();
         }, 1000);
       });
       
@@ -194,11 +203,7 @@ struct ControlPage {
           }
           // 延迟返回，让用户看到提示
           setTimeout(() => {
-            try {
-              this.getUIContext().getRouter().back();
-            } catch (e) {
-              console.error('Router back failed:', e);
-            }
+            this.exitPage();
           }, 1000);
         });
         
@@ -423,7 +428,7 @@ struct ControlPage {
             .borderRadius(22)
             .onClick(() => {
               this.client?.close();
-              this.getUIContext().getRouter().back();
+              this.exitPage();
             })
           }
           .padding(8)
