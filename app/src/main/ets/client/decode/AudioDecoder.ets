@@ -6,16 +6,11 @@ export class AudioDecoder {
   private static currentInstance: AudioDecoder | null = null;
 
   private decoderId: number = 0;
-  private codecType: string = 'opus';
-  private sampleRate: number = 48000;
-  private channelCount: number = 2;
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
   async init(codecType: string, sampleRate: number = 48000, channelCount: number = 2): Promise<void> {
-    this.codecType = codecType;
-    this.sampleRate = sampleRate;
-    this.channelCount = channelCount;
+
 
     try {
       // 释放之前的解码器实例（防止资源泄漏）

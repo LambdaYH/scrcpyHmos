@@ -51,7 +51,7 @@ class UnderlySocketFunctionImpl implements UnderlySocketFunction {
     this.adb.writeToChannel(AdbProtocol.generateOkay(this.localId, this.remoteId));
   }
 
-  close(bufferStream: BufferStream): void {
+  close(_bufferStream: BufferStream): void {
     this.adb.connectionStreams.delete(this.localId);
     this.adb.writeToChannel(AdbProtocol.generateClose(this.localId, this.remoteId));
   }
@@ -116,16 +116,14 @@ export class Adb {
         pubKeyView.set(keyPair.publicKeyBytes);
         
         console.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
-        
-        try {
-          uiContext.getPromptAction().showDialog({
-            title: '身份验证',
-            message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
-            buttons: [{ text: '好的', color: '#007AFF' }]
-          });
-        } catch (e) {
-          console.error('Show auth dialog failed:', e);
-        }
+
+        uiContext.getPromptAction().showDialog({
+          title: '身份验证',
+          message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
+          buttons: [{ text: '好的', color: '#007AFF' }]
+        }).catch((error: Error) => {
+          console.error('Show auth dialog failed:', error);
+        });
         await this.channel.write(AdbProtocol.generateAuth(AdbProtocol.AUTH_TYPE_RSA_PUBLIC, pubKeyBuffer));
         message = await AdbMessage.parseAdbMessage(this.channel);
       }

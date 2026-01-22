@@ -1,4 +1,3 @@
-import { BusinessError } from '@ohos.base';
 import scrcpy_native from 'libscrcpy_native.so';
 
 // 视频解码器 - 使用Native C++ VideoDecoder
@@ -7,10 +6,7 @@ export class VideoDecoder {
   private static currentInstance: VideoDecoder | null = null;
 
   private decoderId: number = 0;
-  private surfaceId: string = '';
   private codecType: string = 'h264';
-  private width: number = 0;
-  private height: number = 0;
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
@@ -22,9 +18,6 @@ export class VideoDecoder {
     } else {
       this.codecType = codecTypeOrUseH265;
     }
-    this.surfaceId = surfaceId;
-    this.width = width;
-    this.height = height;
 
     try {
       // 释放之前的解码器实例（防止资源泄漏）

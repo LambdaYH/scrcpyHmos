@@ -2,7 +2,6 @@ import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
 import router from '@ohos.router';
-import promptAction from '@ohos.promptAction';
 import { common } from '@kit.AbilityKit';
 
 @Entry
@@ -181,7 +180,7 @@ struct Index {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#99000000')
+        .backgroundColor($r('sys.color.mask_secondary'))
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
         .zIndex(999)
         .onClick(() => {

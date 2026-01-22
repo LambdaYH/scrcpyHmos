@@ -18,7 +18,7 @@ class RsaKeyParams {
 
 // 完全按照原版AdbKeyPair.java
 export class AdbKeyPair {
-  private privateKey: cryptoFramework.PriKey;
+
   public readonly publicKeyBytes: Uint8Array;
   private keyPair?: cryptoFramework.KeyPair; // 缓存完整KeyPair用于签名
 
@@ -51,7 +51,6 @@ export class AdbKeyPair {
   ]);
 
   constructor(privateKey: cryptoFramework.PriKey, publicKeyBytes: Uint8Array, keyPair?: cryptoFramework.KeyPair) {
-    this.privateKey = privateKey;
     this.publicKeyBytes = publicKeyBytes;
     this.keyPair = keyPair;
   }

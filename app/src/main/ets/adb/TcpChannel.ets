@@ -213,10 +213,12 @@ export class TcpChannel implements AdbChannel {
         this.tcpSocket.off('error');
         
         // 关闭socket
-        this.tcpSocket.close();
-        console.info('TcpChannel: Socket closed');
+        this.tcpSocket.close().catch((err: Error) => {
+          console.error('Close socket failed:', err);
+        });
+        console.info('TcpChannel: Socket close requested');
       } catch (err) {
-        console.error('Close socket failed:', err);
+        console.error('Close socket error:', err);
       }
       this.isConnected = false;
       this.tcpSocket = undefined;

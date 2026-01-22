@@ -1,6 +1,5 @@
 // BufferNew - 阻塞队列缓冲区
 // 参考EasyControl的BufferNew.java实现
-import { buffer } from '@kit.ArkTS';
 
 // Promise resolver类型
 type PromiseResolver = () => void;
