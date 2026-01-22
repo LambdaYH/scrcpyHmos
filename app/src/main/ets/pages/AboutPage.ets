@@ -15,7 +15,7 @@ struct AboutPage {
         }
         .width(40)
         .height(40)
-        .backgroundColor($r('sys.color.titlebar_icon_background_color'))
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
           this.getUIContext().getRouter().back();
         })

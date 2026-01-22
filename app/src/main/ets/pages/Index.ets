@@ -473,7 +473,7 @@ struct Index {
     }
     .padding({ left: 16, right: 16 })
     .height('100%')
-    .backgroundColor($r('sys.color.titlebar_icon_background_color'))
+    .backgroundColor(Color.Transparent)
   }
 
   editDevice(device: Device) {
