@@ -108,7 +108,8 @@ struct DeviceDetail {
             TextInput({ text: this.device.adbPort.toString(), placeholder: '5555' })
               .type(InputType.Number)
               .onChange((value: string) => {
-                this.device.adbPort = parseInt(value) || 5555;
+                const num = parseInt(value);
+                this.device.adbPort = isNaN(num) ? 0 : num;
               })
           }
           .alignItems(HorizontalAlign.Start)
@@ -140,7 +141,8 @@ struct DeviceDetail {
                 .width(100)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
-                  this.device.maxSize = parseInt(value) || 1920;
+                  const num = parseInt(value);
+                  this.device.maxSize = isNaN(num) ? 0 : num;
                 })
             }
             .width('100%')
@@ -153,7 +155,8 @@ struct DeviceDetail {
                 .width(100)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
-                  this.device.maxFps = parseInt(value) || 60;
+                  const num = parseInt(value);
+                  this.device.maxFps = isNaN(num) ? 0 : num;
                 })
             }
             .width('100%')
@@ -166,7 +169,8 @@ struct DeviceDetail {
                 .width(120)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
-                  this.device.maxVideoBit = parseInt(value) || 8000000;
+                  const num = parseInt(value);
+                  this.device.maxVideoBit = isNaN(num) ? 0 : num;
                 })
             }
             .width('100%')
@@ -191,7 +195,8 @@ struct DeviceDetail {
                 .width(80)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
-                  this.device.displayId = parseInt(value) || 0;
+                  const num = parseInt(value);
+                  this.device.displayId = isNaN(num) ? 0 : num;
                 })
             }
             .width('100%')
@@ -238,7 +243,8 @@ struct DeviceDetail {
                   .width(120)
                   .textAlign(TextAlign.End)
                   .onChange((value: string) => {
-                    this.device.maxAudioBit = parseInt(value) || 128000;
+                    const num = parseInt(value);
+                    this.device.maxAudioBit = isNaN(num) ? 0 : num;
                   })
               }
               .width('100%')
@@ -352,7 +358,8 @@ struct DeviceDetail {
                   .type(InputType.Number)
                   .layoutWeight(1)
                   .onChange((value: string) => {
-                    this.device.customResolutionWidth = parseInt(value) || 1920;
+                    const num = parseInt(value);
+                    this.device.customResolutionWidth = isNaN(num) ? 0 : num;
                   })
 
                 Text('x')
@@ -361,7 +368,8 @@ struct DeviceDetail {
                   .type(InputType.Number)
                   .layoutWeight(1)
                   .onChange((value: string) => {
-                    this.device.customResolutionHeight = parseInt(value) || 1080;
+                    const num = parseInt(value);
+                    this.device.customResolutionHeight = isNaN(num) ? 0 : num;
                   })
               }
               .width('100%')
