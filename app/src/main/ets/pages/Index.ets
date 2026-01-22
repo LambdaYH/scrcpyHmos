@@ -379,10 +379,23 @@ struct Index {
       
       // 启动连接
       // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
-      this.connectingClient = await Client.startDevice(device, ctx, this.getUIContext(), (status: string) => {
+      const client = await Client.startDevice(device, ctx, this.getUIContext(), (status: string) => {
         // 更新连接状态
-        this.connectionStatus = status;
+        if (this.isConnecting) {
+          this.connectionStatus = status;
+        }
       });
+      
+      // 检查连接过程中是否被取消
+      if (!this.isConnecting) {
+        console.info('[Index] Connection cancelled by user');
+        if (client) {
+          await client.close();
+        }
+        return;
+      }
+      
+      this.connectingClient = client;
       
       if (this.connectingClient) {
         // 连接成功，立即跳转到控制页面
@@ -394,7 +407,8 @@ struct Index {
         this.getUIContext().getRouter().pushUrl({
           url: 'pages/ControlPage',
           params: { device: device, clientReady: true }
-        }).catch(() => {
+        }).catch((err: Error) => {
+          console.error('Navigate failed:', err);
           this.getUIContext().getPromptAction().showToast({ message: '跳转失败' });
         });
         
