@@ -174,8 +174,7 @@ export class AdbKeyManager {
         console.info('ADB: Using saved ADB format public key');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.adbPublicKeyBase64 + comment;
-        const encoder = new util.TextEncoder();
-        return encoder.encode(keyWithComment).buffer;
+        return buffer.from(keyWithComment, 'utf-8').buffer;
       }
       
       // 如果有cachedKeyPair，实时生成ADB格式公钥
@@ -189,8 +188,7 @@ export class AdbKeyManager {
           const comment = ' one@Aphone\0';
           const keyWithComment = base64Key + comment;
           
-          const encoder = new util.TextEncoder();
-          return encoder.encode(keyWithComment).buffer;
+          return buffer.from(keyWithComment, 'utf-8').buffer;
         }
       }
       
@@ -199,8 +197,7 @@ export class AdbKeyManager {
         console.warn('ADB: Using fallback PKCS public key format (may not work)');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.publicKeyBase64 + comment;
-        const encoder = new util.TextEncoder();
-        return encoder.encode(keyWithComment).buffer;
+        return buffer.from(keyWithComment, 'utf-8').buffer;
       }
       
       console.error('No public key available');

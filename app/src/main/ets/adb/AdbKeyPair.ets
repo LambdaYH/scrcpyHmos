@@ -120,7 +120,7 @@ export class AdbKeyPair {
         .replace('-----END PRIVATE KEY-----', '')
         .replace(/\n/g, '');
 
-      const privateKeyBytes = AdbKeyPair.adbBase64.decode(new util.TextEncoder().encodeInto(data));
+      const privateKeyBytes = AdbKeyPair.adbBase64.decode(new Uint8Array(buffer.from(data, 'utf-8').buffer));
 
       // 使用HarmonyOS API重建密钥对
       const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');

@@ -1,5 +1,3 @@
-import router from '@ohos.router';
-
 @Entry
 @Component
 struct HelpPage {
@@ -16,7 +14,7 @@ struct HelpPage {
         .height(40)
         .backgroundColor($r('sys.color.titlebar_icon_background_color'))
         .onClick(() => {
-          router.back();
+          this.getUIContext().getRouter().back();
         })
         .margin({ right: 12 }) // Gap 12vp
 

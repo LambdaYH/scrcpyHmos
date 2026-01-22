@@ -1,5 +1,3 @@
-import router from '@ohos.router';
-
 @Entry
 @Component
 struct AboutPage {
@@ -19,7 +17,7 @@ struct AboutPage {
         .height(40)
         .backgroundColor($r('sys.color.titlebar_icon_background_color'))
         .onClick(() => {
-          router.back();
+          this.getUIContext().getRouter().back();
         })
         
         Text('关于 / 开源说明')

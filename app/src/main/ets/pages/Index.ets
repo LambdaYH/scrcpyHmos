@@ -1,7 +1,7 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
-import router from '@ohos.router';
+
 import { common } from '@kit.AbilityKit';
 
 @Entry
@@ -75,7 +75,7 @@ struct Index {
       .justifyContent(FlexAlign.Center)
       .onClick(() => {
         // Direct action
-        router.pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
+        this.getUIContext().getRouter().pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
           console.error('Navigate failed:', err);
         });
       })
@@ -281,7 +281,7 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/AdbManagePage' }).catch((err: Error) => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/AdbManagePage' }).catch((err: Error) => {
                 console.error('Push url failed:', err);
               });
             })
@@ -312,7 +312,7 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/HelpPage' }).catch((err: Error) => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/HelpPage' }).catch((err: Error) => {
                 console.error('Push url failed:', err);
               });
             })

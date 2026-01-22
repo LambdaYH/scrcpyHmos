@@ -1,6 +1,4 @@
 import { AdbKeyManager } from '../helper/AdbKeyManager';
-import router from '@ohos.router';
-import promptAction from '@ohos.promptAction';
 
 @Entry
 @Component
@@ -41,7 +39,7 @@ struct AdbManagePage {
         .height(40)
         .backgroundColor($r('sys.color.titlebar_icon_background_color'))
         .onClick(() => {
-          router.back();
+          this.getUIContext().getRouter().back();
         })
         
         Text('密钥管理')
@@ -158,7 +156,7 @@ struct AdbManagePage {
   async handleImportKey(pub: string, pri: string): Promise<void> {
     try {
       await this.adbKeyManager.importCustomKey(pri, pub);
-      promptAction.showToast({ message: '自定义密钥已保存' });
+      this.getUIContext().getPromptAction().showToast({ message: '自定义密钥已保存' });
       this.refreshData();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -172,13 +170,13 @@ struct AdbManagePage {
         friendMsg = '导入失败：密钥包含非法字符或格式错误';
       }
       
-      promptAction.showToast({ message: friendMsg });
+      this.getUIContext().getPromptAction().showToast({ message: friendMsg });
     }
   }
 
   async regenerateKey() {
     try {
-      const result = await promptAction.showDialog({
+      const result = await this.getUIContext().getPromptAction().showDialog({
         title: '确认重新生成',
         message: '这将重置所有设备的连接授权状态。连接设备时需要在手机上重新点击"允许调试"。是否继续？',
         buttons: [
@@ -189,12 +187,12 @@ struct AdbManagePage {
       
       if (result.index === 1) {
         await this.adbKeyManager.regenerateCommonKey();
-        promptAction.showToast({ message: '密钥已重新生成' });
+        this.getUIContext().getPromptAction().showToast({ message: '密钥已重新生成' });
         this.refreshData();
       }
     } catch (err) {
       console.error('Regenerate key failed:', err);
-      promptAction.showToast({ message: '操作失败' });
+      this.getUIContext().getPromptAction().showToast({ message: '操作失败' });
     }
   }
 }

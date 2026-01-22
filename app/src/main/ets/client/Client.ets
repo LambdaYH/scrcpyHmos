@@ -143,7 +143,7 @@ export class Client {
     }
   }
   
-  private handleClipboardText(data: ArrayBuffer): void {
+  private async handleClipboardText(data: ArrayBuffer): Promise<void> {
     const decoder = util.TextDecoder.create('utf-8');
     const text = decoder.decodeToString(new Uint8Array(data));
     
@@ -152,7 +152,7 @@ export class Client {
       try {
         const systemPasteboard = pasteboard.getSystemPasteboard();
         const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-        systemPasteboard.setData(pasteData);
+        await systemPasteboard.setData(pasteData);
       } catch (err) {
         console.error('Set clipboard failed:', err);
       }
@@ -457,7 +457,7 @@ export class Client {
               const clipLen = await this.clientStream.readIntFromMain();
               if (clipLen > 0 && clipLen <= 100000) { // Limit sanity check
                 const clipTextData = await this.clientStream.readBytesFromMain(clipLen);
-                this.handleClipboardText(clipTextData);
+                await this.handleClipboardText(clipTextData);
               }
               break;
 
