@@ -54,25 +54,52 @@ struct Index {
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.8, y: 0.8 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ duration: 150, curve: Curve.EaseInOut })
       .onClick(() => {
         this.currentIndex = 0;
         this.tabsController.changeIndex(0);
       })
 
-      // Tab 2: Add Device (Standard Action)
+      // Tab 2: Add Device (Floating Action Button Style)
       Column() {
-        SymbolGlyph($r('sys.symbol.plus_square'))
-          .fontSize(24) // Standard 24vp
-          .fontColor([$r('app.color.text_tertiary')])
-        Text('添加')
-           .fontSize(10)
-           .fontWeight(FontWeight.Medium)
-           .fontColor($r('app.color.text_tertiary'))
-           .margin({ top: 4 })
+        Column() {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(28)
+            .fontColor([Color.White])
+        }
+        .width(48)
+        .height(48)
+        .borderRadius(24)
+        .backgroundColor($r('app.color.btn_primary'))
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .shadow({
+          radius: 8,
+          color: '#40007AFF',
+          offsetX: 0,
+          offsetY: 4
+        })
       }
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.9, y: 0.9 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ duration: 150, curve: Curve.EaseInOut })
       .onClick(() => {
         // Direct action
         this.getUIContext().getRouter().pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
@@ -94,6 +121,15 @@ struct Index {
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.9, y: 0.9 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ duration: 150, curve: Curve.EaseInOut })
       .onClick(() => {
         this.currentIndex = 2;
         this.tabsController.changeIndex(2);
