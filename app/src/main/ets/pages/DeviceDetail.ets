@@ -1,7 +1,6 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
-import router from '@ohos.router';
-import promptAction from '@ohos.promptAction';
+
 import { util } from '@kit.ArkTS';
 
 @Entry

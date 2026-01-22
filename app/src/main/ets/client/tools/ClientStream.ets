@@ -1,7 +1,7 @@
 // ClientStream - 客户端流管理
 // 完全按照EasyControl的ClientStream.java实现
 import { Device } from '../../entity/Device';
-import { Adb, AdbKeyPair } from '../../adb/Adb';
+import { Adb } from '../../adb/Adb';
 import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
@@ -36,7 +36,7 @@ export class ClientStream {
   private deviceName: string = '';
   private videoConfig?: VideoConfig;
 
-  private static readonly timeoutDelay = 15000;
+
 
   constructor(device: Device) {
     this.device = device;
@@ -112,213 +112,156 @@ export class ClientStream {
           console.debug('Reading video dummy byte...');
           await this.vidStream.readByteArray(1);
 
-          // Auto-detect audio support (Android 11+ required)
-          if (this.device.isAudio) {
-             try {
-               const sdkStr = await adb.runAdbCmd('shell getprop ro.build.version.sdk');
-               const sdk = parseInt(sdkStr.trim());
-               if (!isNaN(sdk) && sdk < 30) {
-                 console.warn(`Device SDK ${sdk} < 30 (Android 11), disabling audio automatically.`);
-                 this.device.isAudio = false;
-               }
-             } catch (e) {
-               console.warn('Failed to check Android version, assuming audio supported:', e);
-             }
+      // Auto-detect audio support (Android 11+ required)
+      if (this.device.isAudio) {
+        try {
+          const sdkStr = await adb.runAdbCmd('shell getprop ro.build.version.sdk');
+          const sdk = parseInt(sdkStr.trim());
+          if (!isNaN(sdk) && sdk < 30) {
+            console.warn(`Device SDK ${sdk} < 30 (Android 11), disabling audio automatically.`);
+            this.device.isAudio = false;
           }
-
-          // 2. Connect Audio (NO dummy byte - server already set sendDummyByte=false)
-          if (this.device.isAudio) {
-            console.info('Connecting Audio Stream...');
-            this.audStream = await adb.localSocketForward(socketName);
-            // No dummy byte read - server only sends on first socket
-          }
-
-          // 3. Connect Control (NO dummy byte)
-          console.info('Connecting Control Stream...');
-          this.msgStream = await adb.localSocketForward(socketName);
-          // No dummy byte read - server only sends on first socket
-          
-          break;
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
-          this.vidStream = undefined;
-          this.audStream = undefined;
-          this.msgStream = undefined;
-          if (i < reTry - 1) {
-            await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
-          }
+        } catch (e) {
+          console.warn('Failed to check Android version, assuming audio supported:', e);
         }
       }
-      
-      if (!this.vidStream || !this.audStream || !this.msgStream) {
-        throw new Error('Failed to connect to server streams after all retries');
+
+      // 2. Connect Audio (NO dummy byte - server already set sendDummyByte=false)
+      if (this.device.isAudio) {
+        console.info('Connecting Audio Stream...');
+        this.audStream = await adb.localSocketForward(socketName);
+        // No dummy byte read - server only sends on first socket
       }
 
-      // 5. Perform Handshake (Rest)
-      console.info('Performing handshake (Device Name, Codec)...');
-      await this.performHandshakeRest();
-
-      // 连接成功后才开始读取shell输出
-      this.readShellOutputAsync();
-
-      this.isConnected = true;
-      console.info('Connection established successfully');
-      return true;
+      // 3. Connect Control (NO dummy byte)
+      console.info('Connecting Control Stream...');
+      this.msgStream = await adb.localSocketForward(socketName);
+      // No dummy byte read - server only sends on first socket
+      
+      break;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('ClientStream connect failed:', errMsg);
-
-      if (errMsg.includes('Read timeout')) {
-        try {
-          uiContext.getPromptAction().showDialog({
-            title: '连接超时',
-            message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 手机处于锁屏状态。\n\n请解锁手机并检查屏幕上是否有"允许USB调试"的弹窗。',
-            buttons: [{ text: '知道了', color: '#007AFF' }]
-          });
-        } catch (e) {
-          console.error('Show timeout dialog failed:', e);
-        }
+      console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+      this.vidStream = undefined;
+      this.audStream = undefined;
+      this.msgStream = undefined;
+      if (i < reTry - 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
       }
-      return false;
     }
-  }
-
-  // 旧的buildServerArgs已经移到ServerManager，此方法仅为向后兼容保留
-  private buildServerArgs(): string {
-    // 返回空字符串，实际参数由ServerManager.buildServerArgs构建
-    return '';
-  }
-
-  // 使用ServerManager启动服务器 - 旧方法，已迁移到connect()
-  private async startServer(context: common.UIAbilityContext, adb: Adb): Promise<void> {
-    // 检查服务器是否存在
-    const exists = await ServerManager.checkServerExists(adb);
-    
-    if (!exists) {
-      console.info('Server not found, pushing new server...');
-      const serverData = await ServerManager.loadServerFromRawfile(context);
-      if (!serverData) {
-        throw new Error('Load server.jar failed');
-      }
-      await ServerManager.pushServer(adb, serverData);
-    } else {
-      console.info('Server already exists');
-    }
-
-    // 启动服务器
-    console.info(`Server params: stayAwake=${this.device.stayAwake}`);
-    const result = await ServerManager.startServer(adb, this.device);
-    this.shellStream = result.shellStream;
-    this.currentScid = result.scid;
-    console.info('Server start command sent via ServerManager');
-  }
-
-  private readShellOutputAsync(): void {
-    if (!this.shellStream) return;
-
-    const stream = this.shellStream;
-
-    // 异步读取shell输出
-    const readLoop = async () => {
-      try {
-        let count = 0;
-        while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
-          try {
-            if (!stream.isEmpty()) {
-              const data = await stream.readAllBytes();
-              if (data.byteLength > 0) {
-                const text = buffer.from(data).toString('utf-8');
-                console.debug('=== Server shell output ===');
-                console.debug(text);
-                console.debug('===========================');
-                count++;
-              }
-            } else {
-              // 空数据，等���一下再继续
-              await this.delay(200);
-            }
-          } catch (readErr) {
-            const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
-            if (!errMsg.includes('timeout')) {
-              console.error('Shell read error:', errMsg);
-              break;
-            }
-            // 超时是正常的，继续
-            await this.delay(100);
-          }
-        }
-        console.info('Shell output reading finished');
-      } catch (err) {
-        console.error('Shell read loop error:', err);
-      }
-    };
-
-    // 启动读取循环（不阻塞主流程）
-    readLoop();
-  }
-
-  // Remaining Handshake implementation (Device Name, Codec Meta)
-  private async performHandshakeRest(): Promise<void> {
-    if (!this.vidStream) {
-      throw new Error('Video stream not connected');
-    }
-
-    // Dummy bytes already read in connect()
-
-    // 2. Read Device Name (64 bytes) from Video Stream
-    console.debug('Reading device name...');
-    const deviceNameData = await this.vidStream.readByteArray(64);
-    const decoder = util.TextDecoder.create('utf-8');
-    this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
-    console.info(`Device Name: ${this.deviceName}`);
-
-    // 3. Read Codec Metadata (12 bytes) from Video Stream
-    console.debug('Reading codec metadata...');
-    const codecData = await this.vidStream.readByteArray(12);
-    const view = new DataView(codecData);
-    const codecId = view.getInt32(0, false);
-    const width = view.getInt32(4, false);
-    const height = view.getInt32(8, false);
-    
-    this.videoConfig = {
-      codecId: codecId,
-      width: width,
-      height: height
-    };
-    console.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
   }
   
-  getVideoConfig(): VideoConfig | undefined {
-    return this.videoConfig;
+  if (!this.vidStream || !this.audStream || !this.msgStream) {
+    throw new Error('Failed to connect to server streams after all retries');
   }
 
-  private async connectSocket(tcpSocket: socket.TCPSocket, address: string, port: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      tcpSocket.on('connect', () => {
-        console.debug('Socket connected');
-        resolve();
-      });
+  // 5. Perform Handshake (Rest)
+  console.info('Performing handshake (Device Name, Codec)...');
+  await this.performHandshakeRest();
 
-      tcpSocket.on('error', (err: Error) => {
-        console.error('Socket error:', err.message);
-        reject(err);
-      });
+  // 连接成功后才开始读取shell输出
+  this.readShellOutputAsync();
 
-      const connectAddress: socket.TCPConnectOptions = {
-        address: {
-          address: address,
-          port: port,
-          family: 1
-        },
-        timeout: 10000
-      };
+  this.isConnected = true;
+  console.info('Connection established successfully');
+  return true;
+} catch (err) {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  console.error('ClientStream connect failed:', errMsg);
 
-      tcpSocket.connect(connectAddress).catch((err: Error) => {
-        reject(err);
+  if (errMsg.includes('Read timeout')) {
+    try {
+      await uiContext.getPromptAction().showDialog({
+        title: '连接超时',
+        message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 手机处于锁屏状态。\n\n请解锁手机并检查屏幕上是否有"允许USB调试"的弹窗。',
+        buttons: [{ text: '知道了', color: '#007AFF' }]
       });
-    });
+    } catch (e) {
+      console.error('Show timeout dialog failed:', e);
+    }
   }
+  return false;
+}
+}
+
+private readShellOutputAsync(): void {
+if (!this.shellStream) return;
+
+const stream = this.shellStream;
+
+// 异步读取shell输出
+const readLoop = async () => {
+  try {
+    let count = 0;
+    while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
+      try {
+        if (!stream.isEmpty()) {
+          const data = await stream.readAllBytes();
+          if (data.byteLength > 0) {
+            const text = buffer.from(data).toString('utf-8');
+            console.debug('=== Server shell output ===');
+            console.debug(text);
+            console.debug('===========================');
+            count++;
+          }
+        } else {
+          // 空数据，等待一下再继续
+          await this.delay(200);
+        }
+      } catch (readErr) {
+        const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
+        if (!errMsg.includes('timeout')) {
+          console.error('Shell read error:', errMsg);
+          break;
+        }
+        // 超时是正常的，继续
+        await this.delay(100);
+      }
+    }
+    console.info('Shell output reading finished');
+  } catch (err) {
+    console.error('Shell read loop error:', err);
+  }
+};
+
+// 启动读取循环（不阻塞主流程）
+readLoop();
+}
+
+// Remaining Handshake implementation (Device Name, Codec Meta)
+private async performHandshakeRest(): Promise<void> {
+if (!this.vidStream) {
+  throw new Error('Video stream not connected');
+}
+
+// Dummy bytes already read in connect()
+
+// 2. Read Device Name (64 bytes) from Video Stream
+console.debug('Reading device name...');
+const deviceNameData = await this.vidStream.readByteArray(64);
+const decoder = util.TextDecoder.create('utf-8');
+this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
+console.info(`Device Name: ${this.deviceName}`);
+
+// 3. Read Codec Metadata (12 bytes) from Video Stream
+console.debug('Reading codec metadata...');
+const codecData = await this.vidStream.readByteArray(12);
+const view = new DataView(codecData);
+const codecId = view.getInt32(0, false);
+const width = view.getInt32(4, false);
+const height = view.getInt32(8, false);
+
+this.videoConfig = {
+  codecId: codecId,
+  width: width,
+  height: height
+};
+console.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
+}
+
+getVideoConfig(): VideoConfig | undefined {
+return this.videoConfig;
+}
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));

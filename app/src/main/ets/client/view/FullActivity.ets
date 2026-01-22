@@ -12,10 +12,6 @@ export class FullActivity {
   private player: ClientPlayer | null = null;
   private isActive: boolean = false;
 
-  // Surface尺寸
-  private surfaceWidth: number = 0;
-  private surfaceHeight: number = 0;
-
   constructor(device: Device) {
     this.device = device;
   }
@@ -30,14 +26,6 @@ export class FullActivity {
     this.player = player;
   }
 
-  // 设置Surface尺寸
-  setSurfaceSize(width: number, height: number): void {
-    this.surfaceWidth = width;
-    this.surfaceHeight = height;
-    if (this.controller) {
-      this.controller.setSurfaceSize(width, height);
-    }
-  }
 
   // 启动
   start(): void {

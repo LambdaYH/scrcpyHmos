@@ -102,10 +102,8 @@ export class ServerManager {
     try {
       console.info(`Pushing server.jar, size: ${serverData.byteLength} bytes`);
 
-      await adb.pushFile(serverData, ServerManager.SERVER_PATH, (progress: number) => {
-        if (progress % 10 === 0) {
-          // console.info(`Pushing: ${progress}%`);
-        }
+      await adb.pushFile(serverData, ServerManager.SERVER_PATH, () => {
+        // Callback
       });
 
       console.info('Server.jar pushed successfully, verifying...');
@@ -159,11 +157,6 @@ export class ServerManager {
         const redirectOp = i === 0 ? '>' : '>>';
         const echoCmd = `echo '${chunk}' ${redirectOp} ${ServerManager.SERVER_PATH}.b64\n`;
         await shellStream.write(buffer.from(echoCmd, 'utf-8').buffer);
-
-        if (i % 5 === 0) {
-          const progress = Math.floor((i / totalChunks) * 100);
-          // console.info(`Pushing via shell (base64): ${progress}%`);
-        }
 
         // 每10块等待一下，避免缓冲区溢出
         if (i % 10 === 9) {

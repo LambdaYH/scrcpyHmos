@@ -14,7 +14,7 @@ struct HelpPage {
         }
         .width(40)
         .height(40)
-        .backgroundColor('#00000000')
+        .backgroundColor($r('sys.color.titlebar_icon_background_color'))
         .onClick(() => {
           router.back();
         })

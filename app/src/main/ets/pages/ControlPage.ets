@@ -1,7 +1,6 @@
 import { Device } from '../entity/Device';
 import { Client } from '../client/Client';
-import { TouchAction, KeyCode, Action } from '../client/tools/ControlPacket';
-import router from '@ohos.router';
+import { TouchAction, KeyCode } from '../client/tools/ControlPacket';
 import window from '@ohos.window';
 import { common } from '@kit.AbilityKit';
 
@@ -351,16 +350,16 @@ struct ControlPage {
           LoadingProgress()
             .width(80)
             .height(80)
-            .color('#FFFFFF')
+            .color($r('sys.color.comp_background_list_card'))
           Text(this.connectionStatus)
             .fontSize(16)
-            .fontColor('#FFFFFF')
+            .fontColor($r('sys.color.comp_background_list_card'))
             .margin({ top: 16 })
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#000000')
+        .backgroundColor($r('sys.color.black'))
         .zIndex(100)
       }
       
@@ -383,7 +382,7 @@ struct ControlPage {
           })
           .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
           .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
-          .backgroundColor('#000000')
+          .backgroundColor($r('sys.color.black'))
           .gesture(
             GestureGroup(GestureMode.Parallel,
               // 触摸手势
@@ -409,8 +408,8 @@ struct ControlPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#000000') // 背景黑色，作为信箱模式的黑边
-      .onAreaChange((oldArea: Area, newArea: Area) => {
+      .backgroundColor($r('sys.color.black')) // 背景黑色，作为信箱模式的黑边
+      .onAreaChange((_: Area, newArea: Area) => {
         // 获取容器容器实际尺寸(px)
         this.containerWidth = newArea.width as number;
         this.containerHeight = newArea.height as number;
@@ -518,7 +517,7 @@ struct ControlPage {
       .zIndex(200)
       .gesture(
           PanGesture({ fingers: 1, direction: PanDirection.All })
-            .onActionStart((event: GestureEvent) => {
+            .onActionStart((_: GestureEvent) => {
                this.clearAutoHideTimer();
                if (this.showControlPanel) {
                  this.showControlPanel = false;
@@ -532,7 +531,7 @@ struct ControlPage {
                  this.fabY = this.dragStartY + event.offsetY;
                }
             })
-            .onActionEnd((event: GestureEvent) => {
+            .onActionEnd((_: GestureEvent) => {
                // 拖动结束，吸附到右侧
                if (this.componentWidth > 0) {
                  const dockX = this.componentWidth - this.FAB_SIZE - 20;
@@ -554,7 +553,7 @@ struct ControlPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#000000')
+    .backgroundColor($r('sys.color.black'))
   }
   
   handleTap(event: GestureEvent) {
@@ -613,7 +612,6 @@ struct ControlPage {
     this.panMoveCount++;
     
     // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
-    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
     
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -639,7 +637,6 @@ struct ControlPage {
     }, 100);
     
     // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
-    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
     
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -674,7 +671,11 @@ struct ControlPage {
       }
     }).catch((err: Error) => {
       console.error('Failed to init video decoder:', err.message);
-      this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
+      } catch (e) {
+        console.error('Show toast failed:', e);
+      }
     });
   }
 }

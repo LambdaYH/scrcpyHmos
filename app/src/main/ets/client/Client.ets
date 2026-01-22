@@ -1,7 +1,6 @@
 import { Device } from '../entity/Device';
 import { ClientStream } from './tools/ClientStream';
 import { VideoDecoder } from './decode/VideoDecoder';
-import { AudioDecoder } from './decode/AudioDecoder';
 import { ControlPacket, Action, TouchAction, KeyCode } from './tools/ControlPacket';
 import pasteboard from '@ohos.pasteboard';
 import { util } from '@kit.ArkTS';
@@ -160,17 +159,6 @@ export class Client {
     }
   }
   
-  private handleVideoSizeEvent(data: ArrayBuffer): void {
-    if (data.byteLength < 9) return;
-    
-    const view = new DataView(data);
-    const width = view.getUint32(1, true);
-    const height = view.getUint32(5, true);
-    
-    console.info(`Video size changed: ${width}x${height}`);
-    // TODO: 更新视频解码器配置
-  }
-  
   // 预加载视频配置 - 已移至 ClientStream.performHandshake
   // private preloadVideoConfig(): void { ... }
   
@@ -184,7 +172,6 @@ export class Client {
       console.debug('Waiting for video config (timeout: 5 seconds)...');
       
       // 等待视频配置预加载完成
-      let retries = 0;
       const config = this.clientStream.getVideoConfig();
       if (!config) {
          throw new Error('Video configuration not available from handshake');
@@ -483,7 +470,7 @@ export class Client {
             case 2: // DEVICE_MSG_TYPE_UHID_OUTPUT
               console.debug('[MainLoop] Received UHID output event');
                // uhid output: type(1) + id(2) + size(2) + data
-              const id = (await this.clientStream.readBytesFromMain(2)); // read 2 bytes
+              await this.clientStream.readBytesFromMain(2); // read 2 bytes
               const sizeData = await this.clientStream.readBytesFromMain(2);
               const view = new DataView(sizeData);
               const size = view.getUint16(0, false);

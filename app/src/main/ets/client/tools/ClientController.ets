@@ -7,8 +7,6 @@ import { util } from '@kit.ArkTS';
 
 export class ClientController {
   private clientStream: ClientStream;
-  private surfaceWidth: number = 0;
-  private surfaceHeight: number = 0;
   private videoWidth: number = 0;
   private videoHeight: number = 0;
   private pointerDownTime: Map<number, number> = new Map();
@@ -21,12 +19,6 @@ export class ClientController {
     this.clientStream = clientStream;
   }
 
-  // 设置Surface尺寸
-  setSurfaceSize(width: number, height: number): void {
-    this.surfaceWidth = width;
-    this.surfaceHeight = height;
-  }
-
   // 设置视频尺寸
   setVideoSize(width: number, height: number): void {
     this.videoWidth = width;
@@ -35,43 +27,62 @@ export class ClientController {
 
   // 处理触摸按下
   async handleTouchDown(pointerId: number, x: number, y: number): Promise<void> {
-    const normalizedX = this.normalizeX(x);
-    const normalizedY = this.normalizeY(y);
-
     this.pointerDownTime.set(pointerId, Date.now());
-    const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_DOWN, pointerId, normalizedX, normalizedY, 0);
+    // ControlPage 已经转换坐标到视频尺寸，这里直接使用
+    // 注意: ControlPacket 需要 pointerId 为 bigint (虽然JS number可以传, 但建议显式转换)
+    const packet = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_DOWN, 
+      BigInt(pointerId), 
+      x, 
+      y, 
+      this.videoWidth, 
+      this.videoHeight, 
+      1.0, 
+      0, 
+      0
+    );
     await this.clientStream.writeMain(packet);
   }
 
   // 处理触摸移动
   async handleTouchMove(pointerId: number, x: number, y: number): Promise<void> {
-    const normalizedX = this.normalizeX(x);
-    const normalizedY = this.normalizeY(y);
-
-    const downTime = this.pointerDownTime.get(pointerId) || Date.now();
-    const offsetTime = Date.now() - downTime;
-
-    const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_MOVE, pointerId, normalizedX, normalizedY, offsetTime);
+    const packet = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_MOVE, 
+      BigInt(pointerId), 
+      x, 
+      y, 
+      this.videoWidth, 
+      this.videoHeight, 
+      1.0, 
+      0, 
+      0
+    );
     await this.clientStream.writeMain(packet);
   }
 
   // 处理触摸抬起
   async handleTouchUp(pointerId: number, x: number, y: number): Promise<void> {
-    const normalizedX = this.normalizeX(x);
-    const normalizedY = this.normalizeY(y);
-
-    const downTime = this.pointerDownTime.get(pointerId) || Date.now();
-    const offsetTime = Date.now() - downTime;
-
-    const packet = ControlPacket.createTouchEvent(TouchAction.ACTION_UP, pointerId, normalizedX, normalizedY, offsetTime);
+    const packet = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_UP, 
+      BigInt(pointerId), 
+      x, 
+      y, 
+      this.videoWidth, 
+      this.videoHeight, 
+      1.0, 
+      0, 
+      0
+    );
     await this.clientStream.writeMain(packet);
     this.pointerDownTime.delete(pointerId);
   }
 
-  // 发送按键事件
+  // 发送按键事件 (Click: Down + Up)
   async sendKeyEvent(keyCode: KeyCode, metaState: number = 0): Promise<void> {
-    const packet = ControlPacket.createKeyEvent(keyCode, metaState);
-    await this.clientStream.writeMain(packet);
+    const packets = ControlPacket.createKeyEventPair(keyCode, metaState);
+    for (const packet of packets) {
+      await this.clientStream.writeMain(packet);
+    }
   }
 
   // 发送返回键
@@ -96,50 +107,38 @@ export class ClientController {
 
   // 发送剪贴板内容
   async sendClipboard(text: string): Promise<void> {
-    const packet = ControlPacket.createClipboardEvent(text);
+    const packet = ControlPacket.createSetClipboard(text, 0n, false);
     await this.clientStream.writeMain(packet);
   }
 
   // 旋转设备
   async rotateDevice(): Promise<void> {
-    const packet = ControlPacket.createRotateDeviceEvent();
+    const packet = ControlPacket.createRotateDevice();
     await this.clientStream.writeMain(packet);
   }
 
   // 设置屏幕电源
   async setScreenPower(mode: number): Promise<void> {
-    const packet = ControlPacket.createScreenPowerEvent(mode);
+    // 假设 mode 1=ON, 0=OFF (近似映射)
+    const on = mode === 1; // 简单判断
+    const packet = ControlPacket.createSetDisplayPower(on);
     await this.clientStream.writeMain(packet);
   }
 
-  // 修改分辨率
+  // 修改分辨率 (暂不支持 或 未在ControlPacket实现)
   async changeResolution(width: number, height: number): Promise<void> {
-    const packet = ControlPacket.createChangeResolutionEventExact(width, height);
-    await this.clientStream.writeMain(packet);
+    console.warn('changeResolution not implemented');
+    // const packet = ControlPacket.createChangeResolutionEventExact(width, height);
+    // await this.clientStream.writeMain(packet);
   }
 
-  // 发送保活包
+  // 发送保活包 (暂不支持 或 使用空包)
   async sendKeepAlive(): Promise<void> {
-    const packet = ControlPacket.createKeepAliveEvent();
-    await this.clientStream.writeMain(packet);
-  }
-
-  // 坐标归一化 X
-  private normalizeX(x: number): number {
-    if (this.surfaceWidth === 0) return 0;
-    let normalized = x / this.surfaceWidth;
-    if (normalized < 0) normalized = 0;
-    if (normalized > 1) normalized = 1;
-    return normalized;
-  }
-
-  // 坐标归一化 Y
-  private normalizeY(y: number): number {
-    if (this.surfaceHeight === 0) return 0;
-    let normalized = y / this.surfaceHeight;
-    if (normalized < 0) normalized = 0;
-    if (normalized > 1) normalized = 1;
-    return normalized;
+    // 使用 BACK UP 作为无副作用的包? 
+    // 或者暂不发送
+    console.debug('sendKeepAlive: no-op');
+    // const packet = ControlPacket.createKeepAliveEvent();
+    // await this.clientStream.writeMain(packet);
   }
 
   // 设置剪贴板变化回调

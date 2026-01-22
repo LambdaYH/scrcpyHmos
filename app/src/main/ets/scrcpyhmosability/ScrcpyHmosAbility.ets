@@ -7,7 +7,7 @@ import { AdbKeyManager } from '../helper/AdbKeyManager';
 const DOMAIN = 0x0000;
 
 export default class ScrcpyHmosAbility extends UIAbility {
-  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+  onCreate(_want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     } catch (err) {
@@ -29,7 +29,7 @@ export default class ScrcpyHmosAbility extends UIAbility {
     // Main window is created, set main page for this ability
     hilog.debug(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
-    windowStage.loadContent('pages/Index', (err) => {
+    windowStage.loadContent('pages/Index', async (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
@@ -37,7 +37,7 @@ export default class ScrcpyHmosAbility extends UIAbility {
       // Enable full screen
       try {
         let windowClass: window.Window = windowStage.getMainWindowSync();
-        windowClass.setWindowLayoutFullScreen(true);
+        await windowClass.setWindowLayoutFullScreen(true);
       } catch (exception) {
         hilog.error(DOMAIN, 'testTag', 'Failed to set the window layout to full-screen mode. Cause: ' + JSON.stringify(exception));
       }

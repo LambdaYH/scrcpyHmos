@@ -1,5 +1,3 @@
-import { Device } from '../entity/Device';
-import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { AdbKeyManager } from '../helper/AdbKeyManager';
 import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
@@ -41,7 +39,7 @@ struct AdbManagePage {
         }
         .width(40)
         .height(40)
-        .backgroundColor('#00000000')
+        .backgroundColor($r('sys.color.titlebar_icon_background_color'))
         .onClick(() => {
           router.back();
         })
@@ -241,7 +239,7 @@ struct CustomKeyDialog {
         Button('取消')
           .width('40%')
           .backgroundColor('#F5F5F5')
-          .fontColor('#000000')
+          .fontColor($r('sys.color.black'))
           .onClick(() => {
             this.controller?.close();
           })

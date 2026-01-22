@@ -210,7 +210,7 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       // Device List
-      if (this.devicesList.length === 0) {
+        if (this.devicesList.length === 0) {
         Column() {
           Text('暂无设备')
             .fontSize(16)
@@ -233,6 +233,7 @@ struct Index {
           })
         }
         .width('100%')
+        .height('100%')
         .layoutWeight(1)
         .padding({ left: 16, right: 16, top: 0, bottom: 0 })
       }
@@ -280,7 +281,9 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/AdbManagePage' });
+              router.pushUrl({ url: 'pages/AdbManagePage' }).catch((err: Error) => {
+                console.error('Push url failed:', err);
+              });
             })
           }
           .backgroundColor($r('app.color.bg_card'))
@@ -309,16 +312,20 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/HelpPage' });
+              router.pushUrl({ url: 'pages/HelpPage' }).catch((err: Error) => {
+                console.error('Push url failed:', err);
+              });
             })
           }
            .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
         }
         .width('100%')
+        .height('100%')
         .padding(16)
       }
       .layoutWeight(1)
+
 
 
     }
@@ -452,7 +459,7 @@ struct Index {
     }
     .padding({ left: 16, right: 16 })
     .height('100%')
-    .backgroundColor('#00000000')
+    .backgroundColor($r('sys.color.titlebar_icon_background_color'))
   }
 
   editDevice(device: Device) {

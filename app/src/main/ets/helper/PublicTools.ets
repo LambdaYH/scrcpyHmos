@@ -38,7 +38,12 @@ export class PublicTools {
 
   // Base64编码
   static encodeBase64(data: Uint8Array): string {
-    return buffer.from(data).toString('base64');
+    try {
+      return buffer.from(data).toString('base64');
+    } catch (e) {
+      console.error('Base64 encode failed:', e);
+      return '';
+    }
   }
 
   // Base64解码

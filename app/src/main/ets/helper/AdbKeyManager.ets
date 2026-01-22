@@ -2,7 +2,7 @@ import preferences from '@ohos.data.preferences';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import { util } from '@kit.ArkTS';
 import { buffer } from '@kit.ArkTS';
-import fs from '@ohos.file.fs';
+
 import { AdbKeyPair } from '../adb/AdbKeyPair';
 
 // RSA公钥解析结果
@@ -30,8 +30,8 @@ class KeyGenerationInfo {
 export class AdbKeyManager {
   private static instance: AdbKeyManager;
   private preferences?: preferences.Preferences;
-  private context?: Context;
-  private currentDeviceKey: string = ''; // 当前设备标识
+  // private context?: Context; // Removed unused
+  // private currentDeviceKey: string = ''; // Removed unused
   private publicKeyBase64: string = '';
   private privateKeyBase64: string = '';
   private adbPublicKeyBase64: string = ''; // 保存ADB格式的公钥
@@ -49,7 +49,6 @@ export class AdbKeyManager {
   
   async init(context: Context): Promise<void> {
     try {
-      this.context = context;
       this.preferences = await preferences.getPreferences(context, 'adb_keys');
       
       // 加载默认密钥
@@ -343,38 +342,43 @@ export class AdbKeyManager {
     }
     
     // 构建524字节的ADB公钥格式
-    const buf = buffer.from(new ArrayBuffer(524));
-    let offset = 0;
-    
-    // KEY_LENGTH_WORDS (4 bytes, little-endian)
-    buf.writeUInt32LE(KEY_LENGTH_WORDS, offset);
-    offset += 4;
-    
-    // n0inv negated (4 bytes, little-endian)
-    // 需要将bigint转换为有符号int32，处理溢出
-    const n0invValue = Number(n0inv % r32);
-    const negatedValue = -n0invValue;
-    // 使用无符号写入，然后解释为有符号
-    const uint32Value = (negatedValue >>> 0); // 转换为无符号32位整数
-    buf.writeUInt32LE(uint32Value, offset);
-    offset += 4;
-    
-    // myN array (256 bytes)
-    for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
-      buf.writeUInt32LE(myN[i] >>> 0, offset);
+    try {
+      const buf = buffer.from(new ArrayBuffer(524));
+      let offset = 0;
+      
+      // KEY_LENGTH_WORDS (4 bytes, little-endian)
+      buf.writeUInt32LE(KEY_LENGTH_WORDS, offset);
       offset += 4;
-    }
-    
-    // myRr array (256 bytes)
-    for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
-      buf.writeUInt32LE(myRr[i] >>> 0, offset);
+      
+      // n0inv negated (4 bytes, little-endian)
+      // 需要将bigint转换为有符号int32，处理溢出
+      const n0invValue = Number(n0inv % r32);
+      const negatedValue = -n0invValue;
+      // 使用无符号写入，然后解释为有符号
+      const uint32Value = (negatedValue >>> 0); // 转换为无符号32位整数
+      buf.writeUInt32LE(uint32Value, offset);
       offset += 4;
+      
+      // myN array (256 bytes)
+      for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
+        buf.writeUInt32LE(myN[i] >>> 0, offset);
+        offset += 4;
+      }
+      
+      // myRr array (256 bytes)
+      for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
+        buf.writeUInt32LE(myRr[i] >>> 0, offset);
+        offset += 4;
+      }
+      
+      // exponent (4 bytes, little-endian)
+      buf.writeUInt32LE(e >>> 0, offset);
+      
+      return buf.buffer;
+    } catch (err) {
+      console.error('Build ADB public key failed:', err);
+      return new ArrayBuffer(0);
     }
-    
-    // exponent (4 bytes, little-endian)
-    buf.writeUInt32LE(e >>> 0, offset);
-    
-    return buf.buffer;
   }
   
   // 计算模逆：a^-1 mod m
