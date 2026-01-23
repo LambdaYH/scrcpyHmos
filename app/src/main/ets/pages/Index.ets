@@ -3,6 +3,8 @@ import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
 
 import { common } from '@kit.AbilityKit';
+import { connection } from '@kit.NetworkKit';
+import pasteboard from '@ohos.pasteboard';
 
 @Entry
 @Component
@@ -14,6 +16,17 @@ struct Index {
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
   private tabsController: TabsController = new TabsController();
   private connectingClient: Client | null = null;
+  @State localIpList: string[] = [];
+  
+  private ipListDialogController: CustomDialogController = new CustomDialogController({
+    builder: IpListDialog({
+      ipList: this.localIpList,
+      onCopy: (ip: string): void => this.copyTextToClipboard(ip)
+    }),
+    alignment: DialogAlignment.Center,
+    autoCancel: true,
+    customStyle: true
+  });
 
   aboutToAppear() {
     this.initPreferences();
@@ -370,6 +383,35 @@ struct Index {
           }
            .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
+          .margin({ bottom: 12 })
+          
+          ListItem() {
+             Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.wifi'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text('查看本机IP')
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.showLocalIp();
+            })
+          }
+           .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
         }
         .width('100%')
         .height('100%')
@@ -553,5 +595,116 @@ struct Index {
         console.error('Show toast failed:', e);
       }
     }
+  }
+
+  async showLocalIp() {
+    try {
+      const netHandle = await connection.getDefaultNet();
+      if (!netHandle || netHandle.netId === 0) {
+         this.getUIContext().getPromptAction().showToast({ message: '未获取到默认网络' });
+         return;
+      }
+
+      const connectionProperties = await connection.getConnectionProperties(netHandle);
+      const linkAddresses = connectionProperties.linkAddresses;
+
+      if (linkAddresses && linkAddresses.length > 0) {
+        // 收集所有 IP 地址
+        const ipList: string[] = [];
+        for (const address of linkAddresses) {
+           if (address.address.address) {
+             ipList.push(address.address.address);
+           }
+        }
+        
+        if (ipList.length > 0) {
+          // 更新数据并显示弹窗
+          this.localIpList = ipList;
+          this.ipListDialogController.open();
+        } else {
+            this.getUIContext().getPromptAction().showToast({ message: '未获取到有效IP地址' });
+        }
+      } else {
+        this.getUIContext().getPromptAction().showToast({ message: '未获取到网络连接信息' });
+      }
+    } catch (err) {
+      console.error('Get network info failed:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.getUIContext().getPromptAction().showToast({ message: '获取IP失败: ' + errMsg });
+    }
+  }
+
+  private copyTextToClipboard(text: string): void {
+    try {
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      systemPasteboard.setData(pasteData).then(() => {
+        this.getUIContext().getPromptAction().showToast({ message: `已复制: ${text}` });
+      });
+    } catch (e) {
+      console.error('Copy to clipboard failed:', e);
+      this.getUIContext().getPromptAction().showToast({ message: '复制失败' });
+    }
+  }
+}
+
+@CustomDialog
+struct IpListDialog {
+  controller: CustomDialogController;
+  @Link ipList: string[];
+  onCopy: (ip: string) => void = () => {};
+
+  build() {
+    Column() {
+      Text('本机IP列表')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ top: 24, bottom: 8 })
+      
+      Text('点击条目复制')
+        .fontSize(14)
+        .fontColor($r('app.color.text_secondary'))
+        .margin({ bottom: 16 })
+
+      List() {
+        ForEach(this.ipList, (ip: string) => {
+          ListItem() {
+            Button({ type: ButtonType.Normal, stateEffect: true }) {
+              Text(ip)
+                .fontSize(18)
+                .fontColor($r('app.color.text_primary'))
+                .width('100%')
+                .textAlign(TextAlign.Center)
+                .padding({ top: 16, bottom: 16 })
+            }
+            .backgroundColor(Color.Transparent)
+            .width('100%')
+            .onClick(() => {
+              this.onCopy(ip);
+              this.controller.close();
+            })
+          }
+        })
+      }
+      .width('100%')
+      .constraintSize({ maxHeight: '50%' })
+      .edgeEffect(EdgeEffect.Spring)
+      .divider({ strokeWidth: 0.5, color: '#1A000000', startMargin: 16, endMargin: 16 })
+
+      Button('取消')
+        .fontSize(16)
+        .fontColor($r('app.color.btn_primary'))
+        .backgroundColor(Color.Transparent)
+        .onClick(() => {
+          this.controller.close();
+        })
+        .margin({ top: 16, bottom: 16 })
+        .width('100%')
+    }
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(24)
+    .width('80%')
+    .shadow({ radius: 24, color: '#4d000000', offsetY: 8 })
   }
 }
