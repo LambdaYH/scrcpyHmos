@@ -448,7 +448,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('日志级别')
+              Text('服务端日志级别')
                 .layoutWeight(1)
               Select([
                 { value: 'verbose' },

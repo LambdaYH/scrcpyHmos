@@ -125,20 +125,15 @@ export class ClientController {
     await this.clientStream.writeMain(packet);
   }
 
-  // 修改分辨率 (暂不支持 或 未在ControlPacket实现)
-  async changeResolution(width: number, height: number): Promise<void> {
-    console.warn('changeResolution not implemented');
-    // const packet = ControlPacket.createChangeResolutionEventExact(width, height);
-    // await this.clientStream.writeMain(packet);
-  }
+
 
   // 发送保活包 (暂不支持 或 使用空包)
+  // 发送保活包
+  // Scrcpy 协议没有专门的 KEEP_ALIVE 包
+  // 我们可以发送一个副作用最小的包，例如 GET_CLIPBOARD (copyKey=0)
   async sendKeepAlive(): Promise<void> {
-    // 使用 BACK UP 作为无副作用的包? 
-    // 或者暂不发送
-    console.debug('sendKeepAlive: no-op');
-    // const packet = ControlPacket.createKeepAliveEvent();
-    // await this.clientStream.writeMain(packet);
+    const packet = ControlPacket.createGetClipboard(0);
+    await this.clientStream.writeMain(packet);
   }
 
   // 设置剪贴板变化回调
