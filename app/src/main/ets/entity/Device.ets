@@ -1,3 +1,9 @@
+// 额外参数接口
+export interface ExtraParam {
+  key: string;
+  value: string;
+}
+
 // 设备实体类
 export class Device {
   uuid: string = '';
@@ -43,6 +49,9 @@ export class Device {
   downsizeOnError: boolean = true;
   connectOnStart: boolean = false;
   logLevel: string = 'info'; // 'verbose', 'debug', 'info', 'warn', 'error'
+  
+  // 额外参数 (key-value pairs for custom server arguments)
+  extraParams: ExtraParam[] = [];
 
   static readonly TYPE_NETWORK: number = 0;
 

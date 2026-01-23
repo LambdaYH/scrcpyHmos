@@ -1,4 +1,4 @@
-import { Device } from '../entity/Device';
+import { Device, ExtraParam } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 
 import { util } from '@kit.ArkTS';
@@ -136,7 +136,7 @@ struct DeviceDetail {
             Row() {
               Text('最大尺寸')
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxSize.toString(), placeholder: '1920' })
+              TextInput({ text: this.device.maxSize ? this.device.maxSize.toString() : '', placeholder: '默认' })
                 .type(InputType.Number)
                 .width(100)
                 .textAlign(TextAlign.End)
@@ -150,7 +150,7 @@ struct DeviceDetail {
             Row() {
               Text('最大帧率')
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxFps.toString(), placeholder: '60' })
+              TextInput({ text: this.device.maxFps ? this.device.maxFps.toString() : '', placeholder: '默认' })
                 .type(InputType.Number)
                 .width(100)
                 .textAlign(TextAlign.End)
@@ -164,7 +164,7 @@ struct DeviceDetail {
             Row() {
               Text('比特率 (bps)')
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxVideoBit.toString(), placeholder: '8000000' })
+              TextInput({ text: this.device.maxVideoBit ? this.device.maxVideoBit.toString() : '', placeholder: '默认' })
                 .type(InputType.Number)
                 .width(120)
                 .textAlign(TextAlign.End)
@@ -190,7 +190,7 @@ struct DeviceDetail {
             Row() {
               Text('显示器ID')
                 .layoutWeight(1)
-              TextInput({ text: this.device.displayId.toString(), placeholder: '0' })
+              TextInput({ text: this.device.displayId ? this.device.displayId.toString() : '', placeholder: '默认' })
                 .type(InputType.Number)
                 .width(80)
                 .textAlign(TextAlign.End)
@@ -238,7 +238,7 @@ struct DeviceDetail {
               Row() {
                 Text('音频比特率 (bps)')
                   .layoutWeight(1)
-                TextInput({ text: this.device.maxAudioBit.toString(), placeholder: '128000' })
+                TextInput({ text: this.device.maxAudioBit ? this.device.maxAudioBit.toString() : '', placeholder: '默认' })
                   .type(InputType.Number)
                   .width(120)
                   .textAlign(TextAlign.End)
@@ -466,6 +466,74 @@ struct DeviceDetail {
                 .width(100)
             }
             .width('100%')
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(8)
+
+          // 额外参数
+          Column({ space: 12 }) {
+            Row() {
+              Text('额外参数')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .layoutWeight(1)
+              
+              Button({ type: ButtonType.Circle, stateEffect: true }) {
+                SymbolGlyph($r('sys.symbol.plus'))
+                  .fontSize(20)
+                  .fontColor([Color.White])
+              }
+              .width(32)
+              .height(32)
+              .backgroundColor($r('app.color.btn_primary'))
+              .onClick(() => {
+                const newParam: ExtraParam = { key: '', value: '' };
+                this.device.extraParams.push(newParam);
+                this.device.extraParams = [...this.device.extraParams]; // trigger re-render
+              })
+            }
+            .width('100%')
+
+            Text('格式: 参数名=值，用于设置未在界面中定义的服务端参数')
+              .fontSize(12)
+              .fontColor($r('app.color.text_tertiary'))
+              .width('100%')
+
+            ForEach(this.device.extraParams, (param: ExtraParam, index: number) => {
+              Row({ space: 8 }) {
+                TextInput({ text: param.key, placeholder: '参数名' })
+                  .layoutWeight(1)
+                  .onChange((value: string) => {
+                    this.device.extraParams[index].key = value;
+                  })
+                
+                Text('=')
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_secondary'))
+                
+                TextInput({ text: param.value, placeholder: '值' })
+                  .layoutWeight(1)
+                  .onChange((value: string) => {
+                    this.device.extraParams[index].value = value;
+                  })
+                
+                Button({ type: ButtonType.Circle, stateEffect: true }) {
+                  SymbolGlyph($r('sys.symbol.minus'))
+                    .fontSize(18)
+                    .fontColor([$r('app.color.icon_red')])
+                }
+                .width(32)
+                .height(32)
+                .backgroundColor($r('app.color.bg_action_red'))
+                .onClick(() => {
+                  this.device.extraParams.splice(index, 1);
+                  this.device.extraParams = [...this.device.extraParams]; // trigger re-render
+                })
+              }
+              .width('100%')
+            }, (param: ExtraParam, index: number) => `${index}`)
           }
           .width('100%')
           .padding(16)

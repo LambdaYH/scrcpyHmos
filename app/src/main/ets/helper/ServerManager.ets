@@ -251,9 +251,18 @@ export class ServerManager {
     // 视频参数
     args.push(`video=true`);
     args.push(`video_codec=${device.videoCodec}`);
-    args.push(`max_size=${device.maxSize}`);
-    args.push(`max_fps=${device.maxFps}`);
-    args.push(`video_bit_rate=${device.maxVideoBit}`);
+    // max_size 为 0 时不传递，使用原始分辨率
+    if (device.maxSize) {
+      args.push(`max_size=${device.maxSize}`);
+    }
+    // max_fps 为 0 时不传递，使用原始帧率
+    if (device.maxFps) {
+      args.push(`max_fps=${device.maxFps}`);
+    }
+    // video_bit_rate 为 0 时不传递，使用服务端默认值
+    if (device.maxVideoBit) {
+      args.push(`video_bit_rate=${device.maxVideoBit}`);
+    }
     if (device.crop) {
       args.push(`crop=${device.crop}`);
     }
@@ -265,7 +274,10 @@ export class ServerManager {
     args.push(`audio=${device.isAudio}`);
     if (device.isAudio) {
       args.push(`audio_codec=${device.audioCodec}`);
-      args.push(`audio_bit_rate=${device.maxAudioBit}`);
+      // audio_bit_rate 为 0 时不传递，使用服务端默认值
+      if (device.maxAudioBit) {
+        args.push(`audio_bit_rate=${device.maxAudioBit}`);
+      }
     }
 
     // 控制和行为参数
@@ -288,6 +300,17 @@ export class ServerManager {
     // args.push(`send_codec_meta=true`);
     
     // args.push(`send_dummy_byte=false`);
+    
+    // 额外参数（用户自定义）
+    if (device.extraParams && device.extraParams.length > 0) {
+      for (const param of device.extraParams) {
+        if (param.key && param.key.trim()) {
+          // 自动将中划线转换为下划线（与官方scrcpy CLI行为一致）
+          const key = param.key.trim().replace(/-/g, '_');
+          args.push(`${key}=${param.value || ''}`);
+        }
+      }
+    }
 
     return args.join(' ');
   }
