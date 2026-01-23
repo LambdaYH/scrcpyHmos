@@ -1,7 +1,7 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
-import { LoggerIndex } from '../helper/Logger';
+import { LoggerIndex, Logger } from '../helper/Logger';
 
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
@@ -48,6 +48,7 @@ struct Index {
     try {
       const context = getContext(this) as Context;
       await this.preferencesHelper.init(context);
+      Logger.init(context as common.UIAbilityContext);
       const hasDevices = await this.loadDevices();
       
       // 检查自动连接
@@ -355,6 +356,37 @@ struct Index {
           .borderRadius(12)
           .margin({ bottom: 12 })
           
+          ListItem() {
+            Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.list_bullet'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text('系统日志')
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/LogPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
           ListItem() {
              Row() {
               Row() {
