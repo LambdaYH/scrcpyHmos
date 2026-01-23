@@ -71,6 +71,10 @@
     {
       "name": "permission_microphone_reason",
       "value": "需要麦克风权限传输音频"
+    },
+    {
+      "name": "permission_read_pasteboard_reason",
+      "value": "需要读取剪贴板权限以同步内容到被控设备"
     }
   ]
 }

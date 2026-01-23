@@ -378,6 +378,15 @@ export class Client {
     }
   }
 
+  // 发送剪贴板内容到 Android 设备
+  async sendClipboard(text: string, paste: boolean = true): Promise<void> {
+    if (!this.clientStream || this.isClosed) return;
+    
+    const packet = ControlPacket.createSetClipboard(text, 0n, paste);
+    await this.writeToMain(packet);
+    console.info(`📋 Sent clipboard to Android: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+  }
+
   // 内部方法：写入数据流
   private async writeToMain(data: ArrayBuffer): Promise<void> {
     if (this.clientStream) {

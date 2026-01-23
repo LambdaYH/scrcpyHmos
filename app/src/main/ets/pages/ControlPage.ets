@@ -3,6 +3,7 @@ import { Client } from '../client/Client';
 import { TouchAction, KeyCode } from '../client/tools/ControlPacket';
 import window from '@ohos.window';
 import { common } from '@kit.AbilityKit';
+import pasteboard from '@ohos.pasteboard';
 
 @Entry
 @Component
@@ -466,6 +467,35 @@ struct ControlPage {
             .onClick(() => {
               this.client?.sendKeyEvent(KeyCode.KEYCODE_APP_SWITCH);
             })
+            
+            // 剪贴板同步按钮 - 使用安全控件
+            PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Circle })
+              .width(44)
+              .height(44)
+              .backgroundColor('#80000000')
+              .onClick(async (_event: ClickEvent, result: PasteButtonOnClickResult) => {
+                if (result === PasteButtonOnClickResult.SUCCESS) {
+                  try {
+                    const systemPasteboard = pasteboard.getSystemPasteboard();
+                    const hasData = await systemPasteboard.hasData();
+                    if (!hasData) {
+                      this.getUIContext().getPromptAction().showToast({ message: '剪贴板为空' });
+                      return;
+                    }
+                    const pasteData = await systemPasteboard.getData();
+                    const text = pasteData.getPrimaryText();
+                    if (text && this.client) {
+                      await this.client.sendClipboard(text, true);
+                      this.getUIContext().getPromptAction().showToast({ message: '已同步到设备' });
+                    } else {
+                      this.getUIContext().getPromptAction().showToast({ message: '无文本内容' });
+                    }
+                  } catch (err) {
+                    console.error('Paste failed:', err);
+                    this.getUIContext().getPromptAction().showToast({ message: '粘贴失败' });
+                  }
+                }
+              })
             
             // 断开连接并返回
             Button() {
