@@ -23,18 +23,33 @@ struct Index {
     this.loadDevices();
   }
   
+
+
+  async loadDevices(): Promise<boolean> {
+    this.devicesList = this.preferencesHelper.getDevicesList();
+    return this.devicesList.length > 0;
+  }
+
   async initPreferences() {
     try {
       const context = getContext(this) as Context;
       await this.preferencesHelper.init(context);
-      await this.loadDevices();
+      const hasDevices = await this.loadDevices();
+      
+      // 检查自动连接
+      if (hasDevices) {
+        const autoConnectDevice = this.devicesList.find(d => d.connectOnStart);
+        if (autoConnectDevice) {
+          console.info('[Index] Auto-connecting to device:', autoConnectDevice.name);
+          // 稍微延迟一下，让UI先渲染出来
+          setTimeout(() => {
+            this.connectDevice(autoConnectDevice);
+          }, 500);
+        }
+      }
     } catch (err) {
       console.error('Init preferences failed:', err);
     }
-  }
-
-  async loadDevices() {
-    this.devicesList = this.preferencesHelper.getDevicesList();
   }
 
   @Builder

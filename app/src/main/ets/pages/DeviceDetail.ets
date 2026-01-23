@@ -438,7 +438,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('开机自动连接')
+              Text('应用启动时自动连接')
               Toggle({ type: ToggleType.Switch, isOn: this.device.connectOnStart })
                 .onChange((isOn: boolean) => {
                   this.device.connectOnStart = isOn;
