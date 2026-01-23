@@ -1,5 +1,6 @@
 import { Device, ExtraParam } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
+import { LoggerDeviceDetail } from '../helper/Logger';
 
 import { util } from '@kit.ArkTS';
 
@@ -37,7 +38,7 @@ struct DeviceDetail {
         this.device.name = '新设备';
       }
     } catch (e) {
-      console.error('Failed to get router params:', e);
+      LoggerDeviceDetail.error('Failed to get router params:', e);
       // 默认为新设备
       this.device.uuid = util.generateRandomUUID(true);
       this.device.name = '新设备';
@@ -592,7 +593,7 @@ struct DeviceDetail {
       try {
         this.getUIContext().getPromptAction().showToast({ message: '请填写完整信息' });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerDeviceDetail.error('Show toast failed:', e);
       }
       return;
     }
@@ -606,14 +607,14 @@ struct DeviceDetail {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.toast_success') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerDeviceDetail.error('Show toast failed:', e);
       }
       this.getUIContext().getRouter().back();
     } catch (err) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.toast_fail') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerDeviceDetail.error('Show toast failed:', e);
       }
     }
   }
@@ -624,14 +625,14 @@ struct DeviceDetail {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.toast_success') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerDeviceDetail.error('Show toast failed:', e);
       }
       this.getUIContext().getRouter().back();
     } catch (err) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.toast_fail') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerDeviceDetail.error('Show toast failed:', e);
       }
     }
   }

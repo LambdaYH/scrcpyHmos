@@ -4,6 +4,7 @@ import { AdbChannel } from './AdbChannel';
 import { TcpChannel } from './TcpChannel';
 import { AdbProtocol, AdbMessage } from './AdbProtocol';
 import { BufferStream, UnderlySocketFunction } from '../buffer/BufferStream';
+import { LoggerAdb } from '../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
 import { AdbKeyPair } from './AdbKeyPair';
 import { AdbBase64Impl } from './AdbBase64';
@@ -115,14 +116,14 @@ export class Adb {
         const pubKeyView = new Uint8Array(pubKeyBuffer);
         pubKeyView.set(keyPair.publicKeyBytes);
         
-        console.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
+        LoggerAdb.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
 
         uiContext.getPromptAction().showDialog({
           title: '身份验证',
           message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
           buttons: [{ text: '好的', color: '#007AFF' }]
         }).catch((error: Error) => {
-          console.error('Show auth dialog failed:', error);
+          LoggerAdb.error('Show auth dialog failed:', error);
         });
         await this.channel.write(AdbProtocol.generateAuth(AdbProtocol.AUTH_TYPE_RSA_PUBLIC, pubKeyBuffer));
         message = await AdbMessage.parseAdbMessage(this.channel);
@@ -135,7 +136,7 @@ export class Adb {
     }
 
     this.maxData = message.arg0;
-    console.info('ADB: 连接成功, maxData:', this.maxData);
+    LoggerAdb.info('ADB: 连接成功, maxData:', this.maxData);
 
     // 启动后台消息处理
     this.startHandleIn();
@@ -154,7 +155,7 @@ export class Adb {
         
         // 检查是否已关闭，如果是则立即退出
         if (this.isClosed || !this.handleInRunning) {
-          console.info('[ADB] handleIn: Connection closed, exiting loop');
+          LoggerAdb.info('[ADB] handleIn: Connection closed, exiting loop');
           break;
         }
         
@@ -163,7 +164,7 @@ export class Adb {
 
         // 新连接
         if (isNeedNotify) {
-          console.debug(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
+          LoggerAdb.debug(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
           bufferStream = this.createNewStream(message.arg1, message.arg0, message.arg1 > 0);
         }
 
@@ -183,17 +184,17 @@ export class Adb {
             wrteCount++;
             // 收到数据，打印日志
             if (message.payload!.byteLength < 100) {
-                 console.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}, data=${Array.from(new Uint8Array(message.payload!)).map(b => b.toString(16)).join(',')}`);
+                 LoggerAdb.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}, data=${Array.from(new Uint8Array(message.payload!)).map(b => b.toString(16)).join(',')}`);
             } else {
-                 console.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}`);
+                 LoggerAdb.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}`);
             }
             if (wrteCount % 30 === 0) {
-              console.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}`);
+              LoggerAdb.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}`);
             }
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
           case AdbProtocol.CMD_CLSE:
-            console.info(`[ADB] Connection closed: localId=${message.arg1}`);
+            LoggerAdb.info(`[ADB] Connection closed: localId=${message.arg1}`);
             bufferStream.close();
             isNeedNotify = true;
             break;
@@ -203,12 +204,12 @@ export class Adb {
           this.notifyAll();
         }
       }
-      console.info('[ADB] handleIn loop exited normally');
+      LoggerAdb.info('[ADB] handleIn loop exited normally');
     } catch (err) {
       if (!this.isClosed) {
-        console.error('ADB handleIn error:', err);
+        LoggerAdb.error('ADB handleIn error:', err);
       } else {
-        console.info('[ADB] handleIn exited due to close');
+        LoggerAdb.info('[ADB] handleIn exited due to close');
       }
       this.close();
     }
@@ -329,7 +330,7 @@ export class Adb {
     try {
       await this.channel.write(data);
     } catch (err) {
-      console.error('ADB writeToChannel error:', err);
+      LoggerAdb.error('ADB writeToChannel error:', err);
       this.close();
     }
   }

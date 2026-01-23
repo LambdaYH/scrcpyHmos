@@ -4,7 +4,7 @@ import { util } from '@kit.ArkTS';
 import { buffer } from '@kit.ArkTS';
 
 import { AdbKeyPair } from '../adb/AdbKeyPair';
-
+import { LoggerAdbKeyManager } from './Logger';
 // RSA公钥解析结果
 class RsaKeyParams {
   modulus: bigint;
@@ -57,16 +57,16 @@ export class AdbKeyManager {
       // 关键：如果有保存的密钥但KeyPair为空（或者根本没密钥），生成新密钥
       if ((this.adbPublicKeyBase64 && !this.cachedKeyPair) || (!this.cachedKeyPair || !this.adbPublicKeyBase64)) {
         if (!this.adbPublicKeyBase64) {
-             console.info(`ADB: No saved keys, generating new key pair...`);
+             LoggerAdbKeyManager.info(`ADB: No saved keys, generating new key pair...`);
         } else {
-             console.warn(`ADB: Saved key found but KeyPair not loaded. Generating new key pair...`);
+             LoggerAdbKeyManager.warn(`ADB: Saved key found but KeyPair not loaded. Generating new key pair...`);
         }
         await this.generateKeyPair();
       } else {
-        console.info(`ADB: Successfully loaded common keys, generation: ${this.keyGeneration}`);
+        LoggerAdbKeyManager.info(`ADB: Successfully loaded common keys, generation: ${this.keyGeneration}`);
       }
     } catch (err) {
-      console.error('AdbKeyManager init failed:', err);
+      LoggerAdbKeyManager.error('AdbKeyManager init failed:', err);
     }
   }
   
@@ -84,7 +84,7 @@ export class AdbKeyManager {
         await this.rebuildKeyPair();
       }
     } catch (err) {
-      console.error('Load keys failed:', err);
+      LoggerAdbKeyManager.error('Load keys failed:', err);
     }
   }
   
@@ -99,7 +99,7 @@ export class AdbKeyManager {
       
       await this.preferences.flush();
     } catch (err) {
-      console.error('Save keys failed:', err);
+      LoggerAdbKeyManager.error('Save keys failed:', err);
     }
   }
 
@@ -126,15 +126,15 @@ export class AdbKeyManager {
       const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
       if (adbFormatKey && adbFormatKey.byteLength > 0) {
         this.adbPublicKeyBase64 = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
-        console.info('ADB: ADB format public key generated and saved');
+        LoggerAdbKeyManager.info('ADB: ADB format public key generated and saved');
       }
       
       // 保存到preferences
       await this.saveKeys();
       
-      console.info(`ADB key pair generated and cached, generation: ${this.keyGeneration}`);
+      LoggerAdbKeyManager.info(`ADB key pair generated and cached, generation: ${this.keyGeneration}`);
     } catch (err) {
-      console.error('Generate key pair failed:', err);
+      LoggerAdbKeyManager.error('Generate key pair failed:', err);
       this.privateKeyBase64 = 'DEFAULT_PRIVATE_KEY';
       this.publicKeyBase64 = 'DEFAULT_PUBLIC_KEY';
     }
@@ -142,7 +142,7 @@ export class AdbKeyManager {
 
   private async rebuildKeyPair(): Promise<void> {
     try {
-      console.info('ADB: Attempting to rebuild KeyPair from saved keys...');
+      LoggerAdbKeyManager.info('ADB: Attempting to rebuild KeyPair from saved keys...');
       const base64Helper = new util.Base64Helper();
       const priKeyData: Uint8Array = base64Helper.decodeSync(this.privateKeyBase64);
       const pubKeyData: Uint8Array = base64Helper.decodeSync(this.publicKeyBase64);
@@ -152,9 +152,9 @@ export class AdbKeyManager {
       const pubKeyBlob: cryptoFramework.DataBlob = { data: pubKeyData };
       
       this.cachedKeyPair = await rsaGenerator.convertKey(pubKeyBlob, priKeyBlob);
-      console.info('ADB: KeyPair rebuilt successfully');
+      LoggerAdbKeyManager.info('ADB: KeyPair rebuilt successfully');
     } catch (err) {
-      console.error('Rebuild KeyPair failed:', err);
+      LoggerAdbKeyManager.error('Rebuild KeyPair failed:', err);
       this.cachedKeyPair = undefined;
     }
   }
@@ -171,7 +171,7 @@ export class AdbKeyManager {
     try {
       // 优先使用保存的ADB格式公钥
       if (this.adbPublicKeyBase64) {
-        console.info('ADB: Using saved ADB format public key');
+        LoggerAdbKeyManager.info('ADB: Using saved ADB format public key');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.adbPublicKeyBase64 + comment;
         return buffer.from(keyWithComment, 'utf-8').buffer;
@@ -181,7 +181,7 @@ export class AdbKeyManager {
       if (this.cachedKeyPair && this.cachedKeyPair.pubKey) {
         const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
         if (adbFormatKey && adbFormatKey.byteLength > 0) {
-          console.info('ADB: Generated ADB format key on-the-fly, size:', adbFormatKey.byteLength);
+          LoggerAdbKeyManager.info('ADB: Generated ADB format key on-the-fly, size:', adbFormatKey.byteLength);
           
           const base64Helper = new util.Base64Helper();
           const base64Key = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
@@ -194,16 +194,16 @@ export class AdbKeyManager {
       
       // 最后的fallback：使用PKCS格式
       if (this.publicKeyBase64) {
-        console.warn('ADB: Using fallback PKCS public key format (may not work)');
+        LoggerAdbKeyManager.warn('ADB: Using fallback PKCS public key format (may not work)');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.publicKeyBase64 + comment;
         return buffer.from(keyWithComment, 'utf-8').buffer;
       }
       
-      console.error('No public key available');
+      LoggerAdbKeyManager.error('No public key available');
       return new ArrayBuffer(0);
     } catch (err) {
-      console.error('Get public key bytes failed:', err);
+      LoggerAdbKeyManager.error('Get public key bytes failed:', err);
       return new ArrayBuffer(0);
     }
   }
@@ -234,18 +234,18 @@ export class AdbKeyManager {
       // PKCS#8公钥格式：SEQUENCE { SEQUENCE { OID, NULL }, BIT STRING { SEQUENCE { INTEGER(n), INTEGER(e) } } }
       const parsed = this.parseRsaPublicKey(keyData);
       if (!parsed) {
-        console.error('Failed to parse RSA public key');
+        LoggerAdbKeyManager.error('Failed to parse RSA public key');
         return null;
       }
       
       const modulus = parsed.modulus;
       const exponent = parsed.exponent;
-      console.info('ADB: RSA key parsed - modulus length:', modulus.toString().length, 'exponent:', exponent);
+      LoggerAdbKeyManager.info('ADB: RSA key parsed - modulus length:', modulus.toString().length, 'exponent:', exponent);
       
       // 转换为ADB格式
       return this.buildAdbPublicKey(modulus, exponent);
     } catch (err) {
-      console.error('Convert RSA public key to ADB format failed:', err);
+      LoggerAdbKeyManager.error('Convert RSA public key to ADB format failed:', err);
       return null;
     }
   }
@@ -303,7 +303,7 @@ export class AdbKeyManager {
       
       return null;
     } catch (err) {
-      console.error('Parse RSA public key failed:', err);
+      LoggerAdbKeyManager.error('Parse RSA public key failed:', err);
       return null;
     }
   }
@@ -373,7 +373,7 @@ export class AdbKeyManager {
       
       return buf.buffer;
     } catch (err) {
-      console.error('Build ADB public key failed:', err);
+      LoggerAdbKeyManager.error('Build ADB public key failed:', err);
       return new ArrayBuffer(0);
     }
   }
@@ -410,7 +410,7 @@ export class AdbKeyManager {
     try {
       // 如果没有缓存的KeyPair，先重建
       if (!this.cachedKeyPair) {
-        console.info('ADB: No cached KeyPair, rebuilding...');
+        LoggerAdbKeyManager.info('ADB: No cached KeyPair, rebuilding...');
         await this.rebuildKeyPair();
       }
       
@@ -448,7 +448,7 @@ export class AdbKeyManager {
       combined.set(SIGNATURE_PADDING, 0);
       combined.set(dataArray, SIGNATURE_PADDING.length);
       
-      console.info('ADB: Signing with cached KeyPair, data length:', combined.length);
+      LoggerAdbKeyManager.info('ADB: Signing with cached KeyPair, data length:', combined.length);
       
       // ADB签名实际上是用私钥"解密"token，所以使用DECRYPT模式
       const cipher = cryptoFramework.createCipher('RSA2048|NoPadding');
@@ -457,12 +457,12 @@ export class AdbKeyManager {
       const inputBlob: cryptoFramework.DataBlob = { data: combined };
       const encrypted = await cipher.doFinal(inputBlob);
       
-      console.info('ADB: Signature generated successfully, length:', encrypted.data.length);
+      LoggerAdbKeyManager.info('ADB: Signature generated successfully, length:', encrypted.data.length);
       
       return encrypted.data.buffer;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('Sign data failed:', errMsg);
+      LoggerAdbKeyManager.error('Sign data failed:', errMsg);
       // 返回256字节的空签名（RSA2048签名大小）
       return new ArrayBuffer(256);
     }
@@ -480,7 +480,7 @@ export class AdbKeyManager {
   // 重新生成公共密钥
   async regenerateCommonKey(): Promise<void> {
     try {
-      console.info(`ADB: Regenerating common key...`);
+      LoggerAdbKeyManager.info(`ADB: Regenerating common key...`);
       
       // 生成新密钥
       const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');
@@ -504,10 +504,10 @@ export class AdbKeyManager {
       // 保存为默认密钥
       await this.saveKeys();
       
-      console.info(`ADB: Common key regenerated, new generation: ${this.keyGeneration}`);
+      LoggerAdbKeyManager.info(`ADB: Common key regenerated, new generation: ${this.keyGeneration}`);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('Regenerate common key failed:', error.message);
+      LoggerAdbKeyManager.error('Regenerate common key failed:', error.message);
       throw error;
     }
   }
@@ -519,7 +519,7 @@ export class AdbKeyManager {
         throw new Error('Keys cannot be empty');
       }
 
-      console.info('ADB: Importing custom key...');
+      LoggerAdbKeyManager.info('ADB: Importing custom key...');
       
       // 验证密钥格式（尝试重建KeyPair）
       const base64Helper = new util.Base64Helper();
@@ -558,15 +558,15 @@ export class AdbKeyManager {
       } else {
         // 如果转换ADB格式失败，清空旧的ADB key，回头使用fallback
         this.adbPublicKeyBase64 = '';
-        console.warn('ADB: Could not convert imported key to ADB format');
+        LoggerAdbKeyManager.warn('ADB: Could not convert imported key to ADB format');
       }
       
       await this.saveKeys();
-      console.info('ADB: Custom key imported successfully');
+      LoggerAdbKeyManager.info('ADB: Custom key imported successfully');
 
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('Import custom key failed:', error.message);
+      LoggerAdbKeyManager.error('Import custom key failed:', error.message);
       throw error;
     }
   }

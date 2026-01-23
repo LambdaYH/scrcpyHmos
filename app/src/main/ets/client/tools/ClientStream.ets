@@ -5,6 +5,7 @@ import { Adb } from '../../adb/Adb';
 import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
+import { LoggerClientStream } from '../../helper/Logger';
 import socket from '@ohos.net.socket';
 import { buffer, util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
@@ -44,22 +45,22 @@ export class ClientStream {
 
   async connect(context: common.UIAbilityContext, uiContext: UIContext): Promise<boolean> {
     try {
-      console.info('Starting device connection...');
+      LoggerClientStream.info('Starting device connection...');
 
       // 0. Initialize ADB key manager with device address
       const keyManager = AdbKeyManager.getInstance();
       await keyManager.init(context);
-      console.info('ADB key manager initialized');
+      LoggerClientStream.info('ADB key manager initialized');
 
       // 1. 通过ADB连接设备
-      console.info(`Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
+      LoggerClientStream.info(`Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
 
       const keyPair = keyManager.getAdbKeyPair();
       if (!keyPair) {
         throw new Error('Failed to get ADB key pair');
       }
       const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext);
-      console.info('ADB connected successfully');
+      LoggerClientStream.info('ADB connected successfully');
 
       // 保存adb实例用于后续转发
       this.adb = adb;
@@ -81,7 +82,7 @@ export class ClientStream {
       }
 
       // 3. 启动服务端 - 使用ServerManager的scrcpy启动命令
-      console.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
+      LoggerClientStream.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
 
       const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
       this.shellStream = serverResult.shellStream;
@@ -90,10 +91,10 @@ export class ClientStream {
       
       // 构建socket名称
       const socketName = `scrcpy_${this.currentScid}`;
-      console.info(`Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
+      LoggerClientStream.info(`Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
 
       // 4. 等待服务器启动并连接
-      console.info('Waiting for server to start...');
+      LoggerClientStream.info('Waiting for server to start...');
       await new Promise<void>(resolve => setTimeout(resolve, 50));
       
       // 重试连接服务器（参考easycontrol原版）
@@ -107,9 +108,9 @@ export class ClientStream {
           // So we only read from Video stream, not Audio or Control.
           
           // 1. Connect Video -> Read Dummy (FIRST socket, gets dummy byte)
-          console.info('Connecting Video Stream...');
+          LoggerClientStream.info('Connecting Video Stream...');
           this.vidStream = await adb.localSocketForward(socketName);
-          console.debug('Reading video dummy byte...');
+          LoggerClientStream.debug('Reading video dummy byte...');
           await this.vidStream.readByteArray(1);
 
       // Auto-detect audio support (Android 11+ required)
@@ -122,26 +123,26 @@ export class ClientStream {
             this.device.isAudio = false;
           }
         } catch (e) {
-          console.warn('Failed to check Android version, assuming audio supported:', e);
+          LoggerClientStream.warn('Failed to check Android version, assuming audio supported:', e);
         }
       }
 
       // 2. Connect Audio (NO dummy byte - server already set sendDummyByte=false)
       if (this.device.isAudio) {
-        console.info('Connecting Audio Stream...');
+        LoggerClientStream.info('Connecting Audio Stream...');
         this.audStream = await adb.localSocketForward(socketName);
         // No dummy byte read - server only sends on first socket
       }
 
       // 3. Connect Control (NO dummy byte)
-      console.info('Connecting Control Stream...');
+      LoggerClientStream.info('Connecting Control Stream...');
       this.msgStream = await adb.localSocketForward(socketName);
       // No dummy byte read - server only sends on first socket
       
       break;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+      LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
       this.vidStream = undefined;
       this.audStream = undefined;
       this.msgStream = undefined;
@@ -156,18 +157,18 @@ export class ClientStream {
   }
 
   // 5. Perform Handshake (Rest)
-  console.info('Performing handshake (Device Name, Codec)...');
+  LoggerClientStream.info('Performing handshake (Device Name, Codec)...');
   await this.performHandshakeRest();
 
   // 连接成功后才开始读取shell输出
   this.readShellOutputAsync();
 
   this.isConnected = true;
-  console.info('Connection established successfully');
+  LoggerClientStream.info('Connection established successfully');
   return true;
 } catch (err) {
   const errMsg = err instanceof Error ? err.message : String(err);
-  console.error('ClientStream connect failed:', errMsg);
+  LoggerClientStream.error('ClientStream connect failed:', errMsg);
 
   if (errMsg.includes('Read timeout')) {
     try {
@@ -177,7 +178,7 @@ export class ClientStream {
         buttons: [{ text: '知道了', color: '#007AFF' }]
       });
     } catch (e) {
-      console.error('Show timeout dialog failed:', e);
+      LoggerClientStream.error('Show timeout dialog failed:', e);
     }
   }
   return false;
@@ -199,9 +200,9 @@ const readLoop = async () => {
           const data = await stream.readAllBytes();
           if (data.byteLength > 0) {
             const text = buffer.from(data).toString('utf-8');
-            console.debug('=== Server shell output ===');
-            console.debug(text);
-            console.debug('===========================');
+            LoggerClientStream.debug('=== Server shell output ===');
+            LoggerClientStream.debug(text);
+            LoggerClientStream.debug('===========================');
             count++;
           }
         } else {
@@ -211,16 +212,16 @@ const readLoop = async () => {
       } catch (readErr) {
         const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
         if (!errMsg.includes('timeout')) {
-          console.error('Shell read error:', errMsg);
+          LoggerClientStream.error('Shell read error:', errMsg);
           break;
         }
         // 超时是正常的，继续
         await this.delay(100);
       }
     }
-    console.info('Shell output reading finished');
+    LoggerClientStream.info('Shell output reading finished');
   } catch (err) {
-    console.error('Shell read loop error:', err);
+    LoggerClientStream.error('Shell read loop error:', err);
   }
 };
 
@@ -237,14 +238,14 @@ if (!this.vidStream) {
 // Dummy bytes already read in connect()
 
 // 2. Read Device Name (64 bytes) from Video Stream
-console.debug('Reading device name...');
+LoggerClientStream.debug('Reading device name...');
 const deviceNameData = await this.vidStream.readByteArray(64);
 const decoder = util.TextDecoder.create('utf-8');
 this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
-console.info(`Device Name: ${this.deviceName}`);
+LoggerClientStream.info(`Device Name: ${this.deviceName}`);
 
 // 3. Read Codec Metadata (12 bytes) from Video Stream
-console.debug('Reading codec metadata...');
+LoggerClientStream.debug('Reading codec metadata...');
 const codecData = await this.vidStream.readByteArray(12);
 const view = new DataView(codecData);
 const codecId = view.getInt32(0, false);
@@ -256,7 +257,7 @@ this.videoConfig = {
   width: width,
   height: height
 };
-console.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
+LoggerClientStream.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
 }
 
 getVideoConfig(): VideoConfig | undefined {
@@ -273,7 +274,7 @@ return this.videoConfig;
       const view = new DataView(data);
       const msgType = view.getUint8(0);
       const msgSize = data.byteLength;
-      console.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
+      LoggerClientStream.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
       
       if (this.connectDirect && this.mainSocket) {
         await this.mainSocket.send({ data: data });
@@ -283,9 +284,9 @@ return this.videoConfig;
         throw new Error('No valid main connection');
       }
       
-      console.debug(`[Control] Message sent successfully`);
+      LoggerClientStream.debug(`[Control] Message sent successfully`);
     } catch (err) {
-      console.error('Write to main socket failed:', err);
+      LoggerClientStream.error('Write to main socket failed:', err);
       const error = err instanceof Error ? err : new Error(String(err));
       throw error;
     }
@@ -359,7 +360,7 @@ return this.videoConfig;
     const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
     
     if (isConfig) {
-       console.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
+       LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
     }
 
     // 2. Read Size (4 bytes)
@@ -413,7 +414,7 @@ return this.videoConfig;
       try {
         await this.mainSocket.close();
       } catch (err) {
-        console.error('Close main socket failed:', err);
+        LoggerClientStream.error('Close main socket failed:', err);
       }
       this.mainSocket = undefined;
     }
@@ -421,7 +422,7 @@ return this.videoConfig;
       try {
         await this.videoSocket.close();
       } catch (err) {
-        console.error('Close video socket failed:', err);
+        LoggerClientStream.error('Close video socket failed:', err);
       }
       this.videoSocket = undefined;
     }
@@ -431,7 +432,7 @@ return this.videoConfig;
       try {
         this.vidStream.close();
       } catch (err) {
-        console.error('Close video stream failed:', err);
+        LoggerClientStream.error('Close video stream failed:', err);
       }
       this.vidStream = undefined;
     }
@@ -439,7 +440,7 @@ return this.videoConfig;
       try {
         this.audStream.close();
       } catch (err) {
-        console.error('Close audio stream failed:', err);
+        LoggerClientStream.error('Close audio stream failed:', err);
       }
       this.audStream = undefined;
     }
@@ -447,7 +448,7 @@ return this.videoConfig;
       try {
         this.msgStream.close();
       } catch (err) {
-        console.error('Close msg stream failed:', err);
+        LoggerClientStream.error('Close msg stream failed:', err);
       }
       this.msgStream = undefined;
     }
@@ -455,7 +456,7 @@ return this.videoConfig;
       try {
         this.shellStream.close();
       } catch (err) {
-        console.error('Close shell stream failed:', err);
+        LoggerClientStream.error('Close shell stream failed:', err);
       }
       this.shellStream = undefined;
     }

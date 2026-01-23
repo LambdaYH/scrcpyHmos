@@ -1,5 +1,6 @@
 import preferences from '@ohos.data.preferences';
 import { Device } from '../entity/Device';
+import { LoggerPreferences } from './Logger';
 
 // 数据持久化管理
 export class PreferencesHelper {
@@ -21,7 +22,7 @@ export class PreferencesHelper {
       this.preferences = await preferences.getPreferences(context, 'device_prefs');
       await this.loadDevices();
     } catch (err) {
-      console.error('PreferencesHelper init failed:', err);
+      LoggerPreferences.error('PreferencesHelper init failed:', err);
     }
   }
 
@@ -38,7 +39,7 @@ export class PreferencesHelper {
         return device;
       });
     } catch (err) {
-      console.error('Load devices failed:', err);
+      LoggerPreferences.error('Load devices failed:', err);
       this.devicesList = [];
     }
   }
@@ -114,7 +115,7 @@ export class PreferencesHelper {
       await this.preferences.put('devices', devicesStr);
       await this.preferences.flush();
     } catch (err) {
-      console.error('Save devices failed:', err);
+      LoggerPreferences.error('Save devices failed:', err);
     }
   }
 

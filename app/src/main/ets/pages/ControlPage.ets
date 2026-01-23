@@ -1,6 +1,7 @@
 import { Device } from '../entity/Device';
 import { Client } from '../client/Client';
 import { TouchAction, KeyCode } from '../client/tools/ControlPacket';
+import { LoggerControlPage } from '../helper/Logger';
 import window from '@ohos.window';
 import { common } from '@kit.AbilityKit';
 import pasteboard from '@ohos.pasteboard';
@@ -59,7 +60,7 @@ struct ControlPage {
         }
       }
     } catch (e) {
-      console.error('Failed to get router params:', e);
+      LoggerControlPage.error('Failed to get router params:', e);
     }
     
     // 设置全屏并隐藏导航条
@@ -67,7 +68,7 @@ struct ControlPage {
   }
   
   aboutToDisappear() {
-    console.info('ControlPage: aboutToDisappear - cleaning up');
+    LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
     
     // 停止自动隐藏定时器
     if (this.autoHideTimer !== -1) {
@@ -77,7 +78,7 @@ struct ControlPage {
     
     // 关闭客户端连接
     if (this.client) {
-      console.info('ControlPage: Closing client connection');
+      LoggerControlPage.info('ControlPage: Closing client connection');
       this.client.close();
       this.client = null;
     }
@@ -95,7 +96,7 @@ struct ControlPage {
       // 保持全屏布局，避免跳动，因为主页也是全屏布局
       await windowClass.setWindowLayoutFullScreen(true);
     } catch (err) {
-      console.error('Restore window failed:', err);
+      LoggerControlPage.error('Restore window failed:', err);
     }
   }
 
@@ -107,7 +108,7 @@ struct ControlPage {
     try {
       this.getUIContext().getRouter().back();
     } catch (e) {
-      console.error('Router back failed:', e);
+      LoggerControlPage.error('Router back failed:', e);
     }
   }
   
@@ -123,16 +124,16 @@ struct ControlPage {
       this.showLoading = false;  // 已经有视频流了
       this.connectionStatus = 'Connected';
       this.clientReady = true;
-      console.info('ControlPage: Using existing client connection');
+      LoggerControlPage.info('ControlPage: Using existing client connection');
       
       // 重新设置断开回调
       this.client.setOnDisconnect((reason: string) => {
-        console.warn('[ControlPage] Disconnected:', reason);
+        LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
         this.showLoading = false;
         try {
           this.getUIContext().getPromptAction().showToast({ message: reason });
         } catch (e) {
-          console.error('Show toast failed:', e);
+          LoggerControlPage.error('Show toast failed:', e);
         }
         setTimeout(() => {
           this.exitPage();
@@ -144,7 +145,7 @@ struct ControlPage {
       if (videoSize) {
         this.videoWidth = videoSize.width;
         this.videoHeight = videoSize.height;
-        console.info(`[ControlPage] Video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        LoggerControlPage.info(`[ControlPage] Video dimensions: ${this.videoWidth}x${this.videoHeight}`);
         // 尝试重新计算布局
         this.calcVideoDisplaySize();
       }
@@ -157,7 +158,7 @@ struct ControlPage {
       // 启动自动隐藏定时器
       this.startAutoHideTimer();
     } else {
-      console.error('ControlPage: Client not found in cache, falling back to connect');
+      LoggerControlPage.error('ControlPage: Client not found in cache, falling back to connect');
       this.connectDevice();
     }
   }
@@ -171,42 +172,42 @@ struct ControlPage {
       // 隐藏状态栏和导航栏
       await windowClass.setWindowSystemBarEnable([]);
     } catch (err) {
-      console.error('Set fullscreen failed:', err);
+      LoggerControlPage.error('Set fullscreen failed:', err);
     }
   }
   
   async connectDevice() {
     if (!this.device) {
-      console.error('ControlPage: No device available');
+      LoggerControlPage.error('ControlPage: No device available');
       return;
     }
     
     try {
       this.connectionStatus = 'Connecting to device...';
-      console.info('ControlPage: Starting connection to device:', this.device.name);
-      console.info('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
+      LoggerControlPage.info('ControlPage: Starting connection to device:', this.device.name);
+      LoggerControlPage.info('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
       
       // 显示授权提示
       this.connectionStatus = '连接中...如果是首次连接，请在Android设备上授权USB调试';
 
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       this.client = await Client.startDevice(this.device, ctx, this.getUIContext());
-      console.info('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
+      LoggerControlPage.info('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
       
       if (this.client) {
         this.isConnected = true;
         this.showLoading = false;
         this.connectionStatus = 'Connected';
         this.clientReady = true;
-        console.info('ControlPage: Device connected successfully');
+        LoggerControlPage.info('ControlPage: Device connected successfully');
         
         // 设置断开连接回调 - 自动返回上一页
         this.client.setOnDisconnect((reason: string) => {
-          console.warn('[ControlPage] Disconnected:', reason);
+          LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
           try {
             this.getUIContext().getPromptAction().showToast({ message: reason });
           } catch (e) {
-            console.error('Show toast failed:', e);
+            LoggerControlPage.error('Show toast failed:', e);
           }
           // 延迟返回，让用户看到提示
           setTimeout(() => {
@@ -224,19 +225,19 @@ struct ControlPage {
       } else {
         this.showLoading = false;
         this.connectionStatus = 'Connection failed';
-        console.error('ControlPage: Client.startDevice returned null');
+        LoggerControlPage.error('ControlPage: Client.startDevice returned null');
         try {
           this.getUIContext().getPromptAction().showToast({ message: '连接失败。请检查设备是否开启ADB，并在设备上授权USB调试。' });
         } catch (e) {
-          console.error('Show toast failed:', e);
+          LoggerControlPage.error('Show toast failed:', e);
         }
-        console.error('Failed to start client - check if device is reachable and ADB is enabled');
+        LoggerControlPage.error('Failed to start client - check if device is reachable and ADB is enabled');
       }
     } catch (err) {
       this.showLoading = false;
       this.connectionStatus = 'Connection error';
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('ControlPage: Connect device exception:', errMsg);
+      LoggerControlPage.error('ControlPage: Connect device exception:', errMsg);
       
       // 根据错误类型显示不同的提示
       let toastMsg = '连接错误';
@@ -247,7 +248,7 @@ struct ControlPage {
       try {
         this.getUIContext().getPromptAction().showToast({ message: toastMsg });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerControlPage.error('Show toast failed:', e);
       }
     }
   }
@@ -333,7 +334,7 @@ struct ControlPage {
     this.componentWidth = this.displayXComponentWidth;
     this.componentHeight = this.displayXComponentHeight;
     
-    console.info(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
+    LoggerControlPage.info(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
     
     // 重新校准悬浮按钮位置（如果有必要）
     if (this.checkFabPosition) {
@@ -374,7 +375,7 @@ struct ControlPage {
           .onLoad(() => {
             this.surfaceId = this.xComponentController.getXComponentSurfaceId();
             this.surfaceReady = true;
-            console.debug('XComponent surfaceId:', this.surfaceId);
+            LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
             
             // 如果client已经就绪,立即初始化视频解码器
             if (this.clientReady && this.client) {
@@ -414,7 +415,7 @@ struct ControlPage {
         // 获取容器容器实际尺寸(px)
         this.containerWidth = newArea.width as number;
         this.containerHeight = newArea.height as number;
-        console.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
+        LoggerControlPage.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
         
         // 重新计算视频显示尺寸
         this.calcVideoDisplaySize();
@@ -491,7 +492,7 @@ struct ControlPage {
                       this.getUIContext().getPromptAction().showToast({ message: '无文本内容' });
                     }
                   } catch (err) {
-                    console.error('Paste failed:', err);
+                    LoggerControlPage.error('Paste failed:', err);
                     this.getUIContext().getPromptAction().showToast({ message: '粘贴失败' });
                   }
                 }
@@ -686,25 +687,25 @@ struct ControlPage {
   // 初始化视频解码器的辅助方法
   private initVideoDecoder(): void {
     if (!this.client || !this.surfaceId) {
-      console.error('Cannot init video decoder: client or surfaceId missing');
+      LoggerControlPage.error('Cannot init video decoder: client or surfaceId missing');
       return;
     }
     
-    console.info('Initializing video decoder with surfaceId:', this.surfaceId);
+    LoggerControlPage.info('Initializing video decoder with surfaceId:', this.surfaceId);
     this.client.initVideoDecoder(this.surfaceId).then(() => {
       // 从 Client 获取实际视频尺寸
       const videoSize = this.client?.getVideoSize();
       if (videoSize) {
         this.videoWidth = videoSize.width;
         this.videoHeight = videoSize.height;
-        console.info(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        LoggerControlPage.info(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
       }
     }).catch((err: Error) => {
-      console.error('Failed to init video decoder:', err.message);
+      LoggerControlPage.error('Failed to init video decoder:', err.message);
       try {
         this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerControlPage.error('Show toast failed:', e);
       }
     });
   }

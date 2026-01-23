@@ -2,6 +2,7 @@ import { Device } from '../entity/Device';
 import { ClientStream } from './tools/ClientStream';
 import { VideoDecoder } from './decode/VideoDecoder';
 import { ControlPacket, Action, TouchAction, KeyCode } from './tools/ControlPacket';
+import { LoggerClient } from '../helper/Logger';
 import pasteboard from '@ohos.pasteboard';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
@@ -43,7 +44,7 @@ export class Client {
   
   // 触发断开回调
   private triggerDisconnect(reason: string): void {
-    console.warn(`[Client] Disconnect triggered: ${reason}`);
+    LoggerClient.warn(`[Client] Disconnect triggered: ${reason}`);
     if (this.onDisconnectCallback && !this.isClosed) {
       this.onDisconnectCallback(reason);
     }
@@ -74,7 +75,7 @@ export class Client {
     }
     
     // 连接失败，确保清理资源
-    console.info('[Client] startDevice failed, cleaning up...');
+    LoggerClient.info('[Client] startDevice failed, cleaning up...');
     await client.close();
     return null;
   }
@@ -88,7 +89,7 @@ export class Client {
       const connected = await this.clientStream.connect(context, uiContext);
       
       if (!connected) {
-        console.error('ClientStream connection failed');
+        LoggerClient.error('ClientStream connection failed');
         // 连接失败，关闭流
         await this.clientStream.close();
         this.clientStream = undefined;
@@ -100,9 +101,9 @@ export class Client {
       // 2. Video config is already loaded during handshake
       const videoConfig = this.clientStream.getVideoConfig();
       if (videoConfig) {
-        console.info(`Video config loaded: ${videoConfig.width}x${videoConfig.height}`);
+        LoggerClient.info(`Video config loaded: ${videoConfig.width}x${videoConfig.height}`);
       } else {
-        console.warn('Video config not available after connect');
+        LoggerClient.warn('Video config not available after connect');
       }
       
       // 3. 启动保活定时器
@@ -115,25 +116,25 @@ export class Client {
       try {
         // 唤醒屏幕 - Android uses "buttonWake" which sends createPowerEvent(1)
         if (this.device.wakeOnConnect) {
-          console.info('🔆 Waking up remote device screen (wakeOnConnect=true)...');
+          LoggerClient.info('🔆 Waking up remote device screen (wakeOnConnect=true)...');
           this.handleAction(Action.BUTTON_WAKE); // createPowerEvent(1)
         }
 
         // 连接时熄屏 - Android uses "buttonLightOff" with 2000ms delay
         if (this.device.lightOffOnConnect) {
-          console.info('🌑 Turning off remote device screen (lightOffOnConnect=true)...');
+          LoggerClient.info('🌑 Turning off remote device screen (lightOffOnConnect=true)...');
           // Android: clientController.handleAction("buttonLightOff", null, 2000);
           await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2000));
           this.handleAction(Action.BUTTON_LIGHT_OFF); // createLightEvent(0)
         }
       } catch (wakeErr) {
-        console.error('🔆 Failed to handle connect actions:', wakeErr);
+        LoggerClient.error('🔆 Failed to handle connect actions:', wakeErr);
       }
 
-      console.info('Client connected successfully');
+      LoggerClient.info('Client connected successfully');
       return true;
     } catch (err) {
-      console.error('Client connect failed:', err);
+      LoggerClient.error('Client connect failed:', err);
       // 发生异常，确保关闭流
       if (this.clientStream) {
         await this.clientStream.close();
@@ -154,7 +155,7 @@ export class Client {
         const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         await systemPasteboard.setData(pasteData);
       } catch (err) {
-        console.error('Set clipboard failed:', err);
+        LoggerClient.error('Set clipboard failed:', err);
       }
     }
   }
@@ -168,8 +169,8 @@ export class Client {
     }
     
     try {
-      console.info('Initializing video decoder...');
-      console.debug('Waiting for video config (timeout: 5 seconds)...');
+      LoggerClient.info('Initializing video decoder...');
+      LoggerClient.debug('Waiting for video config (timeout: 5 seconds)...');
       
       // 等待视频配置预加载完成
       const config = this.clientStream.getVideoConfig();
@@ -194,20 +195,20 @@ export class Client {
       const csd0: ArrayBuffer = new ArrayBuffer(0);
       const csd1: ArrayBuffer | undefined = undefined;
       
-      console.info(`Using handshake config: ${codecType.toUpperCase()}, ${width}x${height}`);
+      LoggerClient.info(`Using handshake config: ${codecType.toUpperCase()}, ${width}x${height}`);
       
       // 初始化解码器
       this.videoDecoder = new VideoDecoder();
       await this.videoDecoder.init(codecType, surfaceId, width, height, csd0, csd1);
       
-      console.info('Video decoder initialized, starting video loop...');
+      LoggerClient.info('Video decoder initialized, starting video loop...');
       
       // 启动视频读取循环
       this.startVideoLoop();
       
     } catch (err) {
       const error = err as Error;
-      console.error('initVideoDecoder failed:', error.message);
+      LoggerClient.error('initVideoDecoder failed:', error.message);
       throw error;
     }
   }
@@ -220,37 +221,37 @@ export class Client {
     const readLoop = async () => {
       let disconnectReason = '';
       try {
-        console.info('📺 Video loop started, waiting for frames...');
+        LoggerClient.info('📺 Video loop started, waiting for frames...');
         let frameCount = 0;
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
             // 读取帧大小
-            console.debug(`[Frame ${frameCount}] Reading frame size...`);
+            LoggerClient.debug(`[Frame ${frameCount}] Reading frame size...`);
             const frameData = await this.clientStream.readFrameFromVideo();
-            console.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
+            LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
               // 解码帧 (PTS由解码器内部处理)
-              console.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
+              LoggerClient.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
               await this.videoDecoder.decode(frameData, 0);
-              console.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
+              LoggerClient.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
               
               // 首帧回调 - 通知UI视频已开始传输
               if (!this.firstFrameReceived && this.onFirstFrameCallback) {
                 this.firstFrameReceived = true;
-                console.info('🎬 First frame received, triggering callback');
+                LoggerClient.info('🎬 First frame received, triggering callback');
                 this.onFirstFrameCallback();
               }
               
               frameCount++;
             } else {
-              console.warn(`[Frame ${frameCount}] Empty frame received: videoDecoder=${!!this.videoDecoder}`);
+              LoggerClient.warn(`[Frame ${frameCount}] Empty frame received: videoDecoder=${!!this.videoDecoder}`);
             }
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
-            console.error('Video frame read error:', errMsg);
+            LoggerClient.error('Video frame read error:', errMsg);
             if (frameErr instanceof Error && frameErr.stack) {
-              console.error('Stack:', frameErr.stack);
+              LoggerClient.error('Stack:', frameErr.stack);
             }
             disconnectReason = '连接已断开: ' + errMsg;
             break;
@@ -258,11 +259,11 @@ export class Client {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error('Video loop error:', errMsg);
+        LoggerClient.error('Video loop error:', errMsg);
         disconnectReason = '视频循环错误: ' + errMsg;
       } finally {
         this.videoLoopRunning = false;
-        console.info('Video loop stopped');
+        LoggerClient.info('Video loop stopped');
         
         // 如果不是正常关闭，触发断开回调
         if (disconnectReason && !this.isClosed) {
@@ -366,7 +367,7 @@ export class Client {
           break;
 
         default:
-          console.warn(`[Client] Unknown action: ${action}`);
+          LoggerClient.warn(`[Client] Unknown action: ${action}`);
           // 兼容：如果有 data，默认执行 writeByteBuffer
           if (data) {
             this.writeToMain(data);
@@ -374,7 +375,7 @@ export class Client {
           break;
       }
     } catch (err) {
-      console.error(`[Client] handleAction error for ${action}:`, err);
+      LoggerClient.error(`[Client] handleAction error for ${action}:`, err);
     }
   }
 
@@ -384,7 +385,7 @@ export class Client {
     
     const packet = ControlPacket.createSetClipboard(text, 0n, paste);
     await this.writeToMain(packet);
-    console.info(`📋 Sent clipboard to Android: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+    LoggerClient.info(`📋 Sent clipboard to Android: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
   }
 
   // 内部方法：写入数据流
@@ -407,11 +408,11 @@ export class Client {
     pressure: number = 1.0
   ): Promise<void> {
     if (!this.clientStream) {
-      console.warn('[Control] sendTouchEvent: clientStream is null');
+      LoggerClient.warn('[Control] sendTouchEvent: clientStream is null');
       return;
     }
     
-    console.debug(`[Control] sendTouchEvent: action=${action}, pointerId=${pointerId}, pos=(${x},${y}), screen=${screenWidth}x${screenHeight}`);
+    LoggerClient.debug(`[Control] sendTouchEvent: action=${action}, pointerId=${pointerId}, pos=(${x},${y}), screen=${screenWidth}x${screenHeight}`);
     
     const packet = ControlPacket.createInjectTouchEvent(
       action, 
@@ -429,11 +430,11 @@ export class Client {
   // 发送按键事件 - 发送按下和抬起
   async sendKeyEvent(keyCode: KeyCode, metaState: number = 0): Promise<void> {
     if (!this.clientStream) {
-      console.warn('[Control] sendKeyEvent: clientStream is null');
+      LoggerClient.warn('[Control] sendKeyEvent: clientStream is null');
       return;
     }
     
-    console.debug(`[Control] sendKeyEvent: keyCode=${keyCode}, metaState=${metaState}`);
+    LoggerClient.debug(`[Control] sendKeyEvent: keyCode=${keyCode}, metaState=${metaState}`);
     
     const packets = ControlPacket.createKeyEventPair(keyCode, metaState);
     for (const packet of packets) {
@@ -461,7 +462,7 @@ export class Client {
 
           switch (eventType) {
             case 0: // DEVICE_MSG_TYPE_CLIPBOARD
-              console.debug('[MainLoop] Received clipboard event');
+              LoggerClient.debug('[MainLoop] Received clipboard event');
               // clipboard message: type(1) + length(4) + text
               const clipLen = await this.clientStream.readIntFromMain();
               if (clipLen > 0 && clipLen <= 100000) { // Limit sanity check
@@ -471,13 +472,13 @@ export class Client {
               break;
 
             case 1: // DEVICE_MSG_TYPE_ACK_CLIPBOARD
-              console.debug('[MainLoop] Received ack clipboard event');
+              LoggerClient.debug('[MainLoop] Received ack clipboard event');
               // ack clipboard: type(1) + sequence(8)
               await this.clientStream.readBytesFromMain(8); // Ignore sequence
               break;
               
             case 2: // DEVICE_MSG_TYPE_UHID_OUTPUT
-              console.debug('[MainLoop] Received UHID output event');
+              LoggerClient.debug('[MainLoop] Received UHID output event');
                // uhid output: type(1) + id(2) + size(2) + data
               await this.clientStream.readBytesFromMain(2); // read 2 bytes
               const sizeData = await this.clientStream.readBytesFromMain(2);
@@ -489,18 +490,18 @@ export class Client {
               break;
 
             default:
-              console.debug(`[MainLoop] Unknown event type: ${eventType}`);
+              LoggerClient.debug(`[MainLoop] Unknown event type: ${eventType}`);
               break;
           }
         } catch (err) {
           if (this.isClosed) {
-            console.debug('[MainLoop] Client closed, exiting loop');
+            LoggerClient.debug('[MainLoop] Client closed, exiting loop');
             break;
           }
 
           const errorMsg = err instanceof Error ? err.message : String(err);
           if (!errorMsg.includes('timeout') && !errorMsg.includes('closed')) {
-            console.error('[MainLoop] Read error:', err);
+            LoggerClient.error('[MainLoop] Read error:', err);
             // 短暂延迟后重试
             await new Promise<void>((resolve: () => void) => setTimeout(resolve, 100));
           }
@@ -510,7 +511,7 @@ export class Client {
 
     // 启动异步读取循环
     readLoop().catch((err: Error) => {
-      console.error('[MainLoop] Loop error:', err);
+      LoggerClient.error('[MainLoop] Loop error:', err);
     });
   }
   
@@ -542,7 +543,7 @@ export class Client {
     // 从管理器移除
     Client.allClients.delete(this.device.uuid);
     
-    console.info('Client closed');
+    LoggerClient.info('Client closed');
   }
   
   static async closeAll(): Promise<void> {

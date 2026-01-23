@@ -1,24 +1,25 @@
 // PublicTools - 公共工具类
 // 对应Java: helper/PublicTools.java
 import { buffer } from '@kit.ArkTS';
+import { LoggerPublicTools } from './Logger';
 
 export class PublicTools {
   // 日志并Toast (注意：静态方法无法使用UIContext，如需Toast请在调用处使用UIContext.getPromptAction())
   static logToast(tag: string, message: string): void {
-    console.info(`[${tag}] ${message}`);
+    LoggerPublicTools.info(`[${tag}] ${message}`);
     // Note: promptAction.showToast is deprecated since API 18
     // Use this.getUIContext().getPromptAction().showToast() in component context instead
   }
 
   // 仅日志
   static log(tag: string, message: string): void {
-    console.info(`[${tag}] ${message}`);
+    LoggerPublicTools.info(`[${tag}] ${message}`);
   }
 
   // 错误日志
   static logError(tag: string, error: Error | string): void {
     const msg = error instanceof Error ? error.message : error;
-    console.error(`[${tag}] ${msg}`);
+    LoggerPublicTools.error(`[${tag}] ${msg}`);
   }
 
   // 扫描局域网地址
@@ -41,7 +42,7 @@ export class PublicTools {
     try {
       return buffer.from(data).toString('base64');
     } catch (e) {
-      console.error('Base64 encode failed:', e);
+      LoggerPublicTools.error('Base64 encode failed:', e);
       return '';
     }
   }
@@ -77,7 +78,7 @@ export class PublicTools {
       const data = await resMgr.getRawFileContent(fileName);
       return data.buffer as ArrayBuffer;
     } catch (err) {
-      console.error('Read raw file failed:', err);
+      LoggerPublicTools.error('Read raw file failed:', err);
       return null;
     }
   }

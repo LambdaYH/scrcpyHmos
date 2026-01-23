@@ -1,4 +1,5 @@
 import { AdbKeyManager } from '../helper/AdbKeyManager';
+import { LoggerAdbManage } from '../helper/Logger';
 
 @Entry
 @Component
@@ -160,7 +161,7 @@ struct AdbManagePage {
       this.refreshData();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('Import custom key failed:', error);
+      LoggerAdbManage.error('Import custom key failed:', error);
       
       let friendMsg = '导入失败，请检查密钥格式是否正确';
       // 简单的错误映射
@@ -191,7 +192,7 @@ struct AdbManagePage {
         this.refreshData();
       }
     } catch (err) {
-      console.error('Regenerate key failed:', err);
+      LoggerAdbManage.error('Regenerate key failed:', err);
       this.getUIContext().getPromptAction().showToast({ message: '操作失败' });
     }
   }

@@ -1,6 +1,7 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
+import { LoggerIndex } from '../helper/Logger';
 
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
@@ -53,7 +54,7 @@ struct Index {
       if (hasDevices) {
         const autoConnectDevice = this.devicesList.find(d => d.connectOnStart);
         if (autoConnectDevice) {
-          console.info('[Index] Auto-connecting to device:', autoConnectDevice.name);
+          LoggerIndex.info('[Index] Auto-connecting to device:', autoConnectDevice.name);
           // 稍微延迟一下，让UI先渲染出来
           setTimeout(() => {
             this.connectDevice(autoConnectDevice);
@@ -61,7 +62,7 @@ struct Index {
         }
       }
     } catch (err) {
-      console.error('Init preferences failed:', err);
+      LoggerIndex.error('Init preferences failed:', err);
     }
   }
 
@@ -131,7 +132,7 @@ struct Index {
       .onClick(() => {
         // Direct action
         this.getUIContext().getRouter().pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
-          console.error('Navigate failed:', err);
+          LoggerIndex.error('Navigate failed:', err);
         });
       })
 
@@ -232,7 +233,7 @@ struct Index {
               .width(80)
               .height(40)
               .onClick(() => {
-                console.info('[Index] Cancel button clicked');
+                LoggerIndex.info('[Index] Cancel button clicked');
                 this.cancelConnect();
               })
           }
@@ -346,7 +347,7 @@ struct Index {
             .padding({ left: 16, right: 16 })
             .onClick(() => {
               this.getUIContext().getRouter().pushUrl({ url: 'pages/AdbManagePage' }).catch((err: Error) => {
-                console.error('Push url failed:', err);
+                LoggerIndex.error('Push url failed:', err);
               });
             })
           }
@@ -377,7 +378,7 @@ struct Index {
             .padding({ left: 16, right: 16 })
             .onClick(() => {
               this.getUIContext().getRouter().pushUrl({ url: 'pages/HelpPage' }).catch((err: Error) => {
-                console.error('Push url failed:', err);
+                LoggerIndex.error('Push url failed:', err);
               });
             })
           }
@@ -481,7 +482,7 @@ struct Index {
       
       // 检查连接过程中是否被取消
       if (!this.isConnecting) {
-        console.info('[Index] Connection cancelled by user');
+        LoggerIndex.info('[Index] Connection cancelled by user');
         if (client) {
           await client.close();
         }
@@ -493,7 +494,7 @@ struct Index {
       if (this.connectingClient) {
         // 连接成功，立即跳转到控制页面
         // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
-        console.info('[Index] Connection successful, navigating to ControlPage');
+        LoggerIndex.info('[Index] Connection successful, navigating to ControlPage');
         this.isConnecting = false;
         
         // 跳转到控制页面，传递已连接的 client
@@ -501,7 +502,7 @@ struct Index {
           url: 'pages/ControlPage',
           params: { device: device, clientReady: true }
         }).catch((err: Error) => {
-          console.error('Navigate failed:', err);
+          LoggerIndex.error('Navigate failed:', err);
           this.getUIContext().getPromptAction().showToast({ message: '跳转失败' });
         });
         
@@ -515,7 +516,7 @@ struct Index {
       this.isConnecting = false;
       this.connectingClient = null;
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('Connect device failed:', errMsg);
+      LoggerIndex.error('Connect device failed:', errMsg);
       this.getUIContext().getPromptAction().showToast({ message: '连接错误: ' + errMsg });
     }
   }
@@ -574,7 +575,7 @@ struct Index {
       url: 'pages/DeviceDetail',
       params: { device: device }
     }).catch((err: Error) => {
-      console.error('Navigate to edit page failed:', err);
+      LoggerIndex.error('Navigate to edit page failed:', err);
     });
   }
 
@@ -585,14 +586,14 @@ struct Index {
       try {
         this.getUIContext().getPromptAction().showToast({ message: 'Deleted successfully' });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerIndex.error('Show toast failed:', e);
       }
     } catch (err) {
-      console.error('Delete device failed:', err);
+      LoggerIndex.error('Delete device failed:', err);
       try {
         this.getUIContext().getPromptAction().showToast({ message: 'Delete failed' });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerIndex.error('Show toast failed:', e);
       }
     }
   }
@@ -628,7 +629,7 @@ struct Index {
         this.getUIContext().getPromptAction().showToast({ message: '未获取到网络连接信息' });
       }
     } catch (err) {
-      console.error('Get network info failed:', err);
+      LoggerIndex.error('Get network info failed:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
       this.getUIContext().getPromptAction().showToast({ message: '获取IP失败: ' + errMsg });
     }
@@ -642,7 +643,7 @@ struct Index {
         this.getUIContext().getPromptAction().showToast({ message: `已复制: ${text}` });
       });
     } catch (e) {
-      console.error('Copy to clipboard failed:', e);
+      LoggerIndex.error('Copy to clipboard failed:', e);
       this.getUIContext().getPromptAction().showToast({ message: '复制失败' });
     }
   }
