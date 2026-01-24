@@ -6,6 +6,7 @@
     "pages/AdbManagePage",
     "pages/AboutPage",
     "pages/HelpPage",
-    "pages/LogPage"
+    "pages/LogPage",
+    "pages/ThemePage"
   ]
 }

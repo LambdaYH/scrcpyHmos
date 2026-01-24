@@ -16,10 +16,21 @@ export default class ScrcpyHmosAbility extends UIAbility {
     hilog.debug(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
     
     // 初始化数据存储
-    PreferencesHelper.getInstance().init(this.context);
+    PreferencesHelper.getInstance().init(this.context).then(async () => {
+      // Apply saved theme
+      const theme = await PreferencesHelper.getInstance().getThemeMode();
+      let colorMode = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
+      if (theme === 'light') {
+        colorMode = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
+      } else if (theme === 'dark') {
+        colorMode = ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      }
+      this.context.getApplicationContext().setColorMode(colorMode);
+    });
     // 初始化ADB密钥
     AdbKeyManager.getInstance().init(this.context);
   }
+
 
   onDestroy(): void {
     hilog.debug(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');

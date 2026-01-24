@@ -144,4 +144,24 @@ export class PreferencesHelper {
   getByUUID(uuid: string): Device | null {
     return this.devicesList.find(d => d.uuid === uuid) || null;
   }
+
+  async saveThemeMode(mode: string): Promise<void> {
+    try {
+      if (!this.preferences) return;
+      await this.preferences.put('theme_mode', mode);
+      await this.preferences.flush();
+    } catch (err) {
+      LoggerPreferences.error('Save theme mode failed:', err);
+    }
+  }
+
+  async getThemeMode(): Promise<string> {
+    try {
+      if (!this.preferences) return 'system';
+      return await this.preferences.get('theme_mode', 'system') as string;
+    } catch (err) {
+      LoggerPreferences.error('Get theme mode failed:', err);
+      return 'system';
+    }
+  }
 }
