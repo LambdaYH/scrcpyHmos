@@ -5,12 +5,12 @@ const DOMAIN = 0x0000;
 
 export default class ScrcpyHmosBackupAbility extends BackupExtensionAbility {
   async onBackup() {
-    hilog.info(DOMAIN, 'testTag', 'onBackup ok');
+    hilog.info(DOMAIN, 'ScrcpyBackupAbility', 'onBackup ok');
     await Promise.resolve();
   }
 
   async onRestore(bundleVersion: BundleVersion) {
-    hilog.info(DOMAIN, 'testTag', 'onRestore ok %{public}s', JSON.stringify(bundleVersion));
+    hilog.info(DOMAIN, 'ScrcpyBackupAbility', 'onRestore ok %{public}s', JSON.stringify(bundleVersion));
     await Promise.resolve();
   }
 }

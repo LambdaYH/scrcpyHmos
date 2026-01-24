@@ -108,8 +108,6 @@ export class Adb {
 
       if (message.command === AdbProtocol.CMD_AUTH) {
         // 需要发送公钥
-        // console.info('请在Android设备上点击"允许"授权');
-        // console.info('ADB: Public key bytes length:', keyPair.publicKeyBytes.length);
         
         // 重要：不能直接使用 Uint8Array.buffer，因为它可能指向一个更大的底层buffer
         // 必须创建一个新的正确大小的ArrayBuffer
@@ -184,15 +182,6 @@ export class Adb {
             
             bufferStream.pushSource(message.payload!);
             wrteCount++;
-            // 收到数据，打印日志
-            if (message.payload!.byteLength < 100) {
-                 LoggerAdb.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}, data=${Array.from(new Uint8Array(message.payload!)).map(b => b.toString(16)).join(',')}`);
-            } else {
-                 LoggerAdb.info(`[ADB-DEBUG] Received WRTE: localId=${message.arg1}, size=${message.payload!.byteLength}`);
-            }
-            if (wrteCount % 30 === 0) {
-              LoggerAdb.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}`);
-            }
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
           case AdbProtocol.CMD_CLSE:
