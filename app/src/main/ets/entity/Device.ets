@@ -20,6 +20,9 @@ export class Device {
   crop: string = ''; // 格式: "width:height:x:y"
   displayId: number = 0;
 
+  // 显示设置
+  showBottomNavBar: boolean = false; // 底部显示导航栏
+
   // 音频参数
   isAudio: boolean = true;
   audioCodec: string = 'opus'; // 'opus', 'aac', 'raw', 'flac'

@@ -71,6 +71,9 @@ export class PreferencesHelper {
     target.crop = source.crop ?? '';
     target.displayId = source.displayId ?? 0;
 
+    // 显示设置
+    target.showBottomNavBar = source.showBottomNavBar ?? false;
+
     // 音频参数
     target.isAudio = source.isAudio ?? true;
     target.audioCodec = source.audioCodec ?? 'opus';

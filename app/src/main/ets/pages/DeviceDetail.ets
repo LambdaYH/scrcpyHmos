@@ -135,6 +135,16 @@ struct DeviceDetail {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
+          Row() {
+            Text($r('app.string.show_bottom_nav_bar'))
+            Toggle({ type: ToggleType.Switch, isOn: this.device.showBottomNavBar })
+              .onChange((isOn: boolean) => {
+                this.device.showBottomNavBar = isOn;
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.SpaceBetween)
+
           // 视频设置
           Column({ space: 12 }) {
             Text($r('app.string.video_settings'))

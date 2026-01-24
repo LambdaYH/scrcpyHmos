@@ -352,84 +352,86 @@ struct ControlPage {
   }
   
   build() {
-    Stack() {
-      // Loading indicator
-      if (this.showLoading) {
-        Column() {
-          LoadingProgress()
-            .width(80)
-            .height(80)
-            .color($r('sys.color.comp_background_list_card'))
-          Text(this.connectionStatus)
-            .fontSize(16)
-            .fontColor($r('sys.color.comp_background_list_card'))
-            .margin({ top: 16 })
+    Column() {
+      // 主内容区域（视频 + 悬浮按钮）
+      Stack() {
+        // Loading indicator
+        if (this.showLoading) {
+          Column() {
+            LoadingProgress()
+              .width(80)
+              .height(80)
+              .color($r('sys.color.comp_background_list_card'))
+            Text(this.connectionStatus)
+              .fontSize(16)
+              .fontColor($r('sys.color.comp_background_list_card'))
+              .margin({ top: 16 })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor($r('sys.color.black'))
+          .zIndex(100)
+        }
+        
+        // 视频显示区域容器 - 用于获取可用空间
+        Stack({ alignContent: Alignment.Center }) {
+          XComponent({
+            id: 'video_surface',
+            type: XComponentType.SURFACE,
+            controller: this.xComponentController
+          })
+            .onLoad(() => {
+              this.surfaceId = this.xComponentController.getXComponentSurfaceId();
+              this.surfaceReady = true;
+              LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
+              
+              // 如果client已经就绪,立即初始化视频解码器
+              if (this.clientReady && this.client) {
+                this.initVideoDecoder();
+              }
+            })
+            .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
+            .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
+            .backgroundColor($r('sys.color.black'))
+            .gesture(
+              GestureGroup(GestureMode.Parallel,
+                // 触摸手势
+                TapGesture({ count: 1, fingers: 1 })
+                  .onAction((event: GestureEvent) => {
+                    this.handleTap(event);
+                  }),
+                // 多指触摸
+                PanGesture({ fingers: 1, distance: 0 })
+                  .onActionStart((event: GestureEvent) => {
+                    this.handleTouchStart(event);
+                  }),
+                PanGesture({ fingers: 1, distance: 0 })
+                  .onActionUpdate((event: GestureEvent) => {
+                    this.handleTouchMove(event);
+                  }),
+                PanGesture({ fingers: 1, distance: 0 })
+                  .onActionEnd((event: GestureEvent) => {
+                    this.handleTouchEnd(event);
+                  })
+              )
+            )
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor($r('sys.color.black'))
-        .zIndex(100)
-      }
-      
-      // 视频显示区域容器 - 用于获取可用空间
-      Stack({ alignContent: Alignment.Center }) {
-        XComponent({
-          id: 'video_surface',
-          type: XComponentType.SURFACE,
-          controller: this.xComponentController
+        .backgroundColor($r('sys.color.black')) // 背景黑色，作为信箱模式的黑边
+        .onAreaChange((_: Area, newArea: Area) => {
+          // 获取容器容器实际尺寸(px)
+          this.containerWidth = newArea.width as number;
+          this.containerHeight = newArea.height as number;
+          LoggerControlPage.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
+          
+          // 重新计算视频显示尺寸
+          this.calcVideoDisplaySize();
+          this.initFabPosition();
         })
-          .onLoad(() => {
-            this.surfaceId = this.xComponentController.getXComponentSurfaceId();
-            this.surfaceReady = true;
-            LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
-            
-            // 如果client已经就绪,立即初始化视频解码器
-            if (this.clientReady && this.client) {
-              this.initVideoDecoder();
-            }
-          })
-          .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
-          .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
-          .backgroundColor($r('sys.color.black'))
-          .gesture(
-            GestureGroup(GestureMode.Parallel,
-              // 触摸手势
-              TapGesture({ count: 1, fingers: 1 })
-                .onAction((event: GestureEvent) => {
-                  this.handleTap(event);
-                }),
-              // 多指触摸
-              PanGesture({ fingers: 1, distance: 0 })
-                .onActionStart((event: GestureEvent) => {
-                  this.handleTouchStart(event);
-                }),
-              PanGesture({ fingers: 1, distance: 0 })
-                .onActionUpdate((event: GestureEvent) => {
-                  this.handleTouchMove(event);
-                }),
-              PanGesture({ fingers: 1, distance: 0 })
-                .onActionEnd((event: GestureEvent) => {
-                  this.handleTouchEnd(event);
-                })
-            )
-          )
-      }
-      .width('100%')
-      .height('100%')
-      .backgroundColor($r('sys.color.black')) // 背景黑色，作为信箱模式的黑边
-      .onAreaChange((_: Area, newArea: Area) => {
-        // 获取容器容器实际尺寸(px)
-        this.containerWidth = newArea.width as number;
-        this.containerHeight = newArea.height as number;
-        LoggerControlPage.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
         
-        // 重新计算视频显示尺寸
-        this.calcVideoDisplaySize();
-        this.initFabPosition();
-      })
-      
-      // 悬浮控制按钮
+        // 悬浮控制按钮
       Column() {
         // 展开的控制面板
         if (this.showControlPanel) {
@@ -588,10 +590,66 @@ struct ControlPage {
                }
             })
       )
+      }
+      .width('100%')
+      .layoutWeight(1) // 占用剩余空间，让底部导航栏不覆盖视频
+      .backgroundColor($r('sys.color.black'))
+      
+      // 底部导航栏
+      if (this.device?.showBottomNavBar) {
+        Row({ space: 40 }) {
+          // 返回键
+          Button() {
+            SymbolGlyph($r('sys.symbol.arrow_left'))
+              .fontSize(24)
+              .fontColor(['#FFFFFF'])
+          }
+          .width(52)
+          .height(52)
+          .backgroundColor('#80000000')
+          .borderRadius(26)
+          .onClick(() => {
+            this.client?.sendKeyEvent(KeyCode.KEYCODE_BACK);
+          })
+          
+          // 主页键
+          Button() {
+            SymbolGlyph($r('sys.symbol.house'))
+              .fontSize(24)
+              .fontColor(['#FFFFFF'])
+          }
+          .width(52)
+          .height(52)
+          .backgroundColor('#80000000')
+          .borderRadius(26)
+          .onClick(() => {
+            this.client?.sendKeyEvent(KeyCode.KEYCODE_HOME);
+          })
+          
+          // 多任务键
+          Button() {
+            SymbolGlyph($r('sys.symbol.square'))
+              .fontSize(24)
+              .fontColor(['#FFFFFF'])
+          }
+          .width(52)
+          .height(52)
+          .backgroundColor('#80000000')
+          .borderRadius(26)
+          .onClick(() => {
+            this.client?.sendKeyEvent(KeyCode.KEYCODE_APP_SWITCH);
+          })
+        }
+        .width('100%')
+        .height(70)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#40000000')
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor($r('sys.color.black'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
   
   handleTap(event: GestureEvent) {

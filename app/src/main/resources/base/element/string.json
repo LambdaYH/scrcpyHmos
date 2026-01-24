@@ -631,6 +631,10 @@
     {
       "name": "paste_failed",
       "value": "Paste failed"
+    },
+    {
+      "name": "show_bottom_nav_bar",
+      "value": "Show Bottom Navigation"
     }
   ]
 }
