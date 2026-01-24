@@ -502,11 +502,11 @@
         },
         {
             "name": "adb_auth_title",
-            "value": "身份验证"
+            "value": "设备连接授权"
         },
         {
             "name": "adb_auth_message",
-            "value": "正在请求设备授权。\n请在手机上查看并点击 [允许]。"
+            "value": "正在等待被控设备授权。\n请在被控设备上查看并点击 [允许]。"
         },
         {
             "name": "adb_auth_button",

@@ -44,7 +44,7 @@ export class ClientStream {
     this.device = device;
   }
 
-  async connect(context: common.UIAbilityContext, uiContext: UIContext): Promise<boolean> {
+  async connect(context: common.UIAbilityContext, uiContext: UIContext, onAuth?: () => void): Promise<boolean> {
     try {
       this.isClosing = false;
       LoggerClientStream.info('Starting device connection...');
@@ -61,7 +61,7 @@ export class ClientStream {
       if (!keyPair) {
         throw new Error('Failed to get ADB key pair');
       }
-      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext);
+      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext, onAuth);
       LoggerClientStream.info('ADB connected successfully');
 
       // 保存adb实例用于后续转发

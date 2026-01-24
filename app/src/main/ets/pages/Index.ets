@@ -569,6 +569,15 @@ struct Index {
   @State connectionTime: number = 0;
   private connectionTimer: number = -1;
 
+  private authDialogController: CustomDialogController = new CustomDialogController({
+    builder: AuthDialog(),
+    alignment: DialogAlignment.Center,
+    autoCancel: false, // Don't allow clicking outside to dismiss easily, wait for auth
+    customStyle: true
+  });
+
+  // ... (previous code)
+
   async connectDevice(device: Device) {
     if (this.isConnecting) return;
     
@@ -601,7 +610,14 @@ struct Index {
           // 如果在这之前已经被取消了(极少情况)，立即关闭
           createdClient.close();
         }
+      }, () => {
+        // onAuth callback: Show custom auth dialog
+        LoggerIndex.info('[Index] Showing auth dialog');
+        this.authDialogController.open();
       });
+      
+      // 连接成功(或失败返回null)，关闭授权弹窗
+      this.authDialogController.close();
       
       // 检查连接过程中是否被取消
       if (!this.isConnecting) {
@@ -651,6 +667,9 @@ struct Index {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerIndex.error('Connect device failed:', errMsg);
       this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
+    } finally {
+       // Ensure dialog is closed in case of error
+       this.authDialogController.close();
     }
   }
   
@@ -843,6 +862,40 @@ struct IpListDialog {
     .backgroundColor($r('app.color.bg_card'))
     .borderRadius(24)
     .width('80%')
+    .shadow({ radius: 24, color: '#4d000000', offsetY: 8 })
+  }
+}
+
+@CustomDialog
+struct AuthDialog {
+  controller: CustomDialogController;
+
+  build() {
+    Column() {
+      // 图标
+      Text($r('app.string.adb_auth_title'))
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ bottom: 12 })
+      
+      Text($r('app.string.adb_auth_message'))
+        .fontSize(16)
+        .fontColor($r('app.color.text_secondary'))
+        .textAlign(TextAlign.Center)
+        .opacity(0.8)
+        .margin({ bottom: 32 })
+      
+      // 等待动画
+      LoadingProgress()
+        .width(32)
+        .height(32)
+        .color($r('app.color.btn_primary'))
+    }
+    .width('80%')
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(24)
+    .padding(32)
     .shadow({ radius: 24, color: '#4d000000', offsetY: 8 })
   }
 }

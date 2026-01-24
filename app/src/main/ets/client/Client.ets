@@ -61,7 +61,7 @@ export class Client {
     return Client.allClients.get(uuid) || null;
   }
   
-  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void, onClientCreated?: (client: Client) => void): Promise<Client | null> {
+  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void, onClientCreated?: (client: Client) => void, onAuth?: () => void): Promise<Client | null> {
     if (Client.allClients.has(device.uuid)) {
       const existingClient = Client.allClients.get(device.uuid);
       if (existingClient && onClientCreated) {
@@ -74,7 +74,7 @@ export class Client {
     if (onClientCreated) {
       onClientCreated(client);
     }
-    const success = await client.connect(context, uiContext, onStatusChange);
+    const success = await client.connect(context, uiContext, onStatusChange, onAuth);
     
     if (success) {
       Client.allClients.set(device.uuid, client);
@@ -87,7 +87,7 @@ export class Client {
     return null;
   }
   
-  private async connect(context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void): Promise<boolean> {
+  private async connect(context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void, onAuth?: () => void): Promise<boolean> {
     try {
       // 1. 建立流连接
       this.clientStream = new ClientStream(this.device);
@@ -99,7 +99,7 @@ export class Client {
           onStatusChange('Connecting...');
         }
       }
-      const connected = await this.clientStream.connect(context, uiContext);
+      const connected = await this.clientStream.connect(context, uiContext, onAuth);
       
       if (!connected) {
         LoggerClient.error('ClientStream connection failed');

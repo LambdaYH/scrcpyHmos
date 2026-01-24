@@ -502,11 +502,11 @@
         },
         {
             "name": "adb_auth_title",
-            "value": "Authentication"
+            "value": "Verify Remote Device"
         },
         {
             "name": "adb_auth_message",
-            "value": "Requesting device authorization.\nPlease check your phone and click [Allow]."
+            "value": "Waiting for authorization from the controlled device.\nPlease check the controlled device and tap [Allow]."
         },
         {
             "name": "adb_auth_button",

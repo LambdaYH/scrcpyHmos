@@ -81,15 +81,15 @@ export class Adb {
   }
 
   // 通过TCP连接创建ADB实例
-  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext: UIContext): Promise<Adb> {
+  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<Adb> {
     const channel = new TcpChannel();
     await channel.connect(address, port);
     const adb = new Adb(channel);
-    await adb.connect(keyPair, uiContext);
+    await adb.connect(keyPair, uiContext, onAuth);
     return adb;
   }
 
-  private async connect(keyPair: AdbKeyPair, uiContext: UIContext): Promise<void> {
+  private async connect(keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<void> {
     // 连接ADB并认证
     await this.channel.write(AdbProtocol.generateConnect());
 
@@ -115,16 +115,21 @@ export class Adb {
         const pubKeyView = new Uint8Array(pubKeyBuffer);
         pubKeyView.set(keyPair.publicKeyBytes);
         
+    // ADB: Sending public key
         LoggerAdb.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
 
-        const context = uiContext.getHostContext() as common.UIAbilityContext;
-        uiContext.getPromptAction().showDialog({
-          title: context.resourceManager.getStringSync($r('app.string.adb_auth_title').id),
-          message: context.resourceManager.getStringSync($r('app.string.adb_auth_message').id),
-          buttons: [{ text: context.resourceManager.getStringSync($r('app.string.adb_auth_button').id), color: '#007AFF' }]
-        }).catch((error: Error) => {
-          LoggerAdb.error('Show auth dialog failed:', error);
-        });
+        if (onAuth) {
+          onAuth();
+        } else {
+          const context = uiContext.getHostContext() as common.UIAbilityContext;
+          uiContext.getPromptAction().showDialog({
+            title: context.resourceManager.getStringSync($r('app.string.adb_auth_title').id),
+            message: context.resourceManager.getStringSync($r('app.string.adb_auth_message').id),
+            buttons: [{ text: context.resourceManager.getStringSync($r('app.string.adb_auth_button').id), color: '#007AFF' }]
+          }).catch((error: Error) => {
+            LoggerAdb.error('Show auth dialog failed:', error);
+          });
+        }
         await this.channel.write(AdbProtocol.generateAuth(AdbProtocol.AUTH_TYPE_RSA_PUBLIC, pubKeyBuffer));
         message = await AdbMessage.parseAdbMessage(this.channel);
       }
