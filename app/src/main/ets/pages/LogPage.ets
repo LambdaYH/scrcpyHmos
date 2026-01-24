@@ -27,7 +27,7 @@ struct LogPage {
   }
 
   async clearLogs() {
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: $r('app.string.clear_logs_confirm_title'),
       message: $r('app.string.clear_logs_confirm_msg'),
       primaryButton: {

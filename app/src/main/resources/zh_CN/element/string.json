@@ -511,6 +511,22 @@
         {
             "name": "adb_auth_button",
             "value": "好的"
+        },
+        {
+            "name": "clipboard_empty",
+            "value": "剪贴板为空"
+        },
+        {
+            "name": "clipboard_synced",
+            "value": "已同步到设备"
+        },
+        {
+            "name": "clipboard_no_text",
+            "value": "无文本内容"
+        },
+        {
+            "name": "paste_failed",
+            "value": "粘贴失败"
         }
     ]
 }

@@ -563,6 +563,22 @@
     {
       "name": "adb_auth_button",
       "value": "Okay"
+    },
+    {
+      "name": "clipboard_empty",
+      "value": "Clipboard is empty"
+    },
+    {
+      "name": "clipboard_synced",
+      "value": "Synced to device"
+    },
+    {
+      "name": "clipboard_no_text",
+      "value": "No text content"
+    },
+    {
+      "name": "paste_failed",
+      "value": "Paste failed"
     }
   ]
 }

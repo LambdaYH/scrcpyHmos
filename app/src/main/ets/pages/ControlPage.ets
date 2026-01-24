@@ -487,20 +487,20 @@ struct ControlPage {
                     const systemPasteboard = pasteboard.getSystemPasteboard();
                     const hasData = await systemPasteboard.hasData();
                     if (!hasData) {
-                      this.getUIContext().getPromptAction().showToast({ message: '剪贴板为空' });
+                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_empty') });
                       return;
                     }
                     const pasteData = await systemPasteboard.getData();
                     const text = pasteData.getPrimaryText();
                     if (text && this.client) {
                       await this.client.sendClipboard(text, true);
-                      this.getUIContext().getPromptAction().showToast({ message: '已同步到设备' });
+                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_synced') });
                     } else {
-                      this.getUIContext().getPromptAction().showToast({ message: '无文本内容' });
+                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_no_text') });
                     }
                   } catch (err) {
                     LoggerControlPage.error('Paste failed:', err);
-                    this.getUIContext().getPromptAction().showToast({ message: '粘贴失败' });
+                    this.getUIContext().getPromptAction().showToast({ message: $r('app.string.paste_failed') });
                   }
                 }
               })
