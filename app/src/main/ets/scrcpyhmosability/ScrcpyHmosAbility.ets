@@ -88,14 +88,14 @@ export default class ScrcpyHmosAbility extends UIAbility {
   private async checkLanguageStatus(): Promise<void> {
     try {
       const language = await PreferencesHelper.getInstance().getLanguage();
-      hilog.info(DOMAIN, 'ScrcpyAbility', 'Checking language status, preference: %{public}s', language);
+      hilog.debug(DOMAIN, 'ScrcpyAbility', 'Checking language status, preference: %{public}s', language);
       
       if (language !== 'system') {
         // Explicit preference
         try {
            const currentAppLang = i18n.System.getAppPreferredLanguage();
            if (currentAppLang !== language) {
-             hilog.info(DOMAIN, 'ScrcpyAbility', 'Setting app language to explicit: %{public}s', language);
+             hilog.debug(DOMAIN, 'ScrcpyAbility', 'Setting app language to explicit: %{public}s', language);
              i18n.System.setAppPreferredLanguage(language);
            }
         } catch (err) {
@@ -108,7 +108,7 @@ export default class ScrcpyHmosAbility extends UIAbility {
           const sysLang = i18n.System.getSystemLanguage();
           const currentAppLang = i18n.System.getAppPreferredLanguage();
           
-          hilog.info(DOMAIN, 'ScrcpyAbility', 'System Language: %{public}s, Current App Language: %{public}s', sysLang, currentAppLang);
+          hilog.debug(DOMAIN, 'ScrcpyAbility', 'System Language: %{public}s, Current App Language: %{public}s', sysLang, currentAppLang);
 
           // We check if we need to update. 
           // Note: getAppPreferredLanguage might return previously set explicit lang.

@@ -190,7 +190,7 @@ export class Adb {
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
           case AdbProtocol.CMD_CLSE:
-            LoggerAdb.info(`[ADB] Connection closed: localId=${message.arg1}`);
+            LoggerAdb.debug(`[ADB] Connection closed: localId=${message.arg1}`);
             bufferStream.close();
             isNeedNotify = true;
             break;

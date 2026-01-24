@@ -57,7 +57,7 @@ export class VideoDecoder {
       }
 
       this.isStarted = true;
-      console.info(`[VideoDecoder] ✅ Native decoder started successfully!`);
+      console.info(`[VideoDecoder] Native decoder started successfully!`);
 
       // 推送CSD数据
       if (csd0) {

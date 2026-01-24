@@ -135,19 +135,19 @@ export class Client {
       try {
         // 唤醒屏幕 - Android uses "buttonWake" which sends createPowerEvent(1)
         if (this.device.wakeOnConnect) {
-          LoggerClient.info('🔆 Waking up remote device screen (wakeOnConnect=true)...');
+          LoggerClient.debug('Waking up remote device screen (wakeOnConnect=true)...');
           this.handleAction(Action.BUTTON_WAKE); // createPowerEvent(1)
         }
 
         // 连接时熄屏 - Android uses "buttonLightOff" with 2000ms delay
         if (this.device.lightOffOnConnect) {
-          LoggerClient.info('🌑 Turning off remote device screen (lightOffOnConnect=true)...');
+          LoggerClient.info('Turning off remote device screen (lightOffOnConnect=true)...');
           // Android: clientController.handleAction("buttonLightOff", null, 2000);
           await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2000));
           this.handleAction(Action.BUTTON_LIGHT_OFF); // createLightEvent(0)
         }
       } catch (wakeErr) {
-        LoggerClient.error('🔆 Failed to handle connect actions:', wakeErr);
+        LoggerClient.error('Failed to handle connect actions:', wakeErr);
       }
 
       LoggerClient.info('Client connected successfully');
@@ -240,7 +240,7 @@ export class Client {
     const readLoop = async () => {
       let disconnectReason = '';
       try {
-        LoggerClient.info('📺 Video loop started, waiting for frames...');
+        LoggerClient.info('Video loop started, waiting for frames...');
         let frameCount = 0;
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
@@ -404,7 +404,7 @@ export class Client {
     
     const packet = ControlPacket.createSetClipboard(text, 0n, paste);
     await this.writeToMain(packet);
-    LoggerClient.info(`📋 Sent clipboard to Android: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+    LoggerClient.info(`Sent clipboard to Android: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
   }
 
   // 内部方法：写入数据流
@@ -431,7 +431,7 @@ export class Client {
       return;
     }
     
-    LoggerClient.debug(`[Control] sendTouchEvent: action=${action}, pointerId=${pointerId}, pos=(${x},${y}), screen=${screenWidth}x${screenHeight}`);
+    // LoggerClient.debug(`[Control] sendTouchEvent: action=${action}, pointerId=${pointerId}, pos=(${x},${y}), screen=${screenWidth}x${screenHeight}`);
     
     const packet = ControlPacket.createInjectTouchEvent(
       action, 
@@ -453,7 +453,7 @@ export class Client {
       return;
     }
     
-    LoggerClient.debug(`[Control] sendKeyEvent: keyCode=${keyCode}, metaState=${metaState}`);
+    // LoggerClient.debug(`[Control] sendKeyEvent: keyCode=${keyCode}, metaState=${metaState}`);
     
     const packets = ControlPacket.createKeyEventPair(keyCode, metaState);
     for (const packet of packets) {

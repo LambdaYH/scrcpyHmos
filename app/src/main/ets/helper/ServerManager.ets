@@ -327,7 +327,7 @@ export class ServerManager {
     // app_process -Djava.class.path=<jar_path> / com.genymobile.scrcpy.Server <version> <args...>
     const cmd = `CLASSPATH=${ServerManager.SERVER_PATH} app_process / com.genymobile.scrcpy.Server ${ServerManager.SCRCPY_VERSION} ${params}\n`;
 
-    LoggerServerManager.info('Starting scrcpy server with command:', cmd);
+    LoggerServerManager.debug('Starting scrcpy server with command:', cmd);
     await stream.write(buffer.from(cmd, 'utf-8').buffer);
     LoggerServerManager.debug('Server started with scrcpy version:', ServerManager.SCRCPY_VERSION);
     

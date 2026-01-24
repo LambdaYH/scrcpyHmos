@@ -124,7 +124,7 @@ struct ControlPage {
       this.showLoading = false;  // 已经有视频流了
       this.connectionStatus = 'Connected';
       this.clientReady = true;
-      LoggerControlPage.info('ControlPage: Using existing client connection');
+      LoggerControlPage.debug('ControlPage: Using existing client connection');
       
       // 重新设置断开回调
       this.client.setOnDisconnect((reason: string) => {
