@@ -301,16 +301,6 @@ return this.videoConfig;
     }
   }
 
-  async readFromMain(length: number): Promise<ArrayBuffer> {
-    if (this.connectDirect) {
-      // TODO: 实现从socket读取
-      return new ArrayBuffer(0);
-    } else if (this.msgStream) {
-      return await this.msgStream.readByteArray(length);
-    }
-    return new ArrayBuffer(0);
-  }
-
   // 从main stream读取一个字节
   async readByteFromMain(): Promise<number> {
     const data: ArrayBuffer = await this.readBytesFromMain(1);
@@ -389,15 +379,6 @@ return this.videoConfig;
     return frameData;
   }
 
-  async readFromVideo(length: number): Promise<ArrayBuffer> {
-    if (this.connectDirect) {
-      // TODO: 实现从socket读取
-      return new ArrayBuffer(0);
-    } else if (this.vidStream) {
-      return await this.vidStream.readByteArray(length);
-    }
-    return new ArrayBuffer(0);
-  }
 
   setMainMessageCallback(callback: (data: ArrayBuffer) => void): void {
     if (this.mainSocket) {
