@@ -32,26 +32,8 @@
           "when": "inuse"
         }
       },
-      {
-        "name": "ohos.permission.MICROPHONE",
-        "reason": "$string:permission_microphone_reason",
-        "usedScene": {
-          "abilities": [
-            "ScrcpyHmosAbility"
-          ],
-          "when": "inuse"
-        }
-      },
-      {
-        "name": "ohos.permission.READ_PASTEBOARD",
-        "reason": "$string:permission_read_pasteboard_reason",
-        "usedScene": {
-          "abilities": [
-            "ScrcpyHmosAbility"
-          ],
-          "when": "inuse"
-        }
-      }
+
+
     ],
     "abilities": [
       {
