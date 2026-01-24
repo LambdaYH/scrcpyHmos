@@ -35,20 +35,31 @@ struct DeviceDetail {
       } else {
         // 生成UUID
         this.device.uuid = util.generateRandomUUID(true);
+        // 生成时间戳 YYYYMMDDHHmm
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+        
         try {
-          this.device.name = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
+          const baseName = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
+          this.device.name = `${baseName} ${timestamp}`;
         } catch (e) {
-          this.device.name = 'New Device';
+          this.device.name = `New Device ${timestamp}`;
         }
       }
     } catch (e) {
       LoggerDeviceDetail.error('Failed to get router params:', e);
       // 默认为新设备
       this.device.uuid = util.generateRandomUUID(true);
+      
+      // 生成时间戳 YYYYMMDDHHmm
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+      
       try {
-        this.device.name = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
+        const baseName = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
+        this.device.name = `${baseName} ${timestamp}`;
       } catch (e) {
-        this.device.name = 'New Device';
+        this.device.name = `New Device ${timestamp}`;
       }
     }
   }
@@ -102,7 +113,7 @@ struct DeviceDetail {
             Text($r('app.string.device_address'))
               .fontSize(14)
               .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.device.address, placeholder: '192.168.1.100' })
+            TextInput({ text: this.device.address, placeholder: '127.0.0.1' })
               .onChange((value: string) => {
                 this.device.address = value;
               })
