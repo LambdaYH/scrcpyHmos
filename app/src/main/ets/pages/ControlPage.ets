@@ -376,7 +376,7 @@ struct ControlPage {
       Stack({ alignContent: Alignment.Center }) {
         XComponent({
           id: 'video_surface',
-          type: 'surface',
+          type: XComponentType.SURFACE,
           controller: this.xComponentController
         })
           .onLoad(() => {
