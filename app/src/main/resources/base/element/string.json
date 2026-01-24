@@ -565,6 +565,54 @@
       "value": "Okay"
     },
     {
+      "name": "about_page_title",
+      "value": "About / Open Source"
+    },
+    {
+      "name": "about_scrcpy_name",
+      "value": "Scrcpy Hmos"
+    },
+    {
+      "name": "about_client_section",
+      "value": "Client"
+    },
+    {
+      "name": "about_src_code",
+      "value": "Source Code"
+    },
+    {
+      "name": "about_license_label",
+      "value": "License"
+    },
+    {
+      "name": "about_client_desc",
+      "value": "This project is partially derived from mingzhixian's Easycontrol project, released under GPL-3.0."
+    },
+    {
+      "name": "about_server_section",
+      "value": "Server"
+    },
+    {
+      "name": "about_server_desc",
+      "value": "The scrcpy-server binary distributed with this app is unmodified."
+    },
+    {
+      "name": "about_view_license",
+      "value": "View License Details"
+    },
+    {
+      "name": "about_license_dialog_title",
+      "value": "License Details"
+    },
+    {
+      "name": "about_close",
+      "value": "Close"
+    },
+    {
+      "name": "about_server_builtin",
+      "value": "Built-in official scrcpy-server"
+    },
+    {
       "name": "clipboard_empty",
       "value": "Clipboard is empty"
     },

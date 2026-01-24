@@ -22,7 +22,7 @@
         },
         {
             "name": "about_us",
-            "value": "关于我们"
+            "value": "关于"
         },
         {
             "name": "help",
@@ -511,6 +511,54 @@
         {
             "name": "adb_auth_button",
             "value": "好的"
+        },
+        {
+            "name": "about_page_title",
+            "value": "关于 / 开源说明"
+        },
+        {
+            "name": "about_scrcpy_name",
+            "value": "Scrcpy Hmos"
+        },
+        {
+            "name": "about_client_section",
+            "value": "客户端 (Client)"
+        },
+        {
+            "name": "about_src_code",
+            "value": "开源地址 (Source Code)"
+        },
+        {
+            "name": "about_license_label",
+            "value": "协议 (License)"
+        },
+        {
+            "name": "about_client_desc",
+            "value": "本项目源代码部分衍生自 mingzhixian 的 Easycontrol 项目，遵循 GPL-3.0 协议发布。"
+        },
+        {
+            "name": "about_server_section",
+            "value": "服务端 (Server)"
+        },
+        {
+            "name": "about_server_desc",
+            "value": "本应用分发的 scrcpy-server 二进制文件未进行任何源码修改。"
+        },
+        {
+            "name": "about_view_license",
+            "value": "查看完整开源协议"
+        },
+        {
+            "name": "about_license_dialog_title",
+            "value": "开源协议详情"
+        },
+        {
+            "name": "about_close",
+            "value": "关闭"
+        },
+        {
+            "name": "about_server_builtin",
+            "value": "内置官方 scrcpy-server"
         },
         {
             "name": "clipboard_empty",
