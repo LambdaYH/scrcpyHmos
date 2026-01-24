@@ -267,7 +267,7 @@ struct ControlPage {
       if (!this.showControlPanel && this.componentWidth > 0) {
         // 贴边隐藏：只露出一半
         const hiddenX = this.componentWidth - this.FAB_SIZE / 2;
-        animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
+        this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
           this.fabX = hiddenX;
         })
       }
@@ -286,7 +286,7 @@ struct ControlPage {
   showFab() {
     if (this.componentWidth > 0) {
       const visibleX = this.componentWidth - this.FAB_SIZE - 20; // 离右边20px
-      animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
+      this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
         this.fabX = visibleX;
       })
       this.startAutoHideTimer();
@@ -579,7 +579,7 @@ struct ControlPage {
                  if (targetY < 50) targetY = 50;
                  if (targetY > this.componentHeight - 150) targetY = this.componentHeight - 150;
 
-                 animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
+                 this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
                     this.fabX = dockX;
                     this.fabY = targetY;
                  });
