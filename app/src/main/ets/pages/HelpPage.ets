@@ -5,7 +5,7 @@ import { common, Want } from '@kit.AbilityKit';
 struct HelpPage {
 
   private openUrl(url: string) {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     let want: Want = {
       action: 'ohos.want.action.viewData',
       entities: ['entity.system.browsable'],
