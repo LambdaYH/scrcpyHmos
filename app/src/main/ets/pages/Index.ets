@@ -6,6 +6,7 @@ import { LoggerIndex, Logger } from '../helper/Logger';
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
 import pasteboard from '@ohos.pasteboard';
+import { curves } from '@kit.ArkUI';
 
 @Entry
 @Component
@@ -92,7 +93,7 @@ struct Index {
           .scale({ x: 1.0, y: 1.0 })
         }
       })
-      .animation({ duration: 150, curve: Curve.EaseInOut })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         this.currentIndex = 0;
         this.tabsController.changeIndex(0);
@@ -129,7 +130,7 @@ struct Index {
           .scale({ x: 1.0, y: 1.0 })
         }
       })
-      .animation({ duration: 150, curve: Curve.EaseInOut })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         // Direct action
         this.getUIContext().getRouter().pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
@@ -159,7 +160,7 @@ struct Index {
           .scale({ x: 1.0, y: 1.0 })
         }
       })
-      .animation({ duration: 150, curve: Curve.EaseInOut })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         this.currentIndex = 2;
         this.tabsController.changeIndex(2);
@@ -515,6 +516,37 @@ struct Index {
             .padding({ left: 16, right: 16 })
             .onClick(() => {
               this.showLocalIp();
+            })
+          }
+           .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
+          ListItem() {
+             Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.info_circle'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.about_us'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/AboutPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
             })
           }
            .backgroundColor($r('app.color.bg_card'))
