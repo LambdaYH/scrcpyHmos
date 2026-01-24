@@ -114,7 +114,7 @@ export class AdbKeyPair {
       fs.readSync(priFile.fd, priBuf);
       fs.closeSync(priFile);
 
-      const privateKeyText = new util.TextDecoder('utf-8').decode(new Uint8Array(priBuf));
+      const privateKeyText = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(priBuf));
       const data = privateKeyText
         .replace('-----BEGIN PRIVATE KEY-----', '')
         .replace('-----END PRIVATE KEY-----', '')

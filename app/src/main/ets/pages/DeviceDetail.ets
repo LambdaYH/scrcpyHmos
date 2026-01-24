@@ -36,7 +36,7 @@ struct DeviceDetail {
         // 生成UUID
         this.device.uuid = util.generateRandomUUID(true);
         try {
-          this.device.name = getContext(this).resourceManager.getStringSync($r('app.string.new_device').id);
+          this.device.name = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
         } catch (e) {
           this.device.name = 'New Device';
         }
@@ -46,7 +46,7 @@ struct DeviceDetail {
       // 默认为新设备
       this.device.uuid = util.generateRandomUUID(true);
       try {
-        this.device.name = getContext(this).resourceManager.getStringSync($r('app.string.new_device').id);
+        this.device.name = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
       } catch (e) {
         this.device.name = 'New Device';
       }

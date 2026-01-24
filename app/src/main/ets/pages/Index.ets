@@ -46,7 +46,7 @@ struct Index {
 
   async initPreferences() {
     try {
-      const context = getContext(this) as Context;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       await this.preferencesHelper.init(context);
       Logger.init(context as common.UIAbilityContext);
       const hasDevices = await this.loadDevices();
@@ -581,10 +581,10 @@ struct Index {
     }, 1000);
     
     try {
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const ctx = this.getUIContext().getHostContext()! as common.UIAbilityContext;
       
       // 第一阶段：等待ADB授权 (在连接开始前提示)
-      this.connectionStatus = getContext(this).resourceManager.getStringSync($r('app.string.adb_auth_waiting').id);
+      this.connectionStatus = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.adb_auth_waiting').id);
       
       // 启动连接
       // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
@@ -650,7 +650,7 @@ struct Index {
       this.connectingClient = null;
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerIndex.error('Connect device failed:', errMsg);
-      this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
+      this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
     }
   }
   
@@ -768,7 +768,7 @@ struct Index {
     } catch (err) {
       LoggerIndex.error('Get network info failed:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.get_ip_failed_prefix').id) + errMsg });
+      this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.get_ip_failed_prefix').id) + errMsg });
     }
   }
 
@@ -777,7 +777,7 @@ struct Index {
       const systemPasteboard = pasteboard.getSystemPasteboard();
       const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       systemPasteboard.setData(pasteData).then(() => {
-        this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.copy_prefix').id) + text });
+        this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.copy_prefix').id) + text });
       });
     } catch (e) {
       LoggerIndex.error('Copy to clipboard failed:', e);

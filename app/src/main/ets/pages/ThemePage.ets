@@ -1,4 +1,4 @@
-import { ConfigurationConstant } from '@kit.AbilityKit';
+import { ConfigurationConstant, common } from '@kit.AbilityKit';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { LoggerIndex } from '../helper/Logger';
 
@@ -31,7 +31,7 @@ struct ThemePage {
     }
     
     try {
-      getContext(this).getApplicationContext().setColorMode(colorMode);
+      (this.getUIContext().getHostContext() as common.UIAbilityContext).getApplicationContext().setColorMode(colorMode);
     } catch (err) {
       LoggerIndex.error('Set color mode failed:', err);
     }

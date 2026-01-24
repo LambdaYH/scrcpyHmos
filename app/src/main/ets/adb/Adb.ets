@@ -232,7 +232,7 @@ export class Adb {
       await this.wait();
     } while (!bufferStream.isStreamClosed());
     const result = bufferStream.readByteArrayBeforeClose();
-    const textDecoder = new util.TextDecoder('utf-8');
+    const textDecoder = util.TextDecoder.create('utf-8');
     return textDecoder.decodeToString(new Uint8Array(result));
   }
 
@@ -290,7 +290,7 @@ export class Adb {
       await this.wait();
     } while (!bufferStream.isStreamClosed());
     const result = bufferStream.readByteArrayBeforeClose();
-    const textDecoder = new util.TextDecoder('utf-8');
+    const textDecoder = util.TextDecoder.create('utf-8');
     return textDecoder.decodeToString(new Uint8Array(result));
   }
 
