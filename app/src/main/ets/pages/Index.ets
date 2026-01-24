@@ -215,11 +215,23 @@ struct Index {
       if (this.isConnecting) {
         Column() {
           Column() {
-            Text('连接中')
-              .fontSize(20)
-              .fontWeight(FontWeight.Bold)
-              .fontColor($r('app.color.text_primary'))
-              .margin({ bottom: 16 })
+            Row() {
+              Text('连接中')
+                .fontSize(20)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_primary'))
+
+              if (this.connectionTime >= 0) {
+                Text(` (${this.connectionTime}s)`)
+                  .fontSize(20)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.text_primary'))
+              }
+            }
+            .alignItems(VerticalAlign.Center)
+            .justifyContent(FlexAlign.Center)
+            .margin({ bottom: 8 })
+
             
             Text(this.connectionStatus)
               .fontSize(16)
@@ -492,10 +504,19 @@ struct Index {
     .borderRadius(8)
   }
   
+  @State connectionTime: number = 0;
+  private connectionTimer: number = -1;
+
   async connectDevice(device: Device) {
     if (this.isConnecting) return;
     
     this.isConnecting = true;
+    this.connectionTime = 0;
+    
+    // Start timer
+    this.connectionTimer = setInterval(() => {
+      this.connectionTime++;
+    }, 1000);
     
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -531,6 +552,12 @@ struct Index {
       
       this.connectingClient = client;
       
+      // Clear timer on completion (success or fail handled below)
+      if (this.connectionTimer !== -1) {
+        clearInterval(this.connectionTimer);
+        this.connectionTimer = -1;
+      }
+      
       if (this.connectingClient) {
         // 连接成功，立即跳转到控制页面
         // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
@@ -549,10 +576,14 @@ struct Index {
       } else {
         this.isConnecting = false;
         this.getUIContext().getPromptAction().showToast({ 
-          message: '连接失败。请检查设备是否开启ADB，并在设备上授权USB调试。' 
+          message: '连接失败。请检查设备是否开启ADB远程调试或检查配置项是否正确'
         });
       }
     } catch (err) {
+      if (this.connectionTimer !== -1) {
+        clearInterval(this.connectionTimer);
+        this.connectionTimer = -1;
+      }
       this.isConnecting = false;
       this.connectingClient = null;
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -563,6 +594,10 @@ struct Index {
   
   // 取消连接
   cancelConnect() {
+    if (this.connectionTimer !== -1) {
+      clearInterval(this.connectionTimer);
+      this.connectionTimer = -1;
+    }
     if (this.connectingClient) {
       this.connectingClient.close();
       this.connectingClient = null;

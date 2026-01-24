@@ -181,7 +181,7 @@ export class ClientStream {
     try {
       await uiContext.getPromptAction().showDialog({
         title: '连接超时',
-        message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 手机处于锁屏状态。\n\n请解锁手机并检查屏幕上是否有"允许USB调试"的弹窗。',
+        message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 网络连接失败。\n3. 服务端异常，请查看日志并反馈。',
         buttons: [{ text: '知道了', color: '#007AFF' }]
       });
     } catch (e) {
