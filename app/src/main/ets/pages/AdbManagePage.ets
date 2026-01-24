@@ -223,7 +223,7 @@ struct CustomKeyDialog {
         .onChange((val) => this.privateKey = val)
         .margin({ bottom: 12 })
         
-      Text('Public Key (PKCS#8 Base64)')
+      Text('Public Key (X.509 or ADB Format)')
         .fontSize(12)
         .alignSelf(ItemAlign.Start)
         .fontColor('#666666')
