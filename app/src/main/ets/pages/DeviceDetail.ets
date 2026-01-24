@@ -7,8 +7,8 @@ import { util } from '@kit.ArkTS';
 @Entry
 @Component
 struct DeviceDetail {
-  @State device: Device = new Device();
-  @State isEdit: boolean = false;
+  @State device: Device = new Device('', 0);
+  @State isEditMode: boolean = false;
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
 
   // 视频编码选项
@@ -31,17 +31,25 @@ struct DeviceDetail {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
       if (params && params['device']) {
         this.device = params['device'] as Device;
-        this.isEdit = true;
+        this.isEditMode = true;
       } else {
         // 生成UUID
         this.device.uuid = util.generateRandomUUID(true);
-        this.device.name = '新设备';
+        try {
+          this.device.name = getContext(this).resourceManager.getStringSync($r('app.string.new_device').id);
+        } catch (e) {
+          this.device.name = 'New Device';
+        }
       }
     } catch (e) {
       LoggerDeviceDetail.error('Failed to get router params:', e);
       // 默认为新设备
       this.device.uuid = util.generateRandomUUID(true);
-      this.device.name = '新设备';
+      try {
+        this.device.name = getContext(this).resourceManager.getStringSync($r('app.string.new_device').id);
+      } catch (e) {
+        this.device.name = 'New Device';
+      }
     }
   }
 
@@ -61,7 +69,7 @@ struct DeviceDetail {
           this.getUIContext().getRouter().back();
         })
 
-        Text(this.isEdit ? '编辑设备' : '添加设备')
+        Text(this.isEditMode ? $r('app.string.edit_device') : $r('app.string.add_device_title'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
@@ -118,12 +126,12 @@ struct DeviceDetail {
 
           // 视频设置
           Column({ space: 12 }) {
-            Text('视频设置')
+            Text($r('app.string.video_settings'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('视频编码')
+              Text($r('app.string.video_codec'))
                 .layoutWeight(1)
               Select(this.videoCodecOptions)
                 .selected(this.getVideoCodecIndex())
@@ -135,9 +143,9 @@ struct DeviceDetail {
             .width('100%')
 
             Row() {
-              Text('最大尺寸')
+              Text($r('app.string.max_size'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxSize ? this.device.maxSize.toString() : '', placeholder: '默认' })
+              TextInput({ text: this.device.maxSize ? this.device.maxSize.toString() : '', placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(100)
                 .textAlign(TextAlign.End)
@@ -149,9 +157,9 @@ struct DeviceDetail {
             .width('100%')
 
             Row() {
-              Text('最大帧率')
+              Text($r('app.string.max_fps'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxFps ? this.device.maxFps.toString() : '', placeholder: '默认' })
+              TextInput({ text: this.device.maxFps ? this.device.maxFps.toString() : '', placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(100)
                 .textAlign(TextAlign.End)
@@ -163,9 +171,9 @@ struct DeviceDetail {
             .width('100%')
 
             Row() {
-              Text('比特率 (bps)')
+              Text($r('app.string.bitrate'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxVideoBit ? this.device.maxVideoBit.toString() : '', placeholder: '默认' })
+              TextInput({ text: this.device.maxVideoBit ? this.device.maxVideoBit.toString() : '', placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(120)
                 .textAlign(TextAlign.End)
@@ -177,9 +185,9 @@ struct DeviceDetail {
             .width('100%')
 
             Row() {
-              Text('裁剪区域')
+              Text($r('app.string.crop'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.crop, placeholder: '宽:高:X:Y' })
+              TextInput({ text: this.device.crop, placeholder: $r('app.string.crop_placeholder') })
                 .width(150)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
@@ -189,9 +197,9 @@ struct DeviceDetail {
             .width('100%')
 
             Row() {
-              Text('显示器ID')
+              Text($r('app.string.display_id'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.displayId ? this.device.displayId.toString() : '', placeholder: '默认' })
+              TextInput({ text: this.device.displayId ? this.device.displayId.toString() : '', placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(80)
                 .textAlign(TextAlign.End)
@@ -209,12 +217,12 @@ struct DeviceDetail {
 
           // 音频设置
           Column({ space: 12 }) {
-            Text('音频设置')
+            Text($r('app.string.audio_settings'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('启用音频')
+              Text($r('app.string.enable_audio'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.isAudio })
                 .onChange((isOn: boolean) => {
                   this.device.isAudio = isOn;
@@ -225,7 +233,7 @@ struct DeviceDetail {
 
             if (this.device.isAudio) {
               Row() {
-                Text('音频编码')
+                Text($r('app.string.audio_codec'))
                   .layoutWeight(1)
                 Select(this.audioCodecOptions)
                   .selected(this.getAudioCodecIndex())
@@ -237,9 +245,9 @@ struct DeviceDetail {
               .width('100%')
 
               Row() {
-                Text('音频比特率 (bps)')
+                Text($r('app.string.audio_bitrate'))
                   .layoutWeight(1)
-                TextInput({ text: this.device.maxAudioBit ? this.device.maxAudioBit.toString() : '', placeholder: '默认' })
+                TextInput({ text: this.device.maxAudioBit ? this.device.maxAudioBit.toString() : '', placeholder: $r('app.string.default_value') })
                   .type(InputType.Number)
                   .width(120)
                   .textAlign(TextAlign.End)
@@ -258,12 +266,12 @@ struct DeviceDetail {
 
           // 行为设置
           Column({ space: 12 }) {
-            Text('行为设置')
+            Text($r('app.string.behavior_settings'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('显示触摸点')
+              Text($r('app.string.show_touches'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.showTouches })
                 .onChange((isOn: boolean) => {
                   this.device.showTouches = isOn;
@@ -273,7 +281,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('保持唤醒')
+              Text($r('app.string.stay_awake'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.stayAwake })
                 .onChange((isOn: boolean) => {
                   this.device.stayAwake = isOn;
@@ -283,7 +291,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('剪贴板同步')
+              Text($r('app.string.clipboard_autosync'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.clipboardAutosync })
                 .onChange((isOn: boolean) => {
                   this.device.clipboardAutosync = isOn;
@@ -293,7 +301,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('断开时熄屏')
+              Text($r('app.string.turn_screen_off_on_close'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.powerOffScreenOnClose })
                 .onChange((isOn: boolean) => {
                   this.device.powerOffScreenOnClose = isOn;
@@ -309,12 +317,12 @@ struct DeviceDetail {
 
           // 连接时操作
           Column({ space: 12 }) {
-            Text('连接时操作')
+            Text($r('app.string.connection_actions'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('唤醒屏幕')
+              Text($r('app.string.turn_screen_on'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.wakeOnConnect })
                 .onChange((isOn: boolean) => {
                   this.device.wakeOnConnect = isOn;
@@ -324,7 +332,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('连接时熄屏')
+              Text($r('app.string.turn_screen_off'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.lightOffOnConnect })
                 .onChange((isOn: boolean) => {
                   this.device.lightOffOnConnect = isOn;
@@ -334,7 +342,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('连接时全屏')
+              Text($r('app.string.fullscreen_on_connect'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.changeToFullOnConnect })
                 .onChange((isOn: boolean) => {
                   this.device.changeToFullOnConnect = isOn;
@@ -344,7 +352,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('自定义分辨率')
+              Text($r('app.string.custom_resolution'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.customResolutionOnConnect })
                 .onChange((isOn: boolean) => {
                   this.device.customResolutionOnConnect = isOn;
@@ -383,12 +391,12 @@ struct DeviceDetail {
 
           // 断开时操作
           Column({ space: 12 }) {
-            Text('断开时操作')
+            Text($r('app.string.disconnection_actions'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('断开时锁屏')
+              Text($r('app.string.lock_screen'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.lockOnClose })
                 .onChange((isOn: boolean) => {
                   this.device.lockOnClose = isOn;
@@ -398,7 +406,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('断开时亮屏')
+              Text($r('app.string.turn_screen_on_disconnect'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.lightOnClose })
                 .onChange((isOn: boolean) => {
                   this.device.lightOnClose = isOn;
@@ -408,7 +416,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('断开自动重连')
+              Text($r('app.string.auto_reconnect'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.reconnectOnClose })
                 .onChange((isOn: boolean) => {
                   this.device.reconnectOnClose = isOn;
@@ -424,12 +432,12 @@ struct DeviceDetail {
 
           // 高级选项
           Column({ space: 12 }) {
-            Text('高级选项')
+            Text($r('app.string.advanced_options'))
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text('错误时降低分辨率')
+              Text($r('app.string.downsize_on_error'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.downsizeOnError })
                 .onChange((isOn: boolean) => {
                   this.device.downsizeOnError = isOn;
@@ -439,7 +447,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('应用启动时自动连接')
+              Text($r('app.string.connect_on_start'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.connectOnStart })
                 .onChange((isOn: boolean) => {
                   this.device.connectOnStart = isOn;
@@ -449,7 +457,7 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text('服务端日志级别')
+              Text($r('app.string.server_log_level'))
                 .layoutWeight(1)
               Select([
                 { value: 'verbose' },
@@ -476,7 +484,7 @@ struct DeviceDetail {
           // 额外参数
           Column({ space: 12 }) {
             Row() {
-              Text('额外参数')
+              Text($r('app.string.extra_params'))
                 .fontSize(16)
                 .fontWeight(FontWeight.Medium)
                 .layoutWeight(1)
@@ -497,14 +505,14 @@ struct DeviceDetail {
             }
             .width('100%')
 
-            Text('格式: 参数名=值，用于设置未在界面中定义的服务端参数')
+            Text($r('app.string.extra_params_hint'))
               .fontSize(12)
               .fontColor($r('app.color.text_tertiary'))
               .width('100%')
 
             ForEach(this.device.extraParams, (param: ExtraParam, index: number) => {
               Row({ space: 8 }) {
-                TextInput({ text: param.key, placeholder: '参数名' })
+                TextInput({ text: param.key, placeholder: $r('app.string.param_name') })
                   .layoutWeight(1)
                   .onChange((value: string) => {
                     this.device.extraParams[index].key = value;
@@ -514,7 +522,7 @@ struct DeviceDetail {
                   .fontSize(16)
                   .fontColor($r('app.color.text_secondary'))
                 
-                TextInput({ text: param.value, placeholder: '值' })
+                TextInput({ text: param.value, placeholder: $r('app.string.param_value') })
                   .layoutWeight(1)
                   .onChange((value: string) => {
                     this.device.extraParams[index].value = value;
@@ -522,8 +530,8 @@ struct DeviceDetail {
                 
                 Button({ type: ButtonType.Circle, stateEffect: true }) {
                   SymbolGlyph($r('sys.symbol.minus'))
-                    .fontSize(18)
-                    .fontColor([$r('app.color.icon_red')])
+                  .fontSize(18)
+                  .fontColor([$r('app.color.icon_red')])
                 }
                 .width(32)
                 .height(32)
@@ -547,8 +555,8 @@ struct DeviceDetail {
 
       // 底部按钮
       Row({ space: 16 }) {
-        if (this.isEdit) {
-          Button('删除', { type: ButtonType.Capsule, stateEffect: true })
+        if (this.isEditMode) {
+          Button($r('app.string.delete'), { type: ButtonType.Capsule, stateEffect: true })
             .fontSize(16)
             .backgroundColor($r('app.color.btn_danger_bg'))
             .fontColor($r('app.color.btn_danger_text'))
@@ -591,7 +599,7 @@ struct DeviceDetail {
   async saveDevice() {
     if (!this.device.name || !this.device.address) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '请填写完整信息' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.fill_complete_info') });
       } catch (e) {
         LoggerDeviceDetail.error('Show toast failed:', e);
       }
@@ -599,7 +607,7 @@ struct DeviceDetail {
     }
 
     try {
-      if (this.isEdit) {
+      if (this.isEditMode) {
         await this.preferencesHelper.update(this.device);
       } else {
         await this.preferencesHelper.insert(this.device);

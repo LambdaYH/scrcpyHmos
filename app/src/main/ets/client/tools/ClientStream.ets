@@ -180,9 +180,9 @@ export class ClientStream {
   if (errMsg.includes('Read timeout') && !this.isClosing) {
     try {
       await uiContext.getPromptAction().showDialog({
-        title: '连接超时',
-        message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 网络连接失败。\n3. 服务端异常，请查看日志并反馈。',
-        buttons: [{ text: '知道了', color: '#007AFF' }]
+        title: context.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
+        message: context.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
+        buttons: [{ text: context.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id), color: '#007AFF' }]
       });
     } catch (e) {
       LoggerClientStream.error('Show timeout dialog failed:', e);

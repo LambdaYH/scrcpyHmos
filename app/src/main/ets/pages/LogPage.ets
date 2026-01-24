@@ -28,20 +28,20 @@ struct LogPage {
 
   async clearLogs() {
     AlertDialog.show({
-      title: '清空日志',
-      message: '确定要清空所有应用日志吗？',
+      title: $r('app.string.clear_logs_confirm_title'),
+      message: $r('app.string.clear_logs_confirm_msg'),
       primaryButton: {
-        value: '取消',
+        value: $r('app.string.cancel'),
         action: () => {
         }
       },
       secondaryButton: {
-        value: '清空',
+        value: $r('app.string.clear'),
         fontColor: Object($r('app.color.btn_danger')),
         action: () => {
           Logger.clearLogs();
           this.refreshLogs();
-          this.getUIContext().getPromptAction().showToast({ message: '日志已清空' });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.logs_cleared') });
         }
       }
     });
@@ -63,7 +63,7 @@ struct LogPage {
           this.getUIContext().getRouter().back();
         })
 
-        Text('应用日志')
+        Text($r('app.string.system_log'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
@@ -113,7 +113,7 @@ struct LogPage {
 
       // Footer Actions
       Row() {
-        Button('刷新')
+        Button($r('app.string.refresh'))
           .fontSize(14)
           .backgroundColor($r('app.color.btn_secondary'))
           .fontColor($r('app.color.text_primary'))
@@ -121,16 +121,16 @@ struct LogPage {
           .onClick(() => {
             this.refreshLogs();
           })
-          .width(100)
+          .layoutWeight(1)
 
-        Button('清空日志')
+        Button($r('app.string.clear_logs'))
           .fontSize(14)
           .backgroundColor($r('app.color.btn_danger'))
           .fontColor(Color.White)
           .onClick(() => {
             this.clearLogs();
           })
-          .width(100)
+          .layoutWeight(1)
       }
       .width('100%')
       .padding(16)

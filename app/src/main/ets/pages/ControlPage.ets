@@ -245,7 +245,11 @@ struct ControlPage {
       // 根据错误类型显示不同的提示
       let toastMsg = '连接错误';
       if (errMsg.includes('timeout')) {
-        toastMsg = '连接超时。请确保在Android设备上点击了"允许"授权USB调试。';
+        try {
+          toastMsg = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.connect_timeout_toast').id) || 'Connection timeout';
+        } catch (e) {
+          toastMsg = 'Connection timeout';
+        }
       }
       
       try {

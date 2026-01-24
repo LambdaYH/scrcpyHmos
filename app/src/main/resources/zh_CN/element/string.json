@@ -1,0 +1,516 @@
+{
+    "string": [
+        {
+            "name": "more_title",
+            "value": "更多"
+        },
+        {
+            "name": "key_settings",
+            "value": "密钥设置"
+        },
+        {
+            "name": "language_settings",
+            "value": "语言设置"
+        },
+        {
+            "name": "dark_mode",
+            "value": "深色模式"
+        },
+        {
+            "name": "system_log",
+            "value": "系统日志"
+        },
+        {
+            "name": "about_us",
+            "value": "关于我们"
+        },
+        {
+            "name": "help",
+            "value": "使用说明"
+        },
+        {
+            "name": "view_ip",
+            "value": "查看本机IP"
+        },
+        {
+            "name": "tab_devices",
+            "value": "设备"
+        },
+        {
+            "name": "tab_more",
+            "value": "更多"
+        },
+        {
+            "name": "key_management",
+            "value": "密钥管理"
+        },
+        {
+            "name": "global_adb_key",
+            "value": "全局ADB密钥"
+        },
+        {
+            "name": "public_key",
+            "value": "公钥 (Public Key):"
+        },
+        {
+            "name": "private_key",
+            "value": "私钥 (Private Key):"
+        },
+        {
+            "name": "regenerate_keys",
+            "value": "重新生成密钥"
+        },
+        {
+            "name": "custom_keys",
+            "value": "自定义密钥"
+        },
+        {
+            "name": "regenerate_note",
+            "value": "注意：重新生成密钥后，所有已连接的设备都需要重新授权。"
+        },
+        {
+            "name": "refresh",
+            "value": "刷新"
+        },
+        {
+            "name": "clear_logs",
+            "value": "清空日志"
+        },
+        {
+            "name": "clear_logs_confirm_title",
+            "value": "清空日志"
+        },
+        {
+            "name": "clear_logs_confirm_msg",
+            "value": "确定要清空所有应用日志吗？"
+        },
+        {
+            "name": "cancel",
+            "value": "取消"
+        },
+        {
+            "name": "confirm",
+            "value": "确定"
+        },
+        {
+            "name": "clear",
+            "value": "清空"
+        },
+        {
+            "name": "logs_cleared",
+            "value": "日志已清空"
+        },
+        {
+            "name": "follow_system",
+            "value": "跟随系统"
+        },
+        {
+            "name": "light_mode",
+            "value": "浅色模式"
+        },
+        {
+            "name": "dark_mode_option",
+            "value": "深色模式"
+        },
+        {
+            "name": "restart_hint",
+            "value": "语言切换后需要重启应用生效"
+        },
+        {
+            "name": "language_zh",
+            "value": "简体中文"
+        },
+        {
+            "name": "language_en",
+            "value": "English"
+        },
+        {
+            "name": "scrcpy_devices",
+            "value": "Scrcpy设备"
+        },
+        {
+            "name": "no_devices",
+            "value": "暂无设备"
+        },
+        {
+            "name": "add_device_hint",
+            "value": "点击下方 + 按钮添加设备"
+        },
+        {
+            "name": "connect",
+            "value": "连接"
+        },
+        {
+            "name": "connecting",
+            "value": "连接中"
+        },
+        {
+            "name": "copy_success",
+            "value": "已复制"
+        },
+        {
+            "name": "copy_fail",
+            "value": "复制失败"
+        },
+        {
+            "name": "local_ip_list",
+            "value": "本机IP列表"
+        },
+        {
+            "name": "click_to_copy",
+            "value": "点击条目复制"
+        },
+        {
+            "name": "get_ip_failed",
+            "value": "获取IP失败"
+        },
+        {
+            "name": "new_device",
+            "value": "新设备"
+        },
+        {
+            "name": "edit_device",
+            "value": "编辑设备"
+        },
+        {
+            "name": "add_device_title",
+            "value": "添加设备"
+        },
+        {
+            "name": "device_name",
+            "value": "设备名称"
+        },
+        {
+            "name": "device_address",
+            "value": "地址"
+        },
+        {
+            "name": "device_adb_port",
+            "value": "ADB端口"
+        },
+        {
+            "name": "video_settings",
+            "value": "视频设置"
+        },
+        {
+            "name": "video_codec",
+            "value": "视频编码"
+        },
+        {
+            "name": "max_size",
+            "value": "最大尺寸"
+        },
+        {
+            "name": "default_value",
+            "value": "默认"
+        },
+        {
+            "name": "max_fps",
+            "value": "最大帧率"
+        },
+        {
+            "name": "bitrate",
+            "value": "比特率 (bps)"
+        },
+        {
+            "name": "crop",
+            "value": "裁剪区域"
+        },
+        {
+            "name": "display_id",
+            "value": "显示器ID"
+        },
+        {
+            "name": "audio_settings",
+            "value": "音频设置"
+        },
+        {
+            "name": "enable_audio",
+            "value": "启用音频"
+        },
+        {
+            "name": "audio_codec",
+            "value": "音频编码"
+        },
+        {
+            "name": "audio_bitrate",
+            "value": "音频比特率 (bps)"
+        },
+        {
+            "name": "behavior_settings",
+            "value": "行为设置"
+        },
+        {
+            "name": "show_touches",
+            "value": "显示触摸点"
+        },
+        {
+            "name": "stay_awake",
+            "value": "保持唤醒"
+        },
+        {
+            "name": "clipboard_autosync",
+            "value": "剪贴板同步"
+        },
+        {
+            "name": "turn_screen_off_on_close",
+            "value": "断开时熄屏"
+        },
+        {
+            "name": "connection_actions",
+            "value": "连接时操作"
+        },
+        {
+            "name": "turn_screen_on",
+            "value": "唤醒屏幕"
+        },
+        {
+            "name": "turn_screen_off",
+            "value": "连接时熄屏"
+        },
+        {
+            "name": "fullscreen_on_connect",
+            "value": "连接时全屏"
+        },
+        {
+            "name": "custom_resolution",
+            "value": "自定义分辨率"
+        },
+        {
+            "name": "disconnection_actions",
+            "value": "断开时操作"
+        },
+        {
+            "name": "lock_screen",
+            "value": "断开时锁屏"
+        },
+        {
+            "name": "turn_screen_on_disconnect",
+            "value": "断开时亮屏"
+        },
+        {
+            "name": "auto_reconnect",
+            "value": "断开自动重连"
+        },
+        {
+            "name": "advanced_options",
+            "value": "高级选项"
+        },
+        {
+            "name": "downsize_on_error",
+            "value": "错误时降低分辨率"
+        },
+        {
+            "name": "connect_on_start",
+            "value": "应用启动时自动连接"
+        },
+        {
+            "name": "server_log_level",
+            "value": "服务端日志级别"
+        },
+        {
+            "name": "extra_params",
+            "value": "额外参数"
+        },
+        {
+            "name": "extra_params_hint",
+            "value": "格式: 参数名=值，用于设置未在界面中定义的服务端参数"
+        },
+        {
+            "name": "delete",
+            "value": "删除"
+        },
+        {
+            "name": "fill_complete_info",
+            "value": "请填写完整信息"
+        },
+        {
+            "name": "toast_success",
+            "value": "操作成功"
+        },
+        {
+            "name": "toast_fail",
+            "value": "操作失败"
+        },
+        {
+            "name": "param_name",
+            "value": "参数名"
+        },
+        {
+            "name": "param_value",
+            "value": "值"
+        },
+        {
+            "name": "device_button",
+            "value": "保存"
+        },
+        {
+            "name": "crop_placeholder",
+            "value": "宽:高:X:Y"
+        },
+        {
+            "name": "adb_auth_waiting",
+            "value": "正在等待ADB授权..."
+        },
+        {
+            "name": "navigate_failed",
+            "value": "跳转失败"
+        },
+        {
+            "name": "connect_failed_hint",
+            "value": "连接失败。请检查设备是否开启ADB远程调试或检查配置项是否正确"
+        },
+        {
+            "name": "connect_error_prefix",
+            "value": "连接错误: "
+        },
+        {
+            "name": "delete_success",
+            "value": "删除成功"
+        },
+        {
+            "name": "delete_failed",
+            "value": "删除失败"
+        },
+        {
+            "name": "no_default_net",
+            "value": "未获取到默认网络"
+        },
+        {
+            "name": "no_valid_ip",
+            "value": "未获取到有效IP地址"
+        },
+        {
+            "name": "no_net_info",
+            "value": "未获取到网络连接信息"
+        },
+        {
+            "name": "get_ip_failed_prefix",
+            "value": "获取IP失败: "
+        },
+        {
+            "name": "copy_prefix",
+            "value": "已复制: "
+        },
+        {
+            "name": "connecting_status",
+            "value": "正在建立连接..."
+        },
+        {
+            "name": "getting_video_config",
+            "value": "正在获取视频配置..."
+        },
+        {
+            "name": "timeout_dialog_title",
+            "value": "连接超时"
+        },
+        {
+            "name": "timeout_dialog_message",
+            "value": "连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 网络连接失败。\n3. 服务端异常，请查看日志并反馈。"
+        },
+        {
+            "name": "timeout_dialog_button",
+            "value": "知道了"
+        },
+        {
+            "name": "connect_timeout_toast",
+            "value": "连接超时。请确保在Android设备上点击了\"允许\"授权USB调试。"
+        },
+        {
+            "name": "adb_key_title",
+            "value": "全局ADB密钥"
+        },
+        {
+            "name": "adb_key_pub",
+            "value": "公钥 (Public Key X.509/ADB)"
+        },
+        {
+            "name": "adb_key_priv",
+            "value": "私钥 (Private Key PKCS#8)"
+        },
+        {
+            "name": "adb_key_regenerate_confirm_title",
+            "value": "确认重新生成"
+        },
+        {
+            "name": "adb_key_regenerate_confirm_msg",
+            "value": "这将重置所有设备的连接授权状态。连接设备时需要在手机上重新点击\"允许调试\"。是否继续？"
+        },
+        {
+            "name": "adb_key_import_success",
+            "value": "自定义密钥已保存"
+        },
+        {
+            "name": "adb_key_import_fail_empty",
+            "value": "导入失败：公钥或私钥不能为空"
+        },
+        {
+            "name": "adb_key_import_fail_format",
+            "value": "导入失败：密钥包含非法字符或格式错误"
+        },
+        {
+            "name": "adb_key_regen_success",
+            "value": "密钥已重新生成"
+        },
+        {
+            "name": "adb_key_placeholder_priv",
+            "value": "在此粘贴私钥内容..."
+        },
+        {
+            "name": "adb_key_placeholder_pub",
+            "value": "在此粘贴公钥内容..."
+        },
+        {
+            "name": "adb_key_save_apply",
+            "value": "保存并应用"
+        },
+        {
+            "name": "help_intro",
+            "value": "本应用为Scrcpy（https://github.com/Genymobile/scrcpy）的第三方鸿蒙客户端。"
+        },
+        {
+            "name": "help_feature",
+            "value": "目前支持通过ADB的TCP/IP模式实现免Root控制Android设备。"
+        },
+        {
+            "name": "help_usage_title",
+            "value": "使用方法："
+        },
+        {
+            "name": "help_step_1",
+            "value": "Android设备端进入开发者模式，启用USB调试。"
+        },
+        {
+            "name": "help_step_2",
+            "value": "将Android设备连接至PC，下载ADB工具，进入ADB目录，输入adb devices，确保设备连接成功。"
+        },
+        {
+            "name": "help_step_3",
+            "value": "ADB命令行输入`adb tcpip 5555`，其中5555可换为其他端口。"
+        },
+        {
+            "name": "help_step_4",
+            "value": "本应用添加设备，ip选取Android设备的IP地址，端口输入第三步设置的端口，按需启用各配置项后点击连接即可。"
+        },
+        {
+            "name": "help_note",
+            "value": "注：首次连接Android设备需在Android设备端弹出的确认框中允许USB调试。"
+        },
+        {
+            "name": "help_title",
+            "value": "使用说明"
+        },
+        {
+            "name": "adb_auth_title",
+            "value": "身份验证"
+        },
+        {
+            "name": "adb_auth_message",
+            "value": "正在请求设备授权。\n请在手机上查看并点击 [允许]。"
+        },
+        {
+            "name": "adb_auth_button",
+            "value": "好的"
+        }
+    ]
+}

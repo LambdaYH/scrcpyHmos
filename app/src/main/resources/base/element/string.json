@@ -2,11 +2,11 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "HarmonyOS远程控制应用"
+      "value": "HarmonyOS remote control application"
     },
     {
       "name": "ScrcpyHmosAbility_desc",
-      "value": "Scrcpy的鸿蒙客户端"
+      "value": "HarmonyOS client for Scrcpy"
     },
     {
       "name": "ScrcpyHmosAbility_label",
@@ -18,63 +18,551 @@
     },
     {
       "name": "main_device_type_network",
-      "value": "网络连接"
+      "value": "Network"
     },
     {
       "name": "device_name",
-      "value": "设备名称"
+      "value": "Device Name"
     },
     {
       "name": "device_address",
-      "value": "地址"
+      "value": "Address"
     },
     {
       "name": "device_address_hint",
-      "value": "支持IPv4/v6地址"
+      "value": "Supports IPv4/v6"
     },
     {
       "name": "device_adb_port",
-      "value": "ADB端口"
+      "value": "ADB Port"
     },
     {
       "name": "device_server_port",
-      "value": "服务端口"
+      "value": "Server Port"
     },
     {
       "name": "device_button",
-      "value": "确认"
+      "value": "Confirm"
     },
     {
       "name": "loading_text",
-      "value": "连接中..."
+      "value": "Connecting..."
+    },
+    {
+      "name": "more_title",
+      "value": "More"
+    },
+    {
+      "name": "key_settings",
+      "value": "Key Settings"
+    },
+    {
+      "name": "language_settings",
+      "value": "Language"
+    },
+    {
+      "name": "dark_mode",
+      "value": "Dark Mode"
+    },
+    {
+      "name": "system_log",
+      "value": "App Log"
+    },
+    {
+      "name": "about_us",
+      "value": "About"
+    },
+    {
+      "name": "help",
+      "value": "Help"
+    },
+    {
+      "name": "view_ip",
+      "value": "View Local IP"
+    },
+    {
+      "name": "tab_devices",
+      "value": "Devices"
+    },
+    {
+      "name": "tab_more",
+      "value": "More"
+    },
+    {
+      "name": "key_management",
+      "value": "Key Management"
+    },
+    {
+      "name": "global_adb_key",
+      "value": "Global ADB Key"
+    },
+    {
+      "name": "public_key",
+      "value": "Public Key:"
+    },
+    {
+      "name": "private_key",
+      "value": "Private Key:"
+    },
+    {
+      "name": "regenerate_keys",
+      "value": "Regenerate Keys"
+    },
+    {
+      "name": "custom_keys",
+      "value": "Custom Keys"
+    },
+    {
+      "name": "regenerate_note",
+      "value": "Note: After regenerating keys, all connected devices will need to be re-authorized."
+    },
+    {
+      "name": "refresh",
+      "value": "Refresh"
+    },
+    {
+      "name": "clear_logs",
+      "value": "Clear Logs"
+    },
+    {
+      "name": "clear_logs_confirm_title",
+      "value": "Clear Logs"
+    },
+    {
+      "name": "clear_logs_confirm_msg",
+      "value": "Are you sure you want to clear all app logs?"
+    },
+    {
+      "name": "cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "confirm",
+      "value": "Confirm"
+    },
+    {
+      "name": "clear",
+      "value": "Clear"
+    },
+    {
+      "name": "logs_cleared",
+      "value": "Logs cleared"
+    },
+    {
+      "name": "follow_system",
+      "value": "Follow System"
+    },
+    {
+      "name": "light_mode",
+      "value": "Light Mode"
+    },
+    {
+      "name": "dark_mode_option",
+      "value": "Dark Mode"
+    },
+    {
+      "name": "restart_hint",
+      "value": "App restart required for language changes to take effect."
+    },
+    {
+      "name": "language_zh",
+      "value": "简体中文"
+    },
+    {
+      "name": "language_en",
+      "value": "English"
+    },
+    {
+      "name": "scrcpy_devices",
+      "value": "Scrcpy Devices"
+    },
+    {
+      "name": "no_devices",
+      "value": "No devices"
+    },
+    {
+      "name": "add_device_hint",
+      "value": "Click + button below to add device"
+    },
+    {
+      "name": "connect",
+      "value": "Connect"
+    },
+    {
+      "name": "connecting",
+      "value": "Connecting"
+    },
+    {
+      "name": "copy_success",
+      "value": "Copied"
+    },
+    {
+      "name": "copy_fail",
+      "value": "Copy failed"
+    },
+    {
+      "name": "local_ip_list",
+      "value": "Local IP List"
+    },
+    {
+      "name": "click_to_copy",
+      "value": "Click item to copy"
+    },
+    {
+      "name": "get_ip_failed",
+      "value": "Failed to get IP"
+    },
+    {
+      "name": "new_device",
+      "value": "New Device"
+    },
+    {
+      "name": "edit_device",
+      "value": "Edit Device"
+    },
+    {
+      "name": "add_device_title",
+      "value": "Add Device"
+    },
+    {
+      "name": "video_settings",
+      "value": "Video Settings"
+    },
+    {
+      "name": "video_codec",
+      "value": "Video Codec"
+    },
+    {
+      "name": "max_size",
+      "value": "Max Size"
+    },
+    {
+      "name": "default_value",
+      "value": "Default"
+    },
+    {
+      "name": "max_fps",
+      "value": "Max FPS"
+    },
+    {
+      "name": "bitrate",
+      "value": "Bitrate (bps)"
+    },
+    {
+      "name": "crop",
+      "value": "Crop"
+    },
+    {
+      "name": "display_id",
+      "value": "Display ID"
+    },
+    {
+      "name": "audio_settings",
+      "value": "Audio Settings"
+    },
+    {
+      "name": "enable_audio",
+      "value": "Enable Audio"
+    },
+    {
+      "name": "audio_codec",
+      "value": "Audio Codec"
+    },
+    {
+      "name": "audio_bitrate",
+      "value": "Audio Bitrate (bps)"
+    },
+    {
+      "name": "behavior_settings",
+      "value": "Behavior Settings"
+    },
+    {
+      "name": "show_touches",
+      "value": "Show Touches"
+    },
+    {
+      "name": "stay_awake",
+      "value": "Stay Awake"
+    },
+    {
+      "name": "clipboard_autosync",
+      "value": "Clipboard Autosync"
+    },
+    {
+      "name": "turn_screen_off_on_close",
+      "value": "Turn Screen Off on Close"
+    },
+    {
+      "name": "connection_actions",
+      "value": "Connection Actions"
+    },
+    {
+      "name": "turn_screen_on",
+      "value": "Turn Screen On"
+    },
+    {
+      "name": "turn_screen_off",
+      "value": "Turn Screen Off"
+    },
+    {
+      "name": "fullscreen_on_connect",
+      "value": "Fullscreen on Connect"
+    },
+    {
+      "name": "custom_resolution",
+      "value": "Custom Resolution"
+    },
+    {
+      "name": "disconnection_actions",
+      "value": "Disconnection Actions"
+    },
+    {
+      "name": "lock_screen",
+      "value": "Lock Screen"
+    },
+    {
+      "name": "turn_screen_on_disconnect",
+      "value": "Turn Screen On"
+    },
+    {
+      "name": "auto_reconnect",
+      "value": "Auto Reconnect"
+    },
+    {
+      "name": "advanced_options",
+      "value": "Advanced Options"
+    },
+    {
+      "name": "downsize_on_error",
+      "value": "Downsize on Error"
+    },
+    {
+      "name": "connect_on_start",
+      "value": "Connect on Start"
+    },
+    {
+      "name": "server_log_level",
+      "value": "Server Log Level"
+    },
+    {
+      "name": "extra_params",
+      "value": "Extra Params"
+    },
+    {
+      "name": "extra_params_hint",
+      "value": "Format: key=value, used to set server parameters not defined in the UI"
+    },
+    {
+      "name": "delete",
+      "value": "Delete"
+    },
+    {
+      "name": "fill_complete_info",
+      "value": "Please fill in complete info"
     },
     {
       "name": "toast_success",
-      "value": "成功"
+      "value": "Success"
     },
     {
       "name": "toast_fail",
-      "value": "失败"
+      "value": "Failed"
     },
     {
-      "name": "toast_connect_server",
-      "value": "连接被控端失败"
+      "name": "param_name",
+      "value": "Name"
+    },
+    {
+      "name": "param_value",
+      "value": "Value"
+    },
+    {
+      "name": "crop_placeholder",
+      "value": "W:H:X:Y"
+    },
+    {
+      "name": "adb_auth_waiting",
+      "value": "Waiting for ADB authorization..."
+    },
+    {
+      "name": "navigate_failed",
+      "value": "Navigation failed"
+    },
+    {
+      "name": "connect_failed_hint",
+      "value": "Connection failed. Please check if ADB is enabled on device or check your configuration."
+    },
+    {
+      "name": "connect_error_prefix",
+      "value": "Connection error: "
+    },
+    {
+      "name": "delete_success",
+      "value": "Deleted successfully"
+    },
+    {
+      "name": "delete_failed",
+      "value": "Delete failed"
+    },
+    {
+      "name": "no_default_net",
+      "value": "No default network found"
+    },
+    {
+      "name": "no_valid_ip",
+      "value": "No valid IP address found"
+    },
+    {
+      "name": "no_net_info",
+      "value": "No network connection info found"
+    },
+    {
+      "name": "get_ip_failed_prefix",
+      "value": "Failed to get IP: "
+    },
+    {
+      "name": "copy_prefix",
+      "value": "Copied: "
+    },
+    {
+      "name": "connecting_status",
+      "value": "Connecting..."
+    },
+    {
+      "name": "getting_video_config",
+      "value": "Getting video config..."
     },
     {
       "name": "permission_internet_reason",
-      "value": "需要网络权限连接被控设备"
+      "value": "Network access is required to connect to devices"
     },
     {
       "name": "permission_network_info_reason",
-      "value": "需要获取网络信息权限"
+      "value": "Network info is required to find devices"
     },
     {
       "name": "permission_microphone_reason",
-      "value": "需要麦克风权限传输音频"
+      "value": "Microphone access is required for audio forwarding"
     },
     {
       "name": "permission_read_pasteboard_reason",
-      "value": "需要读取剪贴板权限以同步内容到被控设备"
+      "value": "Clipboard access is required to sync content"
+    },
+    {
+      "name": "toast_connect_server",
+      "value": "Failed to connect to server"
+    },
+    {
+      "name": "timeout_dialog_title",
+      "value": "Connection Timeout"
+    },
+    {
+      "name": "timeout_dialog_message",
+      "value": "Connection timed out. Usually because:\n1. Authorization dialog not confirmed on device.\n2. Network connection failed.\n3. Server exception, please check logs."
+    },
+    {
+      "name": "timeout_dialog_button",
+      "value": "Got it"
+    },
+    {
+      "name": "connect_timeout_toast",
+      "value": "Connection timed out. Please ensure USB debugging is authorized on the device."
+    },
+    {
+      "name": "adb_key_title",
+      "value": "Global ADB Key"
+    },
+    {
+      "name": "adb_key_pub",
+      "value": "Public Key (X.509 or ADB Format)"
+    },
+    {
+      "name": "adb_key_priv",
+      "value": "Private Key (PKCS#8 Base64)"
+    },
+    {
+      "name": "adb_key_regenerate_confirm_title",
+      "value": "Confirm Regenerate"
+    },
+    {
+      "name": "adb_key_regenerate_confirm_msg",
+      "value": "This will reset authorization status for all devices. You will need to re-authorize 'Allow USB Debugging' on devices when connecting. Continue?"
+    },
+    {
+      "name": "adb_key_import_success",
+      "value": "Custom keys saved"
+    },
+    {
+      "name": "adb_key_import_fail_empty",
+      "value": "Import failed: Key cannot be empty"
+    },
+    {
+      "name": "adb_key_import_fail_format",
+      "value": "Import failed: Invalid format or characters"
+    },
+    {
+      "name": "adb_key_regen_success",
+      "value": "Keys regenerated"
+    },
+    {
+      "name": "adb_key_placeholder_priv",
+      "value": "Paste private key content here..."
+    },
+    {
+      "name": "adb_key_placeholder_pub",
+      "value": "Paste public key content here..."
+    },
+    {
+      "name": "adb_key_save_apply",
+      "value": "Save & Apply"
+    },
+    {
+      "name": "help_intro",
+      "value": "This is a third-party HarmonyOS client for Scrcpy (https://github.com/Genymobile/scrcpy)."
+    },
+    {
+      "name": "help_feature",
+      "value": "Supported: Control Android devices via ADB TCP/IP without Root."
+    },
+    {
+      "name": "help_usage_title",
+      "value": "Usage:"
+    },
+    {
+      "name": "help_step_1",
+      "value": "Enable 'Developer Options' and 'USB Debugging' on Android device."
+    },
+    {
+      "name": "help_step_2",
+      "value": "Connect Android via USB to PC. Run 'adb devices' to confirm connection."
+    },
+    {
+      "name": "help_step_3",
+      "value": "Run 'adb tcpip 5555' (5555 is the port, can be changed)."
+    },
+    {
+      "name": "help_step_4",
+      "value": "Add device in this app: enter Android IP and port (5555). Configure and Connect."
+    },
+    {
+      "name": "help_note",
+      "value": "Note: First connection requires confirming 'Allow USB Debugging' on the Android device."
+    },
+    {
+      "name": "help_title",
+      "value": "Help"
+    },
+    {
+      "name": "adb_auth_title",
+      "value": "Authentication"
+    },
+    {
+      "name": "adb_auth_message",
+      "value": "Requesting device authorization.\nPlease check your phone and click [Allow]."
+    },
+    {
+      "name": "adb_auth_button",
+      "value": "Okay"
     }
   ]
 }

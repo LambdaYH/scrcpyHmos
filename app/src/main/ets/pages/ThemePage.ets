@@ -38,7 +38,7 @@ struct ThemePage {
   }
 
   @Builder
-  CheckItem(title: string, mode: string) {
+  CheckItem(title: ResourceStr, mode: string) {
     Row() {
       Text(title)
         .fontSize(16)
@@ -78,7 +78,7 @@ struct ThemePage {
           this.getUIContext().getRouter().back();
         })
 
-        Text('深色模式')
+        Text($r('app.string.dark_mode'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
@@ -93,9 +93,9 @@ struct ThemePage {
 
       // Content
       Column() {
-        this.CheckItem('跟随系统', 'system')
-        this.CheckItem('浅色模式', 'light')
-        this.CheckItem('深色模式', 'dark')
+        this.CheckItem($r('app.string.follow_system'), 'system')
+        this.CheckItem($r('app.string.light_mode'), 'light')
+        this.CheckItem($r('app.string.dark_mode_option'), 'dark')
       }
       .width('100%')
       .padding(16)

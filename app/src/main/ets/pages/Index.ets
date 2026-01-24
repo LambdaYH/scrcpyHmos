@@ -75,7 +75,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.house'))
           .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
-        Text('设备')
+        Text($r('app.string.tab_devices'))
           .fontSize(10) // Standard 10fp
           .fontWeight(FontWeight.Medium)
           .fontColor(this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
@@ -142,7 +142,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.gearshape'))
           .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
-        Text('更多')
+        Text($r('app.string.tab_more'))
           .fontSize(10) // Standard 10fp
           .fontWeight(FontWeight.Medium)
           .fontColor(this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
@@ -216,7 +216,7 @@ struct Index {
         Column() {
           Column() {
             Row() {
-              Text('连接中')
+              Text($r('app.string.connecting'))
                 .fontSize(20)
                 .fontWeight(FontWeight.Bold)
                 .fontColor($r('app.color.text_primary'))
@@ -239,11 +239,11 @@ struct Index {
               .textAlign(TextAlign.Center)
               .margin({ bottom: 24 })
             
-            Button('取消')
+            Button($r('app.string.cancel'))
               .fontSize(16)
               .fontColor($r('app.color.btn_primary'))
               .backgroundColor(Color.Transparent)
-              .width(80)
+              .padding({ left: 16, right: 16 })
               .height(40)
               .onClick(() => {
                 LoggerIndex.info('[Index] Cancel button clicked');
@@ -277,7 +277,7 @@ struct Index {
     Column() {
       // Title
       Row() {
-        Text('Scrcpy设备')
+        Text($r('app.string.scrcpy_devices'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -290,10 +290,10 @@ struct Index {
       // Device List
         if (this.devicesList.length === 0) {
         Column() {
-          Text('暂无设备')
+          Text($r('app.string.no_devices'))
             .fontSize(16)
             .fontColor($r('app.color.text_tertiary'))
-          Text('点击下方 + 按钮添加设备')
+          Text($r('app.string.add_device_hint'))
             .fontSize(14)
             .fontColor($r('app.color.text_placeholder'))
             .margin({ top: 8 })
@@ -325,7 +325,7 @@ struct Index {
     Column() {
       // Title
       Row() {
-        Text('更多')
+        Text($r('app.string.more_title'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -345,7 +345,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('密钥设置')
+                Text($r('app.string.key_settings'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -371,12 +371,43 @@ struct Index {
           ListItem() {
             Row() {
               Row() {
+                SymbolGlyph($r('sys.symbol.translate'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.language_settings'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/LanguagePage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
+          ListItem() {
+            Row() {
+              Row() {
                 SymbolGlyph($r('sys.symbol.list_bullet'))
                   .fontSize(24)
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('系统日志')
+                Text($r('app.string.system_log'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -407,7 +438,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('深色模式')
+                Text($r('app.string.dark_mode'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -438,7 +469,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('使用说明')
+                Text($r('app.string.help'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -469,7 +500,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('查看本机IP')
+                Text($r('app.string.view_ip'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -519,9 +550,9 @@ struct Index {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
         
-        Button('连接')
+        Button($r('app.string.connect'))
           .fontSize(14)
-          .width(80)
+          .padding({ left: 16, right: 16 })
           .height(36)
           .onClick(() => {
             this.connectDevice(device);
@@ -553,7 +584,7 @@ struct Index {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       
       // 第一阶段：等待ADB授权 (在连接开始前提示)
-      this.connectionStatus = '正在等待ADB授权...';
+      this.connectionStatus = getContext(this).resourceManager.getStringSync($r('app.string.adb_auth_waiting').id);
       
       // 启动连接
       // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
@@ -601,13 +632,13 @@ struct Index {
           params: { device: device, clientReady: true }
         }).catch((err: Error) => {
           LoggerIndex.error('Navigate failed:', err);
-          this.getUIContext().getPromptAction().showToast({ message: '跳转失败' });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.navigate_failed') });
         });
         
       } else {
         this.isConnecting = false;
         this.getUIContext().getPromptAction().showToast({ 
-          message: '连接失败。请检查设备是否开启ADB远程调试或检查配置项是否正确'
+          message: $r('app.string.connect_failed_hint')
         });
       }
     } catch (err) {
@@ -619,7 +650,7 @@ struct Index {
       this.connectingClient = null;
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerIndex.error('Connect device failed:', errMsg);
-      this.getUIContext().getPromptAction().showToast({ message: '连接错误: ' + errMsg });
+      this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
     }
   }
   
@@ -690,14 +721,14 @@ struct Index {
       await this.preferencesHelper.delete(device.uuid);
       await this.loadDevices();
       try {
-        this.getUIContext().getPromptAction().showToast({ message: 'Deleted successfully' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.delete_success') });
       } catch (e) {
         LoggerIndex.error('Show toast failed:', e);
       }
     } catch (err) {
       LoggerIndex.error('Delete device failed:', err);
       try {
-        this.getUIContext().getPromptAction().showToast({ message: 'Delete failed' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.delete_failed') });
       } catch (e) {
         LoggerIndex.error('Show toast failed:', e);
       }
@@ -708,7 +739,7 @@ struct Index {
     try {
       const netHandle = await connection.getDefaultNet();
       if (!netHandle || netHandle.netId === 0) {
-         this.getUIContext().getPromptAction().showToast({ message: '未获取到默认网络' });
+         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_default_net') });
          return;
       }
 
@@ -729,15 +760,15 @@ struct Index {
           this.localIpList = ipList;
           this.ipListDialogController.open();
         } else {
-            this.getUIContext().getPromptAction().showToast({ message: '未获取到有效IP地址' });
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_valid_ip') });
         }
       } else {
-        this.getUIContext().getPromptAction().showToast({ message: '未获取到网络连接信息' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_net_info') });
       }
     } catch (err) {
       LoggerIndex.error('Get network info failed:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      this.getUIContext().getPromptAction().showToast({ message: '获取IP失败: ' + errMsg });
+      this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.get_ip_failed_prefix').id) + errMsg });
     }
   }
 
@@ -746,11 +777,11 @@ struct Index {
       const systemPasteboard = pasteboard.getSystemPasteboard();
       const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       systemPasteboard.setData(pasteData).then(() => {
-        this.getUIContext().getPromptAction().showToast({ message: `已复制: ${text}` });
+        this.getUIContext().getPromptAction().showToast({ message: getContext(this).resourceManager.getStringSync($r('app.string.copy_prefix').id) + text });
       });
     } catch (e) {
       LoggerIndex.error('Copy to clipboard failed:', e);
-      this.getUIContext().getPromptAction().showToast({ message: '复制失败' });
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_fail') });
     }
   }
 }
@@ -763,13 +794,13 @@ struct IpListDialog {
 
   build() {
     Column() {
-      Text('本机IP列表')
+      Text($r('app.string.local_ip_list'))
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
         .margin({ top: 24, bottom: 8 })
       
-      Text('点击条目复制')
+      Text($r('app.string.click_to_copy'))
         .fontSize(14)
         .fontColor($r('app.color.text_secondary'))
         .margin({ bottom: 16 })
@@ -799,7 +830,7 @@ struct IpListDialog {
       .edgeEffect(EdgeEffect.Spring)
       .divider({ strokeWidth: 0.5, color: '#1A000000', startMargin: 16, endMargin: 16 })
 
-      Button('取消')
+      Button($r('app.string.cancel'))
         .fontSize(16)
         .fontColor($r('app.color.btn_primary'))
         .backgroundColor(Color.Transparent)

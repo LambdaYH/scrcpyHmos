@@ -6,6 +6,7 @@ import { AdbProtocol, AdbMessage } from './AdbProtocol';
 import { BufferStream, UnderlySocketFunction } from '../buffer/BufferStream';
 import { LoggerAdb } from '../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
+import { common } from '@kit.AbilityKit';
 import { AdbKeyPair } from './AdbKeyPair';
 import { AdbBase64Impl } from './AdbBase64';
 
@@ -118,10 +119,11 @@ export class Adb {
         
         LoggerAdb.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
 
+        const context = uiContext.getHostContext() as common.UIAbilityContext;
         uiContext.getPromptAction().showDialog({
-          title: '身份验证',
-          message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
-          buttons: [{ text: '好的', color: '#007AFF' }]
+          title: context.resourceManager.getStringSync($r('app.string.adb_auth_title').id),
+          message: context.resourceManager.getStringSync($r('app.string.adb_auth_message').id),
+          buttons: [{ text: context.resourceManager.getStringSync($r('app.string.adb_auth_button').id), color: '#007AFF' }]
         }).catch((error: Error) => {
           LoggerAdb.error('Show auth dialog failed:', error);
         });

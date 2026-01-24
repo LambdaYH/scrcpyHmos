@@ -43,7 +43,7 @@ struct AdbManagePage {
           this.getUIContext().getRouter().back();
         })
         
-        Text('密钥管理')
+        Text($r('app.string.key_management'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -54,22 +54,17 @@ struct AdbManagePage {
       .padding({ left: 12, right: 24, top: 38 }) // Padding: Left 12, Right 24
       
       Column() {
-        Image($r('app.media.icon_startwindow'))
+        Image($r('app.media.icon_startwindow')) // Use a generic key or link icon if available, or keep existing
           .width(80)
           .height(80)
           .margin({ top: 48, bottom: 24 })
           
-        Text('全局ADB密钥')
+        Text($r('app.string.global_adb_key'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .margin({ bottom: 24 })
           
-        // Text(this.commonKeyInfo)
-        //   .fontSize(14)
-        //   .fontColor('#666666')
-        //   .margin({ bottom: 24 })
-          
-        Text('公钥 (Public Key):')
+        Text($r('app.string.public_key'))
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .alignSelf(ItemAlign.Start)
@@ -85,7 +80,7 @@ struct AdbManagePage {
           .focusable(false)
           .copyOption(CopyOptions.LocalDevice)
           
-        Text('私钥 (Private Key):')
+        Text($r('app.string.private_key'))
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .alignSelf(ItemAlign.Start)
@@ -101,7 +96,7 @@ struct AdbManagePage {
           .focusable(false)
           .copyOption(CopyOptions.LocalDevice)
           
-        Button('重新生成密钥')
+        Button($r('app.string.regenerate_keys'))
           .width('80%')
           .height(48)
           .fontSize(16)
@@ -111,7 +106,7 @@ struct AdbManagePage {
              this.regenerateKey();
           })
 
-        Button('自定义密钥')
+        Button($r('app.string.custom_keys'))
           .width('80%')
           .height(48)
           .fontSize(16)
@@ -122,7 +117,7 @@ struct AdbManagePage {
             this.showCustomKeyDialog();
           })
           
-        Text('注意：重新生成密钥后，所有已连接的设备都需要重新授权。')
+        Text($r('app.string.regenerate_note'))
           .fontSize(12)
           .fontColor($r('app.color.text_tertiary'))
           .margin({ top: 24 })
@@ -157,43 +152,51 @@ struct AdbManagePage {
   async handleImportKey(pub: string, pri: string): Promise<void> {
     try {
       await this.adbKeyManager.importCustomKey(pri, pub);
-      this.getUIContext().getPromptAction().showToast({ message: '自定义密钥已保存' });
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.adb_key_import_success') });
       this.refreshData();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       LoggerAdbManage.error('Import custom key failed:', error);
       
-      let friendMsg = '导入失败，请检查密钥格式是否正确';
+      let friendMsg: Resource = $r('app.string.adb_key_import_fail_format');
       // 简单的错误映射
       if (error.message.includes('empty')) {
-        friendMsg = '导入失败：公钥或私钥不能为空';
+        friendMsg = $r('app.string.adb_key_import_fail_empty');
       } else if (error.message.includes('Base64')) {
-        friendMsg = '导入失败：密钥包含非法字符或格式错误';
+        friendMsg = $r('app.string.adb_key_import_fail_format');
       }
       
       this.getUIContext().getPromptAction().showToast({ message: friendMsg });
     }
   }
 
-  async regenerateKey() {
+  regenerateKey() {
     try {
-      const result = await this.getUIContext().getPromptAction().showDialog({
-        title: '确认重新生成',
-        message: '这将重置所有设备的连接授权状态。连接设备时需要在手机上重新点击"允许调试"。是否继续？',
+      this.getUIContext().getPromptAction().showDialog({
+        title: this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.adb_key_regenerate_confirm_title').id),
+        message: this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.adb_key_regenerate_confirm_msg').id),
         buttons: [
-          { text: '取消', color: $r('app.color.text_secondary') },
-          { text: '确定', color: $r('app.color.btn_primary') }
+          { text: this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.cancel').id), color: $r('app.color.text_secondary') },
+          { text: this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.confirm').id), color: $r('app.color.btn_primary') }
         ]
+      }, async (err, data) => {
+        if (err) {
+          LoggerAdbManage.error('Show dialog error :' + JSON.stringify(err));
+          return;
+        }
+        if (data.index === 1) {
+          try {
+            await this.adbKeyManager.regenerateCommonKey();
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.adb_key_regen_success') });
+            this.refreshData();
+          } catch (e) {
+            LoggerAdbManage.error('Regenerate key failed:', e);
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.toast_fail') });
+          }
+        }
       });
-      
-      if (result.index === 1) {
-        await this.adbKeyManager.regenerateCommonKey();
-        this.getUIContext().getPromptAction().showToast({ message: '密钥已重新生成' });
-        this.refreshData();
-      }
     } catch (err) {
-      LoggerAdbManage.error('Regenerate key failed:', err);
-      this.getUIContext().getPromptAction().showToast({ message: '操作失败' });
+      LoggerAdbManage.error('Show dialog exception:', err);
     }
   }
 }
@@ -207,35 +210,35 @@ struct CustomKeyDialog {
 
   build() {
     Column() {
-      Text('自定义 ADB 密钥')
+      Text($r('app.string.custom_keys'))
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
         .margin({ bottom: 16 })
       
-      Text('Private Key (PKCS#8 Base64)')
+      Text($r('app.string.private_key')) // Already localized? No, was hardcoded in new strings
         .fontSize(12)
         .alignSelf(ItemAlign.Start)
         .fontColor('#666666')
         .margin({ bottom: 4 })
-      TextArea({ placeholder: '在此粘贴私钥内容...' })
+      TextArea({ placeholder: $r('app.string.adb_key_placeholder_priv') })
         .height(100)
         .fontSize(12)
         .onChange((val) => this.privateKey = val)
         .margin({ bottom: 12 })
         
-      Text('Public Key (X.509 or ADB Format)')
+      Text($r('app.string.public_key'))
         .fontSize(12)
         .alignSelf(ItemAlign.Start)
         .fontColor('#666666')
         .margin({ bottom: 4 })
-      TextArea({ placeholder: '在此粘贴公钥内容...' })
+      TextArea({ placeholder: $r('app.string.adb_key_placeholder_pub') })
         .height(100)
         .fontSize(12)
         .onChange((val) => this.publicKey = val)
         .margin({ bottom: 24 })
         
       Row() {
-        Button('取消')
+        Button($r('app.string.cancel'))
           .width('40%')
           .backgroundColor('#F5F5F5')
           .fontColor($r('sys.color.black'))
@@ -243,7 +246,7 @@ struct CustomKeyDialog {
             this.controller?.close();
           })
           
-        Button('保存并应用')
+        Button($r('app.string.adb_key_save_apply'))
           .width('40%')
           .backgroundColor($r('app.color.btn_primary'))
           .onClick(() => {

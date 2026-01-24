@@ -1,6 +1,7 @@
 @Entry
 @Component
 struct HelpPage {
+
   build() {
     Column() {
       // Header
@@ -18,7 +19,7 @@ struct HelpPage {
         })
         .margin({ right: 12 }) // Gap 12vp
 
-        Text('使用说明')
+        Text($r('app.string.help_title'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -30,7 +31,7 @@ struct HelpPage {
 
       Scroll() {
         Column() {
-          Text('本应用为Scrcpy（https://github.com/Genymobile/scrcpy）的第三方鸿蒙客户端。')
+          Text($r('app.string.help_intro'))
             .fontSize(16)
             .fontColor($r('app.color.text_primary'))
             .fontWeight(FontWeight.Bold)
@@ -39,25 +40,25 @@ struct HelpPage {
             .lineHeight(24)
             .margin({ bottom: 12 })
 
-          Text('目前支持通过ADB的TCP/IP模式实现免Root控制Android设备。')
+          Text($r('app.string.help_feature'))
             .fontSize(16)
             .fontColor($r('app.color.text_primary'))
             .lineHeight(24)
             .margin({ bottom: 24 })
 
-          Text('使用方法：')
+          Text($r('app.string.help_usage_title'))
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))
             .margin({ bottom: 12 })
             .width('100%')
 
-          this.InstructionItem(1, 'Android设备端进入开发者模式，启用USB调试。')
-          this.InstructionItem(2, '将Android设备连接至PC，下载ADB工具，进入ADB目录，输入adb devices，确保设备连接成功。')
-          this.InstructionItem(3, 'ADB命令行输入`adb tcpip 5555`，其中5555可换为其他端口。')
-          this.InstructionItem(4, '本应用添加设备，ip选取Android设备的IP地址，端口输入第三步设置的端口，按需启用各配置项后点击连接即可。')
+          this.InstructionItem(1, $r('app.string.help_step_1'))
+          this.InstructionItem(2, $r('app.string.help_step_2'))
+          this.InstructionItem(3, $r('app.string.help_step_3'))
+          this.InstructionItem(4, $r('app.string.help_step_4'))
 
-          Text('注：首次连接Android设备需在Android设备端弹出的确认框中允许USB调试。')
+          Text($r('app.string.help_note'))
             .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 24 })
@@ -76,7 +77,7 @@ struct HelpPage {
   }
 
   @Builder
-  InstructionItem(index: number, text: string) {
+  InstructionItem(index: number, text: ResourceStr) {
     Row() {
       Text(`${index}. `)
         .fontSize(16)

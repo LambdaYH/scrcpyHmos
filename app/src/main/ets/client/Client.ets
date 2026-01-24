@@ -92,7 +92,13 @@ export class Client {
       // 1. 建立流连接
       this.clientStream = new ClientStream(this.device);
       
-      if (onStatusChange) onStatusChange('正在建立连接...');
+      if (onStatusChange) {
+        try {
+          onStatusChange(context.resourceManager.getStringSync($r('app.string.connecting_status').id));
+        } catch (e) {
+          onStatusChange('Connecting...');
+        }
+      }
       const connected = await this.clientStream.connect(context, uiContext);
       
       if (!connected) {
@@ -103,7 +109,13 @@ export class Client {
         return false;
       }
       
-      if (onStatusChange) onStatusChange('正在获取视频配置...');
+      if (onStatusChange) {
+        try {
+          onStatusChange(context.resourceManager.getStringSync($r('app.string.getting_video_config').id));
+        } catch (e) {
+          onStatusChange('Getting video config...');
+        }
+      }
       // 2. 立即开始读取视频配置(不等待surface),防止服务器超时
       // 2. Video config is already loaded during handshake
       const videoConfig = this.clientStream.getVideoConfig();

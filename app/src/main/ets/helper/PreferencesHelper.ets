@@ -164,4 +164,24 @@ export class PreferencesHelper {
       return 'system';
     }
   }
+
+  async saveLanguage(lan: string): Promise<void> {
+    try {
+      if (!this.preferences) return;
+      await this.preferences.put('language', lan);
+      await this.preferences.flush();
+    } catch (err) {
+      LoggerPreferences.error('Save language failed:', err);
+    }
+  }
+
+  async getLanguage(): Promise<string> {
+    try {
+      if (!this.preferences) return 'system';
+      return await this.preferences.get('language', 'system') as string;
+    } catch (err) {
+      LoggerPreferences.error('Get language failed:', err);
+      return 'system';
+    }
+  }
 }

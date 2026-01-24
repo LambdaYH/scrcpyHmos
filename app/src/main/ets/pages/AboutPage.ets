@@ -4,6 +4,7 @@ struct AboutPage {
   private scrcpyRepo: string = 'https://github.com/LambdaYH/scrcpyHmos';
   private easyControlRepo: string = 'https://github.com/mingzhixian/Easycontrol';
 
+
   build() {
     Column() {
       // Title Bar
