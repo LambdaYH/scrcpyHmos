@@ -613,6 +613,10 @@
       "value": "Built-in official scrcpy-server"
     },
     {
+      "name": "help_config_ref",
+      "value": "For specific configuration items, please refer to the Scrcpy official documentation"
+    },
+    {
       "name": "clipboard_empty",
       "value": "Clipboard is empty"
     },

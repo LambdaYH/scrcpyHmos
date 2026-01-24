@@ -559,6 +559,10 @@
         {
             "name": "about_server_builtin",
             "value": "Built-in official scrcpy-server"
+        },
+        {
+            "name": "help_config_ref",
+            "value": "For specific configuration items, please refer to the Scrcpy official documentation"
         }
     ]
 }

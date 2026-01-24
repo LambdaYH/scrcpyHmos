@@ -1,6 +1,20 @@
+import { common, Want } from '@kit.AbilityKit';
+
 @Entry
 @Component
 struct HelpPage {
+
+  private openUrl(url: string) {
+    const context = getContext(this) as common.UIAbilityContext;
+    let want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    };
+    context.startAbility(want).catch((err: Error) => {
+      console.error('Failed to open URL:', err);
+    });
+  }
 
   build() {
     Column() {
@@ -63,6 +77,23 @@ struct HelpPage {
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 24 })
             .width('100%')
+
+          Divider().color($r('app.color.text_tertiary')).margin({ top: 24, bottom: 24 })
+
+          Text($r('app.string.help_config_ref'))
+            .fontSize(14)
+            .fontColor($r('app.color.text_primary'))
+            .width('100%')
+            .margin({ bottom: 8 })
+
+          Text('https://github.com/Genymobile/scrcpy?tab=readme-ov-file')
+            .fontSize(14)
+            .fontColor($r('app.color.btn_primary'))
+            .width('100%')
+            .margin({ bottom: 32 })
+            .onClick(() => {
+               this.openUrl('https://github.com/Genymobile/scrcpy?tab=readme-ov-file');
+            })
 
         }
         .width('100%')

@@ -1,4 +1,5 @@
 import { ServerManager } from '../helper/ServerManager';
+import { common, Want } from '@kit.AbilityKit';
 
 @Entry
 @Component
@@ -13,6 +14,17 @@ struct AboutPage {
     maskColor: '#80000000'
   });
 
+  private openUrl(url: string) {
+    const context = getContext(this) as common.UIAbilityContext;
+    let want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    };
+    context.startAbility(want).catch((err: Error) => {
+      console.error('Failed to open URL:', err);
+    });
+  }
 
   build() {
     Column() {
@@ -87,6 +99,9 @@ struct AboutPage {
               .fontColor($r('app.color.btn_primary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 12 })
+              .onClick(() => {
+                this.openUrl(this.scrcpyRepo);
+              })
 
             Text() {
               Span($r('app.string.about_license_label'))
