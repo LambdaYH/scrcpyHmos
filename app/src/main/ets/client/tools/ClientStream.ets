@@ -159,7 +159,7 @@ export class ClientStream {
     }
   }
   
-  if (!this.vidStream || !this.audStream || !this.msgStream) {
+  if (!this.vidStream || (this.device.isAudio && !this.audStream) || !this.msgStream) {
     throw new Error('Failed to connect to server streams after all retries');
   }
 
