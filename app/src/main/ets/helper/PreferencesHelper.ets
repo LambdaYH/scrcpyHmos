@@ -158,7 +158,8 @@ export class PreferencesHelper {
   async getThemeMode(): Promise<string> {
     try {
       if (!this.preferences) return 'system';
-      return await this.preferences.get('theme_mode', 'system') as string;
+      const val = await this.preferences.get('theme_mode', 'system');
+      return val as string;
     } catch (err) {
       LoggerPreferences.error('Get theme mode failed:', err);
       return 'system';
@@ -178,7 +179,8 @@ export class PreferencesHelper {
   async getLanguage(): Promise<string> {
     try {
       if (!this.preferences) return 'system';
-      return await this.preferences.get('language', 'system') as string;
+      const val = await this.preferences.get('language', 'system');
+      return val as string;
     } catch (err) {
       LoggerPreferences.error('Get language failed:', err);
       return 'system';

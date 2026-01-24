@@ -34,29 +34,7 @@ export default class ScrcpyHmosAbility extends UIAbility {
       this.context.getApplicationContext().setColorMode(colorMode);
 
       // Apply saved language or follow system logic
-      const language = await PreferencesHelper.getInstance().getLanguage();
-      hilog.info(DOMAIN, 'testTag', 'Loaded language preference: %{public}s', language);
-      if (language !== 'system') {
-        try {
-           hilog.info(DOMAIN, 'testTag', 'Setting app language to: %{public}s', language);
-           this.context.getApplicationContext().setLanguage(language);
-        } catch (err) {
-           hilog.error(DOMAIN, 'testTag', 'Failed to set language. Cause: %{public}s', JSON.stringify(err));
-        }
-      } else {
-        // Handle system language edge cases (Traditional Chinese -> Simplified Chinese)
-        try {
-          const sysLang = i18n.System.getSystemLanguage(); // e.g., "zh-Hant-HK"
-          hilog.info(DOMAIN, 'testTag', 'System language: %{public}s', sysLang);
-          
-          if (sysLang.startsWith('zh') && (sysLang.includes('Hant') || sysLang.includes('HK') || sysLang.includes('TW') || sysLang.includes('MO'))) {
-             hilog.info(DOMAIN, 'testTag', 'System is Traditional Chinese, forcing Simplified Chinese');
-             this.context.getApplicationContext().setLanguage('zh-Hans');
-          }
-        } catch (e) {
-             hilog.error(DOMAIN, 'testTag', 'Failed to check system language: ' + JSON.stringify(e));
-        }
-      }
+      await this.checkLanguageStatus();
     });
   }
 
@@ -104,6 +82,55 @@ export default class ScrcpyHmosAbility extends UIAbility {
   onForeground(): void {
     // Ability has brought to foreground
     hilog.debug(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+    this.checkLanguageStatus();
+  }
+
+  private async checkLanguageStatus(): Promise<void> {
+    try {
+      const language = await PreferencesHelper.getInstance().getLanguage();
+      hilog.info(DOMAIN, 'testTag', 'Checking language status, preference: %{public}s', language);
+      
+      if (language !== 'system') {
+        // Explicit preference
+        try {
+           const currentAppLang = i18n.System.getAppPreferredLanguage();
+           if (currentAppLang !== language) {
+             hilog.info(DOMAIN, 'testTag', 'Setting app language to explicit: %{public}s', language);
+             i18n.System.setAppPreferredLanguage(language);
+           }
+        } catch (err) {
+           hilog.error(DOMAIN, 'testTag', 'Failed to set language. Cause: %{public}s', JSON.stringify(err));
+        }
+      } else {
+        // Follow System (Manual Sync)
+        // Since 'default' setting might be flaky, we explicit sync with system language here.
+        try {
+          const sysLang = i18n.System.getSystemLanguage();
+          const currentAppLang = i18n.System.getAppPreferredLanguage();
+          
+          hilog.info(DOMAIN, 'testTag', 'System Language: %{public}s, Current App Language: %{public}s', sysLang, currentAppLang);
+
+          // We check if we need to update. 
+          // Note: getAppPreferredLanguage might return previously set explicit lang.
+          // If preference knows it should be system, we force sysLang.
+          
+          // Optimization: Check for Traditional Chinese edge case if needed, or just trust sysLang
+          // But generally, overwrite with sysLang if different.
+          if (currentAppLang !== sysLang) {
+             hilog.info(DOMAIN, 'testTag', 'Preference is system, syncing app language to: %{public}s', sysLang);
+             if(sysLang.startsWith('zh')) {
+               i18n.System.setAppPreferredLanguage('zh-Hans');
+             }else{
+               i18n.System.setAppPreferredLanguage('en-Latn-US');
+             }
+          }
+        } catch (e) {
+             hilog.error(DOMAIN, 'testTag', 'Failed to sync system language: ' + JSON.stringify(e));
+        }
+      }
+    } catch (e) {
+      hilog.error(DOMAIN, 'testTag', 'checkLanguageStatus failed: ' + JSON.stringify(e));
+    }
   }
 
   onBackground(): void {

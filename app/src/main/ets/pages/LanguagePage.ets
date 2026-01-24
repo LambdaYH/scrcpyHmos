@@ -21,29 +21,29 @@ struct LanguagePage {
   async selectLanguage(lan: string) {
     this.selectedLanguage = lan;
     await this.preferencesHelper.saveLanguage(lan);
-    // Apply immediately is tricky without restarting capability, but we can try to update config
-    // Actually in HarmonyOS, updating configuration usually requires Ability context.
-    // We will rely on the user restarting or navigating back for some changes, 
-    // but try to update runtime too if possible.
-    // For now, simpler approach: Just save, and show toast to restart or it applies next time/on resume.
-    // But user asked for switch.
-    
-    // We can try adding logic in Ability to update context resource config ? 
-    // Or just re-render UI if we use resources correctly.
-    // But ability context language needs update.
-    
-    // For this implementation, we will save, and try to update context if possible in Index or Ability.
-    // But since this is a page, we can only update what we can.
-    
-    // Let's rely on standard mechanism: Update preference -> App logic (in Ability or Base) reacts?
-    // ArkTS UI should auto-update if resourceManager config changes.
-    // We need to call generic method to update app language.
-    
     this.applyLanguage(lan);
   }
+
   applyLanguage(lan: string) {
-    // Just save preference, do not apply immediately to context or AppStorage.
-    // User requested to revert to "restart required".
+    try {
+      let targetLang = lan;
+      if (lan === 'system') {
+        // Since 'default' doesn't consistently work, we manually fetch and set the system language.
+        // We rely on ScrcpyHmosAbility.onForeground to keep this in sync if system language changes.
+        targetLang = i18n.System.getSystemLanguage();
+        if(targetLang.startsWith('zh')) {
+          targetLang = 'zh-Hans';
+        }else{
+          targetLang = 'en-Latn-US';
+        }
+      }
+      
+      // Use standard API to set app language (API 9+)
+      i18n.System.setAppPreferredLanguage(targetLang);
+      LoggerIndex.info('[LanguagePage] Set app language via i18n.System.setAppPreferredLanguage:', targetLang);
+    } catch (err) {
+      LoggerIndex.error('[LanguagePage] Failed to set app language:', err);
+    }
   }
 
   @Builder
@@ -104,12 +104,7 @@ struct LanguagePage {
       Column() {
         this.CheckItem($r('app.string.follow_system'), 'system')
         this.CheckItem($r('app.string.language_zh'), 'zh-Hans')
-        this.CheckItem($r('app.string.language_en'), 'en_US')
-        
-        Text($r('app.string.restart_hint'))
-          .fontSize(14)
-          .fontColor($r('app.color.text_tertiary'))
-          .margin({ top: 16 })
+        this.CheckItem($r('app.string.language_en'), 'en-Latn-US')
       }
       .width('100%')
       .padding(16)
