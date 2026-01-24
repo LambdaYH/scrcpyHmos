@@ -1,10 +1,11 @@
-import { Logger, LoggerIndex } from '../helper/Logger';
+import { Logger, LoggerIndex, LogLevel } from '../helper/Logger';
 
 
 @Entry
 @Component
 struct LogPage {
   @State logContent: string = 'Loading...';
+  @State selectedLogLevel: number = Logger.getLogLevel();
   private scroller: Scroller = new Scroller();
 
   aboutToAppear() {
@@ -14,7 +15,7 @@ struct LogPage {
   async refreshLogs() {
     try {
       const content = await Logger.getLogContent();
-      this.logContent = content || 'No logs avaliable.';
+      this.logContent = content || '暂无日志';
       // Scroll to bottom after loading
       setTimeout(() => {
         this.scroller.scrollEdge(Edge.Bottom);
@@ -68,6 +69,26 @@ struct LogPage {
           .fontColor($r('app.color.text_title'))
           .textAlign(TextAlign.Start)
           .margin({ left: 12 })
+        
+        Blank()
+
+        Select([
+          { value: 'DEBUG' },
+          { value: 'INFO' },
+          { value: 'WARN' },
+          { value: 'ERROR' }
+        ])
+          .selected(this.selectedLogLevel)
+          .value(LogLevel[this.selectedLogLevel])
+          .font({ size: 12 })
+          .fontColor($r('app.color.text_primary'))
+          .selectedOptionFont({ size: 12 })
+          .optionFont({ size: 12 })
+          .backgroundColor($r('app.color.bg_card'))
+          .onSelect((index: number) => {
+            this.selectedLogLevel = index;
+            Logger.setLogLevel(index);
+          })
       }
       .width('100%')
       .height(56 + 38)

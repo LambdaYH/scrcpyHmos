@@ -8,6 +8,13 @@ const LOG_FILE_NAME = 'app.log';
 const BACKUP_LOG_FILE_NAME = 'app.log.bak';
 const MAX_LOG_SIZE = 2 * 1024 * 1024; // 2MB
 
+export enum LogLevel {
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3
+}
+
 /**
  * Logger 类 - 封装 HarmonyOS Hilog 和文件日志 (Async I/O)
  * 用于替代 console.log/info/warn/error/debug
@@ -18,6 +25,7 @@ export class Logger {
   private static logQueue: string[] = [];
   private static isWriting: boolean = false;
   private static logFilePath: string = '';
+  private static fileLogLevel: LogLevel = LogLevel.INFO;
 
   constructor(tag: string) {
     this.tag = tag;
@@ -65,6 +73,20 @@ export class Logger {
     } catch (e) {
       console.error('Init logger file failed:', e);
     }
+  }
+
+  /**
+   * 设置文件日志写入级别
+   */
+  static setLogLevel(level: LogLevel) {
+    Logger.fileLogLevel = level;
+  }
+
+  /**
+   * 获取当前文件日志写入级别
+   */
+  static getLogLevel(): LogLevel {
+    return Logger.fileLogLevel;
   }
 
   /**
@@ -123,13 +145,14 @@ export class Logger {
   /**
    * 写入文件日志 (加入队列)
    */
-  private writeToFile(level: string, msg: string): void {
+  private writeToFile(level: LogLevel, levelName: string, msg: string): void {
     if (!Logger.context) return; // 还没初始化
+    if (level < Logger.fileLogLevel) return; // 级别控制
 
     const now = new Date();
     // 简单的时间格式化: 2024-01-23T12:00:00.000
     const timeStr = now.toISOString().replace('Z', '').replace('T', ' ');
-    const logLine = `${timeStr} [${level}] [${this.tag}] ${msg}\n`;
+    const logLine = `${timeStr} [${levelName}] [${this.tag}] ${msg}\n`;
     
     Logger.logQueue.push(logLine);
     Logger.processQueue();
@@ -182,7 +205,7 @@ export class Logger {
   debug(msg: string, ...args: (string | number | boolean | object | undefined | null)[]): void {
     const formattedMsg = this.formatMessage(msg, args);
     hilog.debug(DOMAIN, this.tag, '%{public}s', formattedMsg);
-    this.writeToFile('DEBUG', formattedMsg);
+    this.writeToFile(LogLevel.DEBUG, 'DEBUG', formattedMsg);
   }
 
   /**
@@ -191,7 +214,7 @@ export class Logger {
   info(msg: string, ...args: (string | number | boolean | object | undefined | null)[]): void {
     const formattedMsg = this.formatMessage(msg, args);
     hilog.info(DOMAIN, this.tag, '%{public}s', formattedMsg);
-    this.writeToFile('INFO', formattedMsg);
+    this.writeToFile(LogLevel.INFO, 'INFO', formattedMsg);
   }
 
   /**
@@ -200,7 +223,7 @@ export class Logger {
   warn(msg: string, ...args: (string | number | boolean | object | undefined | null)[]): void {
     const formattedMsg = this.formatMessage(msg, args);
     hilog.warn(DOMAIN, this.tag, '%{public}s', formattedMsg);
-    this.writeToFile('WARN', formattedMsg);
+    this.writeToFile(LogLevel.WARN, 'WARN', formattedMsg);
   }
 
   /**
@@ -209,7 +232,7 @@ export class Logger {
   error(msg: string, ...args: (string | number | boolean | object | undefined | null)[]): void {
     const formattedMsg = this.formatMessage(msg, args);
     hilog.error(DOMAIN, this.tag, '%{public}s', formattedMsg);
-    this.writeToFile('ERROR', formattedMsg);
+    this.writeToFile(LogLevel.ERROR, 'ERROR', formattedMsg);
   }
 
   /**
