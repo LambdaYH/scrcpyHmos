@@ -61,12 +61,19 @@ export class Client {
     return Client.allClients.get(uuid) || null;
   }
   
-  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void): Promise<Client | null> {
+  static async startDevice(device: Device, context: common.UIAbilityContext, uiContext: UIContext, onStatusChange?: (status: string) => void, onClientCreated?: (client: Client) => void): Promise<Client | null> {
     if (Client.allClients.has(device.uuid)) {
-      return Client.allClients.get(device.uuid) || null;
+      const existingClient = Client.allClients.get(device.uuid);
+      if (existingClient && onClientCreated) {
+        onClientCreated(existingClient);
+      }
+      return existingClient || null;
     }
     
     const client = new Client(device);
+    if (onClientCreated) {
+      onClientCreated(client);
+    }
     const success = await client.connect(context, uiContext, onStatusChange);
     
     if (success) {

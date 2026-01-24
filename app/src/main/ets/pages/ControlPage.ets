@@ -191,7 +191,10 @@ struct ControlPage {
       this.connectionStatus = '连接中...如果是首次连接，请在Android设备上授权USB调试';
 
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      this.client = await Client.startDevice(this.device, ctx, this.getUIContext());
+      this.client = await Client.startDevice(this.device, ctx, this.getUIContext(), undefined, (client: Client) => {
+        // 立即保存Client引用，以便退出页面时关闭
+        this.client = client;
+      });
       LoggerControlPage.info('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
       
       if (this.client) {

@@ -510,6 +510,14 @@ struct Index {
         if (this.isConnecting) {
           this.connectionStatus = status;
         }
+      }, (createdClient: Client) => {
+        // 立即保存Client引用，以便取消时可以close
+        if (this.isConnecting) {
+          this.connectingClient = createdClient;
+        } else {
+          // 如果在这之前已经被取消了(极少情况)，立即关闭
+          createdClient.close();
+        }
       });
       
       // 检查连接过程中是否被取消

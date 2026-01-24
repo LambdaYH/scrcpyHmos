@@ -14,16 +14,16 @@ export class Device {
 
   // 视频参数
   videoCodec: string = 'h264'; // 'h264', 'h265', 'av1'
-  maxSize: number = 1920;
-  maxFps: number = 60;
-  maxVideoBit: number = 8000000; // bps
+  maxSize: number = 0;
+  maxFps: number = 0;
+  maxVideoBit: number = 0; // bps
   crop: string = ''; // 格式: "width:height:x:y"
   displayId: number = 0;
 
   // 音频参数
   isAudio: boolean = true;
   audioCodec: string = 'opus'; // 'opus', 'aac', 'raw', 'flac'
-  maxAudioBit: number = 128000; // bps
+  maxAudioBit: number = 0; // bps
 
   // 连接时操作
   customResolutionOnConnect: boolean = false;

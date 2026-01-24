@@ -29,6 +29,7 @@ export class ClientStream {
   private shellStream?: BufferStream;
   private currentScid: string = '';
   private isConnected: boolean = false;
+  private isClosing: boolean = false;
   private connectDirect: boolean = false;
   private device: Device;
   private adb?: Adb;
@@ -45,6 +46,7 @@ export class ClientStream {
 
   async connect(context: common.UIAbilityContext, uiContext: UIContext): Promise<boolean> {
     try {
+      this.isClosing = false;
       LoggerClientStream.info('Starting device connection...');
 
       // 0. Initialize ADB key manager with device address
@@ -102,6 +104,11 @@ export class ClientStream {
       const reTryTime = 15000 / reTry;
       
       for (let i = 0; i < reTry; i++) {
+        if (this.isClosing) {
+          LoggerClientStream.info('Connection cancelled during retry loop');
+          return false;
+        }
+
         try {
           // Sequential Connection & Handshake logic matching official client
           // Server sends dummy byte ONLY on the FIRST accepted socket (DesktopConnection.java:68-88)
@@ -170,7 +177,7 @@ export class ClientStream {
   const errMsg = err instanceof Error ? err.message : String(err);
   LoggerClientStream.error('ClientStream connect failed:', errMsg);
 
-  if (errMsg.includes('Read timeout')) {
+  if (errMsg.includes('Read timeout') && !this.isClosing) {
     try {
       await uiContext.getPromptAction().showDialog({
         title: '连接超时',
@@ -195,6 +202,8 @@ const readLoop = async () => {
   try {
     let count = 0;
     while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
+      if (this.isClosing) break;
+
       try {
         if (!stream.isEmpty()) {
           const data = await stream.readAllBytes();
@@ -348,6 +357,8 @@ return this.videoConfig;
 
   // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
   async readFrameFromVideo(): Promise<ArrayBuffer> {
+    if (this.isClosing) throw new Error('Client is closing');
+
     // console.debug('[ClientStream] Reading frame header...');
     
     // 1. Read PTS (8 bytes)
@@ -409,6 +420,8 @@ return this.videoConfig;
   }
 
   async close(): Promise<void> {
+    this.isClosing = true;
+
     // 关闭直连socket
     if (this.mainSocket) {
       try {
