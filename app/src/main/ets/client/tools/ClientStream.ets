@@ -283,7 +283,7 @@ return this.videoConfig;
       const view = new DataView(data);
       const msgType = view.getUint8(0);
       const msgSize = data.byteLength;
-      LoggerClientStream.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
+      // LoggerClientStream.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
       
       if (this.connectDirect && this.mainSocket) {
         await this.mainSocket.send({ data: data });
@@ -293,7 +293,7 @@ return this.videoConfig;
         throw new Error('No valid main connection');
       }
       
-      LoggerClientStream.debug(`[Control] Message sent successfully`);
+      // LoggerClientStream.debug(`[Control] Message sent successfully`);
     } catch (err) {
       LoggerClientStream.error('Write to main socket failed:', err);
       const error = err instanceof Error ? err : new Error(String(err));

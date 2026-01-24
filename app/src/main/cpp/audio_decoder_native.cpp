@@ -36,8 +36,9 @@ void AudioDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         context->inputBuffers.push(buffer);
     }
     context->waitForFirstBuffer = false;
-    OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNeedInputBuffer: index=%{public}u, queueSize=%{public}zu",
-                index, context->inputBufferQueue.size());
+    context->waitForFirstBuffer = false;
+    // OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNeedInputBuffer: index=%{public}u, queueSize=%{public}zu",
+    //             index, context->inputBufferQueue.size());
 }
 
 void AudioDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
@@ -61,8 +62,8 @@ void AudioDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
             context->decoder->pcmQueue_.push(std::move(pcmData));
         }
 
-        OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNewOutputBuffer: size=%{public}d, pts=%{public}lld",
-                    attr.size, (long long)attr.pts);
+        // OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNewOutputBuffer: size=%{public}d, pts=%{public}lld",
+        //             attr.size, (long long)attr.pts);
     }
 
     // 释放输出buffer
@@ -332,9 +333,9 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     }
 
     frameCount_++;
-    if (frameCount_ % 100 == 0) {
-        OH_LOG_DEBUG(LOG_APP, "[AudioNative] Pushed %{public}u audio frames", frameCount_);
-    }
+//    if (frameCount_ % 100 == 0) {
+//        OH_LOG_DEBUG(LOG_APP, "[AudioNative] Pushed %{public}u audio frames", frameCount_);
+//    }
 
     return 0;
 }

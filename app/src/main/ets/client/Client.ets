@@ -245,15 +245,15 @@ export class Client {
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
             // 读取帧大小
-            LoggerClient.debug(`[Frame ${frameCount}] Reading frame size...`);
+            // LoggerClient.debug(`[Frame ${frameCount}] Reading frame size...`);
             const frameData = await this.clientStream.readFrameFromVideo();
-            LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
+            // LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
               // 解码帧 (PTS由解码器内部处理)
-              LoggerClient.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
+              // LoggerClient.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
               await this.videoDecoder.decode(frameData, 0);
-              LoggerClient.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
+              // LoggerClient.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
               
               // 首帧回调 - 通知UI视频已开始传输
               if (!this.firstFrameReceived && this.onFirstFrameCallback) {

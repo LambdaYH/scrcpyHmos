@@ -48,20 +48,20 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         context->inputBuffers.push(buffer);  // 保存buffer指针
     }
     context->waitForFirstBuffer = false;
-    OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
-                index, buffer ? "valid" : "null", context->inputBufferQueue.size());
+    // OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
+    //             index, buffer ? "valid" : "null", context->inputBufferQueue.size());
 }
 
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     // 获取buffer属性获取更多信息
     OH_AVCodecBufferAttr attr;
     OH_AVErrCode ret = OH_AVBuffer_GetBufferAttr(buffer, &attr);
-    if (ret == AV_ERR_OK) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld",
-                    index, attr.size, (long long)attr.pts);
-    } else {
-        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u", index);
-    }
+//    if (ret == AV_ERR_OK) {
+//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld",
+//                    index, attr.size, (long long)attr.pts);
+//    } else {
+//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u", index);
+//    }
 
     // 渲染到Surface
     OH_AVErrCode renderRet = OH_VideoDecoder_RenderOutputBuffer(codec, index);
@@ -220,7 +220,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         return -1;
     }
 
-    OH_LOG_DEBUG(LOG_APP, "[Native] Got buffer, capacity=%{public}d", OH_AVBuffer_GetCapacity(buffer));
+    // OH_LOG_DEBUG(LOG_APP, "[Native] Got buffer, capacity=%{public}d", OH_AVBuffer_GetCapacity(buffer));
 
     // 获取buffer的内存地址
     uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
@@ -278,9 +278,9 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     // buffer已经提交，不需要清理
 
     frameCount_++;
-    if (frameCount_ % 30 == 0) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames (size=%{public}d)", frameCount_, size);
-    }
+    // if (frameCount_ % 30 == 0) {
+    //    OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames (size=%{public}d)", frameCount_, size);
+    // }
 
     return 0;
 }
