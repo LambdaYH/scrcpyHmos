@@ -2,23 +2,13 @@
 // 对应Java: client/view/FullActivity.java
 // 在HarmonyOS中对应一个全屏页面组件
 
-import { Device } from '../../entity/Device';
 import { ClientController } from '../tools/ClientController';
 import { ClientPlayer } from '../tools/ClientPlayer';
 
 export class FullActivity {
-  private device: Device;
   private controller: ClientController | null = null;
   private player: ClientPlayer | null = null;
   private isActive: boolean = false;
-
-  // Surface尺寸
-  private surfaceWidth: number = 0;
-  private surfaceHeight: number = 0;
-
-  constructor(device: Device) {
-    this.device = device;
-  }
 
   // 设置控制器
   setController(controller: ClientController): void {
@@ -30,14 +20,6 @@ export class FullActivity {
     this.player = player;
   }
 
-  // 设置Surface尺寸
-  setSurfaceSize(width: number, height: number): void {
-    this.surfaceWidth = width;
-    this.surfaceHeight = height;
-    if (this.controller) {
-      this.controller.setSurfaceSize(width, height);
-    }
-  }
 
   // 启动
   start(): void {

@@ -1,15 +1,34 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
-import router from '@ohos.router';
-import promptAction from '@ohos.promptAction';
+import { Client } from '../client/Client';
+import { LoggerIndex, Logger } from '../helper/Logger';
+
+import { common } from '@kit.AbilityKit';
+import { connection } from '@kit.NetworkKit';
+import pasteboard from '@ohos.pasteboard';
+import { curves } from '@kit.ArkUI';
 
 @Entry
 @Component
 struct Index {
   @State devicesList: Device[] = [];
   @State currentIndex: number = 0;
+  @State isConnecting: boolean = false;
+  @State connectionStatus: string = '';
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
   private tabsController: TabsController = new TabsController();
+  private connectingClient: Client | null = null;
+  @State localIpList: string[] = [];
+  
+  private ipListDialogController: CustomDialogController = new CustomDialogController({
+    builder: IpListDialog({
+      ipList: this.localIpList,
+      onCopy: (ip: string): void => this.copyTextToClipboard(ip)
+    }),
+    alignment: DialogAlignment.Center,
+    autoCancel: true,
+    customStyle: true
+  });
 
   aboutToAppear() {
     this.initPreferences();
@@ -19,18 +38,34 @@ struct Index {
     this.loadDevices();
   }
   
-  async initPreferences() {
-    try {
-      const context = getContext(this) as Context;
-      await this.preferencesHelper.init(context);
-      await this.loadDevices();
-    } catch (err) {
-      console.error('Init preferences failed:', err);
-    }
+
+
+  async loadDevices(): Promise<boolean> {
+    this.devicesList = this.preferencesHelper.getDevicesList();
+    return this.devicesList.length > 0;
   }
 
-  async loadDevices() {
-    this.devicesList = this.preferencesHelper.getDevicesList();
+  async initPreferences() {
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await this.preferencesHelper.init(context);
+      Logger.init(context as common.UIAbilityContext);
+      const hasDevices = await this.loadDevices();
+      
+      // 检查自动连接
+      if (hasDevices) {
+        const autoConnectDevice = this.devicesList.find(d => d.connectOnStart);
+        if (autoConnectDevice) {
+          LoggerIndex.info('[Index] Auto-connecting to device:', autoConnectDevice.name);
+          // 稍微延迟一下，让UI先渲染出来
+          setTimeout(() => {
+            this.connectDevice(autoConnectDevice);
+          }, 500);
+        }
+      }
+    } catch (err) {
+      LoggerIndex.error('Init preferences failed:', err);
+    }
   }
 
   @Builder
@@ -41,7 +76,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.house'))
           .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
-        Text('设备')
+        Text($r('app.string.tab_devices'))
           .fontSize(10) // Standard 10fp
           .fontWeight(FontWeight.Medium)
           .fontColor(this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
@@ -50,29 +85,56 @@ struct Index {
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.8, y: 0.8 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         this.currentIndex = 0;
         this.tabsController.changeIndex(0);
       })
 
-      // Tab 2: Add Device (Standard Action)
+      // Tab 2: Add Device (Floating Action Button Style)
       Column() {
-        SymbolGlyph($r('sys.symbol.plus_square'))
-          .fontSize(24) // Standard 24vp
-          .fontColor([$r('app.color.text_tertiary')])
-        Text('添加')
-           .fontSize(10)
-           .fontWeight(FontWeight.Medium)
-           .fontColor($r('app.color.text_tertiary'))
-           .margin({ top: 4 })
+        Column() {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(28)
+            .fontColor([Color.White])
+        }
+        .width(48)
+        .height(48)
+        .borderRadius(24)
+        .backgroundColor($r('app.color.btn_primary'))
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .shadow({
+          radius: 8,
+          color: '#40007AFF',
+          offsetX: 0,
+          offsetY: 4
+        })
       }
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.9, y: 0.9 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         // Direct action
-        router.pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
-          console.error('Navigate failed:', err);
+        this.getUIContext().getRouter().pushUrl({ url: 'pages/DeviceDetail' }).catch((err: Error) => {
+          LoggerIndex.error('Navigate failed:', err);
         });
       })
 
@@ -81,7 +143,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.gearshape'))
           .fontSize(24) // Standard 24vp
           .fontColor([this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
-        Text('更多')
+        Text($r('app.string.tab_more'))
           .fontSize(10) // Standard 10fp
           .fontWeight(FontWeight.Medium)
           .fontColor(this.currentIndex === 2 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
@@ -90,6 +152,15 @@ struct Index {
       .layoutWeight(1)
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .stateStyles({
+        pressed: {
+          .scale({ x: 0.9, y: 0.9 })
+        },
+        normal: {
+          .scale({ x: 1.0, y: 1.0 })
+        }
+      })
+      .animation({ curve: curves.responsiveSpringMotion(0.15, 0.86) })
       .onClick(() => {
         this.currentIndex = 2;
         this.tabsController.changeIndex(2);
@@ -140,6 +211,61 @@ struct Index {
 
       // Layer 2: Custom Floating Navigation Bar
       this.CustomTabBar()
+      
+      // Layer 3: Connection Loading Overlay
+      if (this.isConnecting) {
+        Column() {
+          Column() {
+            Row() {
+              Text($r('app.string.connecting'))
+                .fontSize(20)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_primary'))
+
+              if (this.connectionTime >= 0) {
+                Text(` (${this.connectionTime}s)`)
+                  .fontSize(20)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.text_primary'))
+              }
+            }
+            .alignItems(VerticalAlign.Center)
+            .justifyContent(FlexAlign.Center)
+            .margin({ bottom: 8 })
+
+            
+            Text(this.connectionStatus)
+              .fontSize(16)
+              .fontColor($r('app.color.text_secondary'))
+              .textAlign(TextAlign.Center)
+              .margin({ bottom: 24 })
+            
+            Button($r('app.string.cancel'))
+              .fontSize(16)
+              .fontColor($r('app.color.btn_primary'))
+              .backgroundColor(Color.Transparent)
+              .padding({ left: 16, right: 16 })
+              .height(40)
+              .onClick(() => {
+                LoggerIndex.info('[Index] Cancel button clicked');
+                this.cancelConnect();
+              })
+          }
+          .width('80%')
+          .padding(24)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(16)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor($r('sys.color.mask_secondary'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        .zIndex(999)
+        .onClick(() => {
+          // 点击遮罩层不做任何事，阻止点击穿透到下层
+        })
+      }
     }
     .width('100%')
     .height('100%')
@@ -152,7 +278,7 @@ struct Index {
     Column() {
       // Title
       Row() {
-        Text('Scrcpy设备')
+        Text($r('app.string.scrcpy_devices'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -163,12 +289,12 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       // Device List
-      if (this.devicesList.length === 0) {
+        if (this.devicesList.length === 0) {
         Column() {
-          Text('暂无设备')
+          Text($r('app.string.no_devices'))
             .fontSize(16)
             .fontColor($r('app.color.text_tertiary'))
-          Text('点击下方 + 按钮添加设备')
+          Text($r('app.string.add_device_hint'))
             .fontSize(14)
             .fontColor($r('app.color.text_placeholder'))
             .margin({ top: 8 })
@@ -186,8 +312,10 @@ struct Index {
           })
         }
         .width('100%')
+        .height('100%')
         .layoutWeight(1)
         .padding({ left: 16, right: 16, top: 0, bottom: 0 })
+        .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       }
     }
     .width('100%')
@@ -199,7 +327,7 @@ struct Index {
     Column() {
       // Title
       Row() {
-        Text('更多')
+        Text($r('app.string.more_title'))
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -219,7 +347,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('密钥设置')
+                Text($r('app.string.key_settings'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -233,13 +361,108 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/AdbManagePage' });
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/AdbManagePage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
             })
           }
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
           .margin({ bottom: 12 })
           
+          ListItem() {
+            Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.translate'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.language_settings'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/LanguagePage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
+          ListItem() {
+            Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.list_bullet'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.system_log'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/LogPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
+          ListItem() {
+            Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.picture'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.dark_mode'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/ThemePage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
           ListItem() {
              Row() {
               Row() {
@@ -248,7 +471,7 @@ struct Index {
                   .fontColor([$r('app.color.text_secondary')])
                   .margin({ right: 16 })
                 
-                Text('使用说明')
+                Text($r('app.string.help'))
                   .fontSize(16)
                   .fontColor($r('app.color.text_primary'))
               }
@@ -262,16 +485,81 @@ struct Index {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding({ left: 16, right: 16 })
             .onClick(() => {
-              router.pushUrl({ url: 'pages/HelpPage' });
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/HelpPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+           .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+          
+          ListItem() {
+             Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.wifi'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.view_ip'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.showLocalIp();
+            })
+          }
+           .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
+
+          ListItem() {
+             Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.info_circle'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+                
+                Text($r('app.string.about_us'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/AboutPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
             })
           }
            .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
         }
         .width('100%')
+        .height('100%')
         .padding(16)
+        .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       }
       .layoutWeight(1)
+
 
 
     }
@@ -296,9 +584,9 @@ struct Index {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
         
-        Button('连接')
+        Button($r('app.string.connect'))
           .fontSize(14)
-          .width(80)
+          .padding({ left: 16, right: 16 })
           .height(36)
           .onClick(() => {
             this.connectDevice(device);
@@ -312,13 +600,124 @@ struct Index {
     .borderRadius(8)
   }
   
-  connectDevice(device: Device) {
-    this.getUIContext().getRouter().pushUrl({
-      url: 'pages/ControlPage',
-      params: { device: device }
-    }).catch(() => {
-      this.getUIContext().getPromptAction().showToast({ message: '连接失败' });
-    });
+  @State connectionTime: number = 0;
+  private connectionTimer: number = -1;
+
+  private authDialogController: CustomDialogController = new CustomDialogController({
+    builder: AuthDialog(),
+    alignment: DialogAlignment.Center,
+    autoCancel: false, // Don't allow clicking outside to dismiss easily, wait for auth
+    customStyle: true
+  });
+
+  // ... (previous code)
+
+  async connectDevice(device: Device) {
+    if (this.isConnecting) return;
+    
+    this.isConnecting = true;
+    this.connectionTime = 0;
+    
+    // Start timer
+    this.connectionTimer = setInterval(() => {
+      this.connectionTime++;
+    }, 1000);
+    
+    try {
+      const ctx = this.getUIContext().getHostContext()! as common.UIAbilityContext;
+      
+      // 第一阶段：等待ADB授权 (在连接开始前提示)
+      this.connectionStatus = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.adb_auth_waiting').id);
+      
+      // 启动连接
+      // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
+      const client = await Client.startDevice(device, ctx, this.getUIContext(), (status: string) => {
+        // 更新连接状态
+        if (this.isConnecting) {
+          this.connectionStatus = status;
+        }
+      }, (createdClient: Client) => {
+        // 立即保存Client引用，以便取消时可以close
+        if (this.isConnecting) {
+          this.connectingClient = createdClient;
+        } else {
+          // 如果在这之前已经被取消了(极少情况)，立即关闭
+          createdClient.close();
+        }
+      }, () => {
+        // onAuth callback: Show custom auth dialog
+        LoggerIndex.info('[Index] Showing auth dialog');
+        this.authDialogController.open();
+      });
+      
+      // 连接成功(或失败返回null)，关闭授权弹窗
+      this.authDialogController.close();
+      
+      // 检查连接过程中是否被取消
+      if (!this.isConnecting) {
+        LoggerIndex.info('[Index] Connection cancelled by user');
+        if (client) {
+          await client.close();
+        }
+        return;
+      }
+      
+      this.connectingClient = client;
+      
+      // Clear timer on completion (success or fail handled below)
+      if (this.connectionTimer !== -1) {
+        clearInterval(this.connectionTimer);
+        this.connectionTimer = -1;
+      }
+      
+      if (this.connectingClient) {
+        // 连接成功，立即跳转到控制页面
+        // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
+        LoggerIndex.info('[Index] Connection successful, navigating to ControlPage');
+        this.isConnecting = false;
+        
+        // 跳转到控制页面，传递已连接的 client
+        this.getUIContext().getRouter().pushUrl({
+          url: 'pages/ControlPage',
+          params: { device: device, clientReady: true }
+        }).catch((err: Error) => {
+          LoggerIndex.error('Navigate failed:', err);
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.navigate_failed') });
+        });
+        
+      } else {
+        this.isConnecting = false;
+        this.getUIContext().getPromptAction().showToast({ 
+          message: $r('app.string.connect_failed_hint')
+        });
+      }
+    } catch (err) {
+      if (this.connectionTimer !== -1) {
+        clearInterval(this.connectionTimer);
+        this.connectionTimer = -1;
+      }
+      this.isConnecting = false;
+      this.connectingClient = null;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerIndex.error('Connect device failed:', errMsg);
+      this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
+    } finally {
+       // Ensure dialog is closed in case of error
+       this.authDialogController.close();
+    }
+  }
+  
+  // 取消连接
+  cancelConnect() {
+    if (this.connectionTimer !== -1) {
+      clearInterval(this.connectionTimer);
+      this.connectionTimer = -1;
+    }
+    if (this.connectingClient) {
+      this.connectingClient.close();
+      this.connectingClient = null;
+    }
+    this.isConnecting = false;
   }
 
   @Builder
@@ -358,7 +757,7 @@ struct Index {
     }
     .padding({ left: 16, right: 16 })
     .height('100%')
-    .backgroundColor('#00000000')
+    .backgroundColor(Color.Transparent)
   }
 
   editDevice(device: Device) {
@@ -366,7 +765,7 @@ struct Index {
       url: 'pages/DeviceDetail',
       params: { device: device }
     }).catch((err: Error) => {
-      console.error('Navigate to edit page failed:', err);
+      LoggerIndex.error('Navigate to edit page failed:', err);
     });
   }
 
@@ -375,17 +774,162 @@ struct Index {
       await this.preferencesHelper.delete(device.uuid);
       await this.loadDevices();
       try {
-        this.getUIContext().getPromptAction().showToast({ message: 'Deleted successfully' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.delete_success') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerIndex.error('Show toast failed:', e);
       }
     } catch (err) {
-      console.error('Delete device failed:', err);
+      LoggerIndex.error('Delete device failed:', err);
       try {
-        this.getUIContext().getPromptAction().showToast({ message: 'Delete failed' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.delete_failed') });
       } catch (e) {
-        console.error('Show toast failed:', e);
+        LoggerIndex.error('Show toast failed:', e);
       }
     }
+  }
+
+  async showLocalIp() {
+    try {
+      const netHandle = await connection.getDefaultNet();
+      if (!netHandle || netHandle.netId === 0) {
+         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_default_net') });
+         return;
+      }
+
+      const connectionProperties = await connection.getConnectionProperties(netHandle);
+      const linkAddresses = connectionProperties.linkAddresses;
+
+      if (linkAddresses && linkAddresses.length > 0) {
+        // 收集所有 IP 地址
+        const ipList: string[] = [];
+        for (const address of linkAddresses) {
+           if (address.address.address) {
+             ipList.push(address.address.address);
+           }
+        }
+        
+        if (ipList.length > 0) {
+          // 更新数据并显示弹窗
+          this.localIpList = ipList;
+          this.ipListDialogController.open();
+        } else {
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_valid_ip') });
+        }
+      } else {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.no_net_info') });
+      }
+    } catch (err) {
+      LoggerIndex.error('Get network info failed:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.get_ip_failed_prefix').id) + errMsg });
+    }
+  }
+
+  private copyTextToClipboard(text: string): void {
+    try {
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      systemPasteboard.setData(pasteData).then(() => {
+        this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.copy_prefix').id) + text });
+      });
+    } catch (e) {
+      LoggerIndex.error('Copy to clipboard failed:', e);
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_fail') });
+    }
+  }
+}
+
+@CustomDialog
+struct IpListDialog {
+  controller: CustomDialogController;
+  @Link ipList: string[];
+  onCopy: (ip: string) => void = () => {};
+
+  build() {
+    Column() {
+      Text($r('app.string.local_ip_list'))
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ top: 24, bottom: 8 })
+      
+      Text($r('app.string.click_to_copy'))
+        .fontSize(14)
+        .fontColor($r('app.color.text_secondary'))
+        .margin({ bottom: 16 })
+
+      List() {
+        ForEach(this.ipList, (ip: string) => {
+          ListItem() {
+            Button({ type: ButtonType.Normal, stateEffect: true }) {
+              Text(ip)
+                .fontSize(18)
+                .fontColor($r('app.color.text_primary'))
+                .width('100%')
+                .textAlign(TextAlign.Center)
+                .padding({ top: 16, bottom: 16 })
+            }
+            .backgroundColor(Color.Transparent)
+            .width('100%')
+            .onClick(() => {
+              this.onCopy(ip);
+              this.controller.close();
+            })
+          }
+        })
+      }
+      .width('100%')
+      .constraintSize({ maxHeight: '50%' })
+      .edgeEffect(EdgeEffect.Spring)
+      .divider({ strokeWidth: 0.5, color: '#1A000000', startMargin: 16, endMargin: 16 })
+
+      Button($r('app.string.cancel'))
+        .fontSize(16)
+        .fontColor($r('app.color.btn_primary'))
+        .backgroundColor(Color.Transparent)
+        .onClick(() => {
+          this.controller.close();
+        })
+        .margin({ top: 16, bottom: 16 })
+        .width('100%')
+    }
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(24)
+    .width('80%')
+    .shadow({ radius: 24, color: '#4d000000', offsetY: 8 })
+  }
+}
+
+@CustomDialog
+struct AuthDialog {
+  controller: CustomDialogController;
+
+  build() {
+    Column() {
+      // 图标
+      Text($r('app.string.adb_auth_title'))
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ bottom: 12 })
+      
+      Text($r('app.string.adb_auth_message'))
+        .fontSize(16)
+        .fontColor($r('app.color.text_secondary'))
+        .textAlign(TextAlign.Center)
+        .opacity(0.8)
+        .margin({ bottom: 32 })
+      
+      // 等待动画
+      LoadingProgress()
+        .width(32)
+        .height(32)
+        .color($r('app.color.btn_primary'))
+    }
+    .width('80%')
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(24)
+    .padding(32)
+    .shadow({ radius: 24, color: '#4d000000', offsetY: 8 })
   }
 }

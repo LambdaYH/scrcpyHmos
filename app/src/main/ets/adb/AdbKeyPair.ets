@@ -18,7 +18,7 @@ class RsaKeyParams {
 
 // 完全按照原版AdbKeyPair.java
 export class AdbKeyPair {
-  private privateKey: cryptoFramework.PriKey;
+
   public readonly publicKeyBytes: Uint8Array;
   private keyPair?: cryptoFramework.KeyPair; // 缓存完整KeyPair用于签名
 
@@ -51,7 +51,6 @@ export class AdbKeyPair {
   ]);
 
   constructor(privateKey: cryptoFramework.PriKey, publicKeyBytes: Uint8Array, keyPair?: cryptoFramework.KeyPair) {
-    this.privateKey = privateKey;
     this.publicKeyBytes = publicKeyBytes;
     this.keyPair = keyPair;
   }
@@ -115,13 +114,13 @@ export class AdbKeyPair {
       fs.readSync(priFile.fd, priBuf);
       fs.closeSync(priFile);
 
-      const privateKeyText = new util.TextDecoder('utf-8').decode(new Uint8Array(priBuf));
+      const privateKeyText = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(priBuf));
       const data = privateKeyText
         .replace('-----BEGIN PRIVATE KEY-----', '')
         .replace('-----END PRIVATE KEY-----', '')
         .replace(/\n/g, '');
 
-      const privateKeyBytes = AdbKeyPair.adbBase64.decode(new util.TextEncoder().encodeInto(data));
+      const privateKeyBytes = AdbKeyPair.adbBase64.decode(new Uint8Array(buffer.from(data, 'utf-8').buffer));
 
       // 使用HarmonyOS API重建密钥对
       const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');

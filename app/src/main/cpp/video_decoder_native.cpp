@@ -2,7 +2,7 @@
 #include <hilog/log.h>
 #include <queue>
 #include <mutex>
-#include <cstring>  // for memcpy
+#include <cstring>  // for memcpy, strcmp
 #include "multimedia/player_framework/native_avbuffer.h"  // for OH_AVBuffer_SetBufferAttr
 
 #undef LOG_TAG
@@ -12,7 +12,7 @@
 
 VideoDecoderNative::VideoDecoderNative()
     : decoder_(nullptr), window_(nullptr), isStarted_(false),
-      width_(0), height_(0), frameCount_(0), context_(nullptr) {
+      width_(0), height_(0), frameCount_(0), codecType_("h264"), context_(nullptr) {
 }
 
 VideoDecoderNative::~VideoDecoderNative() {
@@ -48,20 +48,20 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         context->inputBuffers.push(buffer);  // 保存buffer指针
     }
     context->waitForFirstBuffer = false;
-    OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
-                index, buffer ? "valid" : "null", context->inputBufferQueue.size());
+    // OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
+    //             index, buffer ? "valid" : "null", context->inputBufferQueue.size());
 }
 
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     // 获取buffer属性获取更多信息
     OH_AVCodecBufferAttr attr;
     OH_AVErrCode ret = OH_AVBuffer_GetBufferAttr(buffer, &attr);
-    if (ret == AV_ERR_OK) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld",
-                    index, attr.size, (long long)attr.pts);
-    } else {
-        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u", index);
-    }
+//    if (ret == AV_ERR_OK) {
+//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld",
+//                    index, attr.size, (long long)attr.pts);
+//    } else {
+//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u", index);
+//    }
 
     // 渲染到Surface
     OH_AVErrCode renderRet = OH_VideoDecoder_RenderOutputBuffer(codec, index);
@@ -73,34 +73,50 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     OH_VideoDecoder_FreeOutputBuffer(codec, index);
 }
 
-int32_t VideoDecoderNative::Init(bool useH265, const char* surfaceId, int32_t width, int32_t height) {
-    OH_LOG_DEBUG(LOG_APP, "[Native] Init: codec=%{public}s, size=%{public}dx%{public}d", 
-                useH265 ? "H265" : "H264", width, height);
-    
+int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height) {
+    OH_LOG_DEBUG(LOG_APP, "[Native] Init: codec=%{public}s, size=%{public}dx%{public}d",
+                codecType, width, height);
+
     width_ = width;
     height_ = height;
-    
+    codecType_ = codecType ? codecType : "h264";
+
+    // 根据codecType选择对应的MIME类型
+    const char* mimeType = nullptr;
+    if (strcmp(codecType_.c_str(), "h264") == 0 || codecType_.empty()) {
+        mimeType = OH_AVCODEC_MIMETYPE_VIDEO_AVC;
+    } else if (strcmp(codecType_.c_str(), "h265") == 0) {
+        mimeType = OH_AVCODEC_MIMETYPE_VIDEO_HEVC;
+    } else if (strcmp(codecType_.c_str(), "av1") == 0) {
+        // AV1 support - HarmonyOS 5.0+
+        mimeType = "video/av01";  // OH_AVCODEC_MIMETYPE_VIDEO_AV1 if defined
+    } else {
+        OH_LOG_WARN(LOG_APP, "[Native] Unknown codec type: %{public}s, fallback to H264", codecType);
+        mimeType = OH_AVCODEC_MIMETYPE_VIDEO_AVC;
+    }
+
+    OH_LOG_INFO(LOG_APP, "[Native] Creating decoder with MIME: %{public}s", mimeType);
+
     // 创建解码器
-    const char* mimeType = useH265 ? OH_AVCODEC_MIMETYPE_VIDEO_HEVC : OH_AVCODEC_MIMETYPE_VIDEO_AVC;
     decoder_ = OH_VideoDecoder_CreateByMime(mimeType);
     if (decoder_ == nullptr) {
         OH_LOG_ERROR(LOG_APP, "[Native] Create decoder failed, codec=%{public}s", mimeType);
         return -1;
     }
-    
+
     // 配置解码器
     OH_AVFormat* format = OH_AVFormat_Create();
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_WIDTH, width);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_HEIGHT, height);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
-    
+
     int32_t ret = OH_VideoDecoder_Configure(decoder_, format);
     OH_AVFormat_Destroy(format);
     if (ret != AV_ERR_OK) {
         OH_LOG_ERROR(LOG_APP, "[Native] Configure failed: %{public}d", ret);
         return ret;
     }
-    
+
     // 从surfaceId获取window
     uint64_t surfaceIdNum = std::stoull(surfaceId);
     int32_t windowRet = OH_NativeWindow_CreateNativeWindowFromSurfaceId(surfaceIdNum, &window_);
@@ -108,14 +124,14 @@ int32_t VideoDecoderNative::Init(bool useH265, const char* surfaceId, int32_t wi
         OH_LOG_ERROR(LOG_APP, "[Native] Create window failed: %{public}d", windowRet);
         return -1;
     }
-    
+
     // 设置输出Surface
     ret = OH_VideoDecoder_SetSurface(decoder_, window_);
     if (ret != AV_ERR_OK) {
         OH_LOG_ERROR(LOG_APP, "[Native] SetSurface failed: %{public}d", ret);
         return ret;
     }
-    
+
     // 设置回调
     context_ = new DecoderContext();
     context_->decoder = this;
@@ -134,7 +150,7 @@ int32_t VideoDecoderNative::Init(bool useH265, const char* surfaceId, int32_t wi
         context_ = nullptr;
         return ret;
     }
-    
+
     // 准备解码器
     ret = OH_VideoDecoder_Prepare(decoder_);
     if (ret != AV_ERR_OK) {
@@ -142,7 +158,7 @@ int32_t VideoDecoderNative::Init(bool useH265, const char* surfaceId, int32_t wi
         return ret;
     }
 
-    OH_LOG_INFO(LOG_APP, "[Native] Init success, waiting for input buffer callbacks...");
+    OH_LOG_INFO(LOG_APP, "[Native] Init success with codec %{public}s, waiting for input buffer callbacks...", codecType);
     return 0;
 }
 
@@ -150,7 +166,7 @@ int32_t VideoDecoderNative::Start() {
     if (decoder_ == nullptr) {
         return -1;
     }
-    
+
     int32_t ret = OH_VideoDecoder_Start(decoder_);
     if (ret == AV_ERR_OK) {
         isStarted_ = true;
@@ -204,7 +220,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         return -1;
     }
 
-    OH_LOG_DEBUG(LOG_APP, "[Native] Got buffer, capacity=%{public}d", OH_AVBuffer_GetCapacity(buffer));
+    // OH_LOG_DEBUG(LOG_APP, "[Native] Got buffer, capacity=%{public}d", OH_AVBuffer_GetCapacity(buffer));
 
     // 获取buffer的内存地址
     uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
@@ -217,13 +233,6 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
 
     // 复制数据到buffer
     memcpy(bufferAddr, data, size);
-
-//    // 调试：打印前8字节
-//    if (size > 0 && frameCount_ < 5) {
-//        uint8_t* bytes = static_cast<uint8_t*>(data);
-//        OH_LOG_INFO(LOG_APP, "[Native] Data dump: %{public}02x %{public}02x %{public}02x %{public}02x %{public}02x %{public}02x %{public}02x %{public}02x",
-//                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]);
-//    }
 
     // 设置buffer属性 - 必须告诉解码器实际数据大小
     OH_AVCodecBufferAttr attr;
@@ -269,9 +278,9 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     // buffer已经提交，不需要清理
 
     frameCount_++;
-    if (frameCount_ % 30 == 0) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames (size=%{public}d)", frameCount_, size);
-    }
+    // if (frameCount_ % 30 == 0) {
+    //    OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames (size=%{public}d)", frameCount_, size);
+    // }
 
     return 0;
 }

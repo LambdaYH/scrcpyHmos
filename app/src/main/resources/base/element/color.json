@@ -59,6 +59,14 @@
     {
       "name": "btn_danger_text",
       "value": "#FF4444"
+    },
+    {
+      "name": "btn_danger",
+      "value": "#FF0000"
+    },
+    {
+      "name": "btn_secondary",
+      "value": "#E0E0E0"
     }
   ]
 }

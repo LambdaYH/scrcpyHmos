@@ -1,11 +1,30 @@
-import router from '@ohos.router';
-import web_webview from '@ohos.web.webview';
+import { ServerManager } from '../helper/ServerManager';
+import { common, Want } from '@kit.AbilityKit';
 
 @Entry
 @Component
 struct AboutPage {
   private scrcpyRepo: string = 'https://github.com/LambdaYH/scrcpyHmos';
   private easyControlRepo: string = 'https://github.com/mingzhixian/Easycontrol';
+
+  private licenseDialogController: CustomDialogController = new CustomDialogController({
+    builder: LicenseDialog(),
+    alignment: DialogAlignment.Center,
+    customStyle: true,
+    maskColor: '#80000000'
+  });
+
+  private openUrl(url: string) {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    let want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    };
+    context.startAbility(want).catch((err: Error) => {
+      console.error('Failed to open URL:', err);
+    });
+  }
 
   build() {
     Column() {
@@ -18,12 +37,12 @@ struct AboutPage {
         }
         .width(40)
         .height(40)
-        .backgroundColor('#00000000')
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
-          router.back();
+          this.getUIContext().getRouter().back();
         })
         
-        Text('关于 / 开源说明')
+        Text($r('app.string.about_page_title'))
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
@@ -38,9 +57,10 @@ struct AboutPage {
           Image($r('app.media.icon_startwindow'))
             .width(80)
             .height(80)
+            .borderRadius(16) // Rounded corners
             .margin({ top: 24, bottom: 16 })
             
-          Text('Scrcpy Hmos')
+          Text($r('app.string.about_scrcpy_name'))
             .fontSize(24)
             .fontWeight(FontWeight.Bold)
             .margin({ bottom: 8 })
@@ -48,72 +68,115 @@ struct AboutPage {
           Text('v1.0.0')
             .fontSize(14)
             .fontColor($r('app.color.text_tertiary'))
+            .margin({ bottom: 4 })
+            
+          Text() {
+             Span($r('app.string.about_server_builtin'))
+             Span(` v${ServerManager.getVersion()}`)
+          }
+            .fontSize(12)
+            .fontColor($r('app.color.text_tertiary'))
             .margin({ bottom: 32 })
             
           // Project Info
+           // Project Info
           Column() {
-            Text('开源地址')
+            // App Info (GPL-3.0)
+            Text($r('app.string.about_client_section'))
               .fontSize(16)
               .fontWeight(FontWeight.Bold)
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 8 })
               
+            Text($r('app.string.about_src_code'))
+              .fontSize(14)
+              .fontColor($r('app.color.text_secondary'))
+              .margin({ bottom: 4 })
+              .alignSelf(ItemAlign.Start)
+
             Text(this.scrcpyRepo)
               .fontSize(14)
               .fontColor($r('app.color.btn_primary'))
               .alignSelf(ItemAlign.Start)
+              .margin({ bottom: 12 })
               .onClick(() => {
-                // In a real app we might want to open a webview or copy to clipboard
-                // For now, let's just show it visually
+                this.openUrl(this.scrcpyRepo);
               })
-              .margin({ bottom: 24 })
 
-            Text('致谢 (Credits)')
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .alignSelf(ItemAlign.Start)
-              .margin({ bottom: 8 })
-              
-            Text('本项目源代码部分衍生自 mingzhixian 的 Easycontrol 项目。')
+            Text() {
+              Span($r('app.string.about_license_label'))
+              Span(': GPL-3.0')
+            }
               .fontSize(14)
               .fontColor($r('app.color.text_primary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 4 })
-              
-            Text(this.easyControlRepo)
-              .fontSize(14)
-              .fontColor($r('app.color.btn_primary'))
-              .alignSelf(ItemAlign.Start)
-              .margin({ bottom: 8 })
-              
-            Text('Easycontrol 遵循 GPL-3.0 开源协议。本项目同样遵循 GPL-3.0 协议发布。')
+
+            Text($r('app.string.about_client_desc'))
               .fontSize(14)
               .fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 24 })
               
-            // License Text Area
-            Text('GPL-3.0 License Summary')
+            Divider().color($r('app.color.text_tertiary')).margin({ bottom: 24 })
+
+            // Server Info (Apache-2.0)
+            Text($r('app.string.about_server_section'))
               .fontSize(16)
               .fontWeight(FontWeight.Bold)
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 8 })
               
-            TextArea({ text: `GNU GENERAL PUBLIC LICENSE
-Version 3, 29 June 2007
-
-Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
-Everyone is permitted to copy and distribute verbatim copies
-of this license document, but changing it is not allowed.
-
-(See full license in source code repository)` })
-              .width('100%')
-              .height(150)
-              .fontSize(12)
+            Text() {
+              Span($r('app.string.about_server_builtin'))
+              Span(` v${ServerManager.getVersion()}`)
+            }
+              .fontSize(14)
               .fontColor($r('app.color.text_primary'))
-              .backgroundColor($r('app.color.bg_primary'))
-              .focusable(false)
+              .alignSelf(ItemAlign.Start)
+              .margin({ bottom: 4 })
+              
+            Text('Copyright (C) 2018 Genymobile')
+              .fontSize(12)
+              .fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
+              .margin({ bottom: 4 })
+
+            Text() {
+              Span($r('app.string.about_license_label'))
+              Span(': Apache-2.0')
+            }
+              .fontSize(14)
+              .fontColor($r('app.color.text_primary'))
+              .alignSelf(ItemAlign.Start)
+              .margin({ bottom: 12 })
+              
+            Text($r('app.string.about_server_desc'))
+              .fontSize(14)
+              .fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
               .margin({ bottom: 24 })
+              
+            Divider().color($r('app.color.text_tertiary')).margin({ bottom: 24 })
+              
+            // License Link
+            Row() {
+              Text($r('app.string.about_view_license'))
+                .fontSize(14)
+                .fontColor($r('app.color.text_primary'))
+              
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(16)
+                .fontColor([$r('app.color.text_tertiary')])
+                .margin({ left: 4 })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ top: 12, bottom: 12 })
+            .onClick(() => {
+              this.licenseDialogController.open();
+            })
+            .margin({ bottom: 8 })
           }
           .width('90%')
           .padding(16)
@@ -121,6 +184,7 @@ of this license document, but changing it is not allowed.
           .borderRadius(12)
         }
         .width('100%')
+        .padding({ bottom: 32 })
       }
       .layoutWeight(1)
     }
@@ -128,5 +192,67 @@ of this license document, but changing it is not allowed.
     .height('100%')
     .backgroundColor($r('app.color.bg_primary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+  }
+}
+
+@CustomDialog
+struct LicenseDialog {
+  controller: CustomDialogController;
+  
+  private licenseText: string = `=== CLIENT LICENSE (GPL-3.0) ===
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+=== SERVER LICENSE (Apache-2.0) ===
+Copyright (C) 2018 Genymobile
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.`;
+
+  build() {
+    Column() {
+      Text($r('app.string.about_license_dialog_title'))
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .margin({ top: 24, bottom: 16 })
+        
+      Scroll() {
+        Text(this.licenseText)
+          .fontSize(12)
+          .fontColor($r('app.color.text_primary'))
+          .lineHeight(18)
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 16, right: 16 })
+      .align(Alignment.TopStart)
+      
+      Button($r('app.string.about_close'))
+        .width('80%')
+        .margin({ top: 16, bottom: 16 })
+        .onClick(() => {
+          this.controller.close();
+        })
+    }
+    .width('90%')
+    .height('80%')
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(16)
   }
 }

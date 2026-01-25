@@ -2,9 +2,9 @@ import preferences from '@ohos.data.preferences';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import { util } from '@kit.ArkTS';
 import { buffer } from '@kit.ArkTS';
-import fs from '@ohos.file.fs';
-import { AdbKeyPair } from '../adb/AdbKeyPair';
 
+import { AdbKeyPair } from '../adb/AdbKeyPair';
+import { LoggerAdbKeyManager } from './Logger';
 // RSA公钥解析结果
 class RsaKeyParams {
   modulus: bigint;
@@ -30,8 +30,8 @@ class KeyGenerationInfo {
 export class AdbKeyManager {
   private static instance: AdbKeyManager;
   private preferences?: preferences.Preferences;
-  private context?: Context;
-  private currentDeviceKey: string = ''; // 当前设备标识
+  // private context?: Context; // Removed unused
+  // private currentDeviceKey: string = ''; // Removed unused
   private publicKeyBase64: string = '';
   private privateKeyBase64: string = '';
   private adbPublicKeyBase64: string = ''; // 保存ADB格式的公钥
@@ -49,7 +49,6 @@ export class AdbKeyManager {
   
   async init(context: Context): Promise<void> {
     try {
-      this.context = context;
       this.preferences = await preferences.getPreferences(context, 'adb_keys');
       
       // 加载默认密钥
@@ -58,16 +57,16 @@ export class AdbKeyManager {
       // 关键：如果有保存的密钥但KeyPair为空（或者根本没密钥），生成新密钥
       if ((this.adbPublicKeyBase64 && !this.cachedKeyPair) || (!this.cachedKeyPair || !this.adbPublicKeyBase64)) {
         if (!this.adbPublicKeyBase64) {
-             console.info(`ADB: No saved keys, generating new key pair...`);
+             LoggerAdbKeyManager.info(`ADB: No saved keys, generating new key pair...`);
         } else {
-             console.warn(`ADB: Saved key found but KeyPair not loaded. Generating new key pair...`);
+             LoggerAdbKeyManager.warn(`ADB: Saved key found but KeyPair not loaded. Generating new key pair...`);
         }
         await this.generateKeyPair();
       } else {
-        console.info(`ADB: Successfully loaded common keys, generation: ${this.keyGeneration}`);
+        LoggerAdbKeyManager.info(`ADB: Successfully loaded common keys, generation: ${this.keyGeneration}`);
       }
     } catch (err) {
-      console.error('AdbKeyManager init failed:', err);
+      LoggerAdbKeyManager.error('AdbKeyManager init failed:', err);
     }
   }
   
@@ -85,7 +84,7 @@ export class AdbKeyManager {
         await this.rebuildKeyPair();
       }
     } catch (err) {
-      console.error('Load keys failed:', err);
+      LoggerAdbKeyManager.error('Load keys failed:', err);
     }
   }
   
@@ -100,7 +99,7 @@ export class AdbKeyManager {
       
       await this.preferences.flush();
     } catch (err) {
-      console.error('Save keys failed:', err);
+      LoggerAdbKeyManager.error('Save keys failed:', err);
     }
   }
 
@@ -127,15 +126,15 @@ export class AdbKeyManager {
       const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
       if (adbFormatKey && adbFormatKey.byteLength > 0) {
         this.adbPublicKeyBase64 = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
-        console.info('ADB: ADB format public key generated and saved');
+        LoggerAdbKeyManager.info('ADB: ADB format public key generated and saved');
       }
       
       // 保存到preferences
       await this.saveKeys();
       
-      console.info(`ADB key pair generated and cached, generation: ${this.keyGeneration}`);
+      LoggerAdbKeyManager.info(`ADB key pair generated and cached, generation: ${this.keyGeneration}`);
     } catch (err) {
-      console.error('Generate key pair failed:', err);
+      LoggerAdbKeyManager.error('Generate key pair failed:', err);
       this.privateKeyBase64 = 'DEFAULT_PRIVATE_KEY';
       this.publicKeyBase64 = 'DEFAULT_PUBLIC_KEY';
     }
@@ -143,7 +142,7 @@ export class AdbKeyManager {
 
   private async rebuildKeyPair(): Promise<void> {
     try {
-      console.info('ADB: Attempting to rebuild KeyPair from saved keys...');
+      LoggerAdbKeyManager.info('ADB: Attempting to rebuild KeyPair from saved keys...');
       const base64Helper = new util.Base64Helper();
       const priKeyData: Uint8Array = base64Helper.decodeSync(this.privateKeyBase64);
       const pubKeyData: Uint8Array = base64Helper.decodeSync(this.publicKeyBase64);
@@ -153,9 +152,9 @@ export class AdbKeyManager {
       const pubKeyBlob: cryptoFramework.DataBlob = { data: pubKeyData };
       
       this.cachedKeyPair = await rsaGenerator.convertKey(pubKeyBlob, priKeyBlob);
-      console.info('ADB: KeyPair rebuilt successfully');
+      LoggerAdbKeyManager.info('ADB: KeyPair rebuilt successfully');
     } catch (err) {
-      console.error('Rebuild KeyPair failed:', err);
+      LoggerAdbKeyManager.error('Rebuild KeyPair failed:', err);
       this.cachedKeyPair = undefined;
     }
   }
@@ -172,42 +171,39 @@ export class AdbKeyManager {
     try {
       // 优先使用保存的ADB格式公钥
       if (this.adbPublicKeyBase64) {
-        console.info('ADB: Using saved ADB format public key');
+        LoggerAdbKeyManager.info('ADB: Using saved ADB format public key');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.adbPublicKeyBase64 + comment;
-        const encoder = new util.TextEncoder();
-        return encoder.encode(keyWithComment).buffer;
+        return buffer.from(keyWithComment, 'utf-8').buffer;
       }
       
       // 如果有cachedKeyPair，实时生成ADB格式公钥
       if (this.cachedKeyPair && this.cachedKeyPair.pubKey) {
         const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
         if (adbFormatKey && adbFormatKey.byteLength > 0) {
-          console.info('ADB: Generated ADB format key on-the-fly, size:', adbFormatKey.byteLength);
+          LoggerAdbKeyManager.info('ADB: Generated ADB format key on-the-fly, size:', adbFormatKey.byteLength);
           
           const base64Helper = new util.Base64Helper();
           const base64Key = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
           const comment = ' one@Aphone\0';
           const keyWithComment = base64Key + comment;
           
-          const encoder = new util.TextEncoder();
-          return encoder.encode(keyWithComment).buffer;
+          return buffer.from(keyWithComment, 'utf-8').buffer;
         }
       }
       
       // 最后的fallback：使用PKCS格式
       if (this.publicKeyBase64) {
-        console.warn('ADB: Using fallback PKCS public key format (may not work)');
+        LoggerAdbKeyManager.warn('ADB: Using fallback PKCS public key format (may not work)');
         const comment = ' one@Aphone\0';
         const keyWithComment = this.publicKeyBase64 + comment;
-        const encoder = new util.TextEncoder();
-        return encoder.encode(keyWithComment).buffer;
+        return buffer.from(keyWithComment, 'utf-8').buffer;
       }
       
-      console.error('No public key available');
+      LoggerAdbKeyManager.error('No public key available');
       return new ArrayBuffer(0);
     } catch (err) {
-      console.error('Get public key bytes failed:', err);
+      LoggerAdbKeyManager.error('Get public key bytes failed:', err);
       return new ArrayBuffer(0);
     }
   }
@@ -238,18 +234,18 @@ export class AdbKeyManager {
       // PKCS#8公钥格式：SEQUENCE { SEQUENCE { OID, NULL }, BIT STRING { SEQUENCE { INTEGER(n), INTEGER(e) } } }
       const parsed = this.parseRsaPublicKey(keyData);
       if (!parsed) {
-        console.error('Failed to parse RSA public key');
+        LoggerAdbKeyManager.error('Failed to parse RSA public key');
         return null;
       }
       
       const modulus = parsed.modulus;
       const exponent = parsed.exponent;
-      console.info('ADB: RSA key parsed - modulus length:', modulus.toString().length, 'exponent:', exponent);
+      LoggerAdbKeyManager.info('ADB: RSA key parsed - modulus length:', modulus.toString().length, 'exponent:', exponent);
       
       // 转换为ADB格式
       return this.buildAdbPublicKey(modulus, exponent);
     } catch (err) {
-      console.error('Convert RSA public key to ADB format failed:', err);
+      LoggerAdbKeyManager.error('Convert RSA public key to ADB format failed:', err);
       return null;
     }
   }
@@ -307,7 +303,7 @@ export class AdbKeyManager {
       
       return null;
     } catch (err) {
-      console.error('Parse RSA public key failed:', err);
+      LoggerAdbKeyManager.error('Parse RSA public key failed:', err);
       return null;
     }
   }
@@ -343,38 +339,43 @@ export class AdbKeyManager {
     }
     
     // 构建524字节的ADB公钥格式
-    const buf = buffer.from(new ArrayBuffer(524));
-    let offset = 0;
-    
-    // KEY_LENGTH_WORDS (4 bytes, little-endian)
-    buf.writeUInt32LE(KEY_LENGTH_WORDS, offset);
-    offset += 4;
-    
-    // n0inv negated (4 bytes, little-endian)
-    // 需要将bigint转换为有符号int32，处理溢出
-    const n0invValue = Number(n0inv % r32);
-    const negatedValue = -n0invValue;
-    // 使用无符号写入，然后解释为有符号
-    const uint32Value = (negatedValue >>> 0); // 转换为无符号32位整数
-    buf.writeUInt32LE(uint32Value, offset);
-    offset += 4;
-    
-    // myN array (256 bytes)
-    for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
-      buf.writeUInt32LE(myN[i] >>> 0, offset);
+    try {
+      const buf = buffer.from(new ArrayBuffer(524));
+      let offset = 0;
+      
+      // KEY_LENGTH_WORDS (4 bytes, little-endian)
+      buf.writeUInt32LE(KEY_LENGTH_WORDS, offset);
       offset += 4;
-    }
-    
-    // myRr array (256 bytes)
-    for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
-      buf.writeUInt32LE(myRr[i] >>> 0, offset);
+      
+      // n0inv negated (4 bytes, little-endian)
+      // 需要将bigint转换为有符号int32，处理溢出
+      const n0invValue = Number(n0inv % r32);
+      const negatedValue = -n0invValue;
+      // 使用无符号写入，然后解释为有符号
+      const uint32Value = (negatedValue >>> 0); // 转换为无符号32位整数
+      buf.writeUInt32LE(uint32Value, offset);
       offset += 4;
+      
+      // myN array (256 bytes)
+      for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
+        buf.writeUInt32LE(myN[i] >>> 0, offset);
+        offset += 4;
+      }
+      
+      // myRr array (256 bytes)
+      for (let i = 0; i < KEY_LENGTH_WORDS; i++) {
+        buf.writeUInt32LE(myRr[i] >>> 0, offset);
+        offset += 4;
+      }
+      
+      // exponent (4 bytes, little-endian)
+      buf.writeUInt32LE(e >>> 0, offset);
+      
+      return buf.buffer;
+    } catch (err) {
+      LoggerAdbKeyManager.error('Build ADB public key failed:', err);
+      return new ArrayBuffer(0);
     }
-    
-    // exponent (4 bytes, little-endian)
-    buf.writeUInt32LE(e >>> 0, offset);
-    
-    return buf.buffer;
   }
   
   // 计算模逆：a^-1 mod m
@@ -409,7 +410,7 @@ export class AdbKeyManager {
     try {
       // 如果没有缓存的KeyPair，先重建
       if (!this.cachedKeyPair) {
-        console.info('ADB: No cached KeyPair, rebuilding...');
+        LoggerAdbKeyManager.info('ADB: No cached KeyPair, rebuilding...');
         await this.rebuildKeyPair();
       }
       
@@ -447,7 +448,7 @@ export class AdbKeyManager {
       combined.set(SIGNATURE_PADDING, 0);
       combined.set(dataArray, SIGNATURE_PADDING.length);
       
-      console.info('ADB: Signing with cached KeyPair, data length:', combined.length);
+      LoggerAdbKeyManager.info('ADB: Signing with cached KeyPair, data length:', combined.length);
       
       // ADB签名实际上是用私钥"解密"token，所以使用DECRYPT模式
       const cipher = cryptoFramework.createCipher('RSA2048|NoPadding');
@@ -456,12 +457,12 @@ export class AdbKeyManager {
       const inputBlob: cryptoFramework.DataBlob = { data: combined };
       const encrypted = await cipher.doFinal(inputBlob);
       
-      console.info('ADB: Signature generated successfully, length:', encrypted.data.length);
+      LoggerAdbKeyManager.info('ADB: Signature generated successfully, length:', encrypted.data.length);
       
       return encrypted.data.buffer;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('Sign data failed:', errMsg);
+      LoggerAdbKeyManager.error('Sign data failed:', errMsg);
       // 返回256字节的空签名（RSA2048签名大小）
       return new ArrayBuffer(256);
     }
@@ -479,7 +480,7 @@ export class AdbKeyManager {
   // 重新生成公共密钥
   async regenerateCommonKey(): Promise<void> {
     try {
-      console.info(`ADB: Regenerating common key...`);
+      LoggerAdbKeyManager.info(`ADB: Regenerating common key...`);
       
       // 生成新密钥
       const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');
@@ -503,12 +504,238 @@ export class AdbKeyManager {
       // 保存为默认密钥
       await this.saveKeys();
       
-      console.info(`ADB: Common key regenerated, new generation: ${this.keyGeneration}`);
+      LoggerAdbKeyManager.info(`ADB: Common key regenerated, new generation: ${this.keyGeneration}`);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('Regenerate common key failed:', error.message);
+      LoggerAdbKeyManager.error('Regenerate common key failed:', error.message);
       throw error;
     }
+  }
+
+  // 导入自定义密钥
+  async importCustomKey(privateKeyStr: string, publicKeyStr: string): Promise<void> {
+    try {
+      if (!privateKeyStr || !publicKeyStr) {
+        throw new Error('Keys cannot be empty');
+      }
+
+      LoggerAdbKeyManager.info('ADB: Importing custom key...');
+      
+      const base64Helper = new util.Base64Helper();
+      
+      // 1. 处理私钥 (PEM -> Base64 -> Uint8Array)
+      const cleanPriv = privateKeyStr.replace(/-----BEGIN PRIVATE KEY-----/g, '').replace(/-----END PRIVATE KEY-----/g, '').replace(/\s/g, '');
+      let priKeyData: Uint8Array;
+      try {
+         priKeyData = base64Helper.decodeSync(cleanPriv);
+      } catch (e) {
+         throw new Error('Invalid Private Key Base64 format');
+      }
+
+      // 2. 处理公钥 (ADB Format or PEM -> X.509 Base64 -> Uint8Array)
+      // 用户提供的可能是 adbkey.pub (Base64 + comment, ADB binary format)
+      // 也可能是 standard PEM (X.509)
+      let pubKeyData: Uint8Array | null = null;
+      let finalPublicKeyBase64 = ''; // The X.509/PEM format one we want to save
+      let adbFormatBase64 = ''; // The ADB format one
+
+      // 尝试解析为PEM
+      if (publicKeyStr.includes('-----BEGIN PUBLIC KEY-----')) {
+        const cleanPub = publicKeyStr.replace(/-----BEGIN PUBLIC KEY-----/g, '').replace(/-----END PUBLIC KEY-----/g, '').replace(/\s/g, '');
+        try {
+          pubKeyData = base64Helper.decodeSync(cleanPub);
+          finalPublicKeyBase64 = cleanPub;
+          // 生成ADB格式用于保存
+          // (稍后在生成keypair成功后做)
+        } catch (e) {
+          LoggerAdbKeyManager.warn('ADB: Failed to decode public key as PEM');
+        }
+      } 
+      
+      // 如果不是PEM，或者解析失败，尝试解析为ADB格式 (OpenSSH style: type base64 comment)
+      if (!pubKeyData) {
+        try {
+          // 提取Base64部分 (通常是第一部分)
+          const parts = publicKeyStr.trim().split(/\s+/);
+          let adbBase64 = parts[0];
+          // 有些格式是 "ssh-rsa <key> <comment>" 或 "<key> <comment>"
+          // adbkey.pub 通常是 "<base64> <user@host>"
+          if (parts.length > 1 && parts[0].length < 20) {
+             adbBase64 = parts[1]; // handle type prefix if any
+          } else {
+             adbBase64 = parts[0];
+          }
+
+          const adbKeyBytes = base64Helper.decodeSync(adbBase64);
+          LoggerAdbKeyManager.info('ADB: Detected potential ADB format key, length:', adbKeyBytes.byteLength);
+
+          // 尝试转换为X.509
+          pubKeyData = this.convertAdbKeyToX509(adbKeyBytes);
+          if (pubKeyData) {
+            finalPublicKeyBase64 = base64Helper.encodeToStringSync(pubKeyData);
+            adbFormatBase64 = adbBase64; 
+            LoggerAdbKeyManager.info('ADB: Successfully converted ADB public key to X.509');
+          }
+        } catch (e) {
+          LoggerAdbKeyManager.warn('ADB: Failed to parse as ADB key format:', e);
+        }
+      }
+
+      if (!pubKeyData) {
+        throw new Error('Could not parse public key (supported: PEM or ADB format)');
+      }
+
+      const rsaGenerator = cryptoFramework.createAsyKeyGenerator('RSA2048');
+      const priKeyBlob: cryptoFramework.DataBlob = { data: priKeyData };
+      const pubKeyBlob: cryptoFramework.DataBlob = { data: pubKeyData };
+      
+      // 3. 验证密钥对
+      const keyPair = await rsaGenerator.convertKey(pubKeyBlob, priKeyBlob);
+      
+      // 4. 保存
+      this.cachedKeyPair = keyPair;
+      this.privateKeyBase64 = cleanPriv;
+      this.publicKeyBase64 = finalPublicKeyBase64;
+      this.keyGeneration++; 
+      
+      // 保存ADB格式公钥
+      if (adbFormatBase64) {
+        this.adbPublicKeyBase64 = adbFormatBase64;
+      } else {
+        // 如果输入的是PEM，尝试并生成ADB格式
+        const adbFormatKey = this.convertRsaPublicKeyToAdbFormat();
+        if (adbFormatKey && adbFormatKey.byteLength > 0) {
+          this.adbPublicKeyBase64 = base64Helper.encodeToStringSync(new Uint8Array(adbFormatKey));
+        } else {
+          this.adbPublicKeyBase64 = '';
+        }
+      }
+      
+      await this.saveKeys();
+      LoggerAdbKeyManager.info('ADB: Custom key imported successfully');
+
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      LoggerAdbKeyManager.error('Import custom key failed:', error.message);
+      throw error;
+    }
+  }
+
+  // 将ADB格式公钥转换为X.509 SubjectPublicKeyInfo (DER)
+  private convertAdbKeyToX509(adbKeyBytes: Uint8Array): Uint8Array | null {
+    try {
+      // ADB Interface: struct RSAPublicKey { int len; uint32_t n0inv; uint32_t n[RSANUMWORDS]; uint32_t rr[RSANUMWORDS]; int exponent; }
+      // RSANUMWORDS = 64 (2048 bits)
+      // Total size = 4 + 4 + 256 + 256 + 4 = 524 bytes
+      const expectedSize = 524;
+      if (adbKeyBytes.byteLength < expectedSize) {
+        LoggerAdbKeyManager.warn(`ADB key size mismatch: got ${adbKeyBytes.byteLength}, expected >= ${expectedSize}`);
+        // 继续尝试，也许只是后面有杂数据
+      }
+
+      const view = new DataView(adbKeyBytes.buffer, adbKeyBytes.byteOffset, adbKeyBytes.byteLength);
+      let offset = 0;
+
+      const len = view.getInt32(offset, true); // Little Endian
+      offset += 4;
+      if (len !== 64) {
+        LoggerAdbKeyManager.warn(`ADB key invalid len word: ${len} (expected 64)`);
+        return null;
+      }
+
+      const n0inv = view.getUint32(offset, true);
+      offset += 4;
+
+      // Read N (256 bytes) - stored as Little Endian words, and Little Endian bytes?
+      // Standard ADB key generation implies simple memcpy of the number.
+      // Since it's Little Endian, to get Big Endian (ASN.1), we just need to reverse the bytes.
+      const nBytes = new Uint8Array(adbKeyBytes.slice(offset, offset + 256));
+      nBytes.reverse(); 
+      offset += 256;
+
+      // Skip RR (256 bytes)
+      offset += 256;
+
+      // Read Exponent (4 bytes, Little Endian)
+      const e = view.getUint32(offset, true);
+      offset += 4;
+
+      // Create ASN.1 DER structure
+      // Sequence
+      //   Sequence (Algorithm Identifier)
+      //     OID rsaEncryption (1.2.840.113549.1.1.1)
+      //     NULL
+      //   BitString
+      //     Sequence (RSAPublicKey)
+      //       Integer n
+      //       Integer e
+      
+      return this.buildX509PublicKey(nBytes, e);
+
+    } catch (e) {
+      LoggerAdbKeyManager.error('Convert ADB key to X509 failed:', e);
+      return null;
+    }
+  }
+
+  private buildX509PublicKey(nBytes: Uint8Array, e: number): Uint8Array {
+    // Helper to build explicit ASN.1 structure
+    // This is a minimal builder specifically for RSA Public Key
+    
+    // Encode E as byte array (Big Endian)
+    // E is usually 65537 (0x010001), 3 bytes
+    // Or 3 (0x03), 1 byte
+    let eBytes: number[] = [];
+    let tempE = e;
+    while (tempE > 0) {
+      eBytes.unshift(tempE & 0xff);
+      tempE >>>= 8;
+    }
+    if (eBytes.length === 0) eBytes = [0];
+
+    // Build Inner Sequence (RSAPublicKey)
+    // Integer N
+    // If top bit of N is set, prepend 0x00 to make it positive
+    const nPrefix = (nBytes[0] & 0x80) ? [0x00] : [];
+    const nEncoded = this.createAsn1Item(0x02, new Uint8Array([...nPrefix, ...nBytes]));
+    
+    // Integer E
+    const eEncoded = this.createAsn1Item(0x02, new Uint8Array(eBytes));
+    
+    const rsaPublicKeySeq = this.createAsn1Item(0x30, new Uint8Array([...nEncoded, ...eEncoded]));
+
+    // Build Algorithm Identifier
+    // OID: 1.2.840.113549.1.1.1 (rsaEncryption) -> 06 09 2a 86 48 86 f7 0d 01 01 01
+    const oid = new Uint8Array([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]);
+    const nullParam = new Uint8Array([0x05, 0x00]);
+    const algoId = this.createAsn1Item(0x30, new Uint8Array([...oid, ...nullParam]));
+
+    // Build BitString
+    // Prepend 0x00 (unused bits count) to rsaPublicKeySeq
+    const bitStringData = new Uint8Array([0x00, ...rsaPublicKeySeq]);
+    const bitString = this.createAsn1Item(0x03, bitStringData);
+
+    // Outer Sequence
+    const x509 = this.createAsn1Item(0x30, new Uint8Array([...algoId, ...bitString]));
+    
+    return x509;
+  }
+
+  private createAsn1Item(tag: number, content: Uint8Array): Uint8Array {
+    const len = content.length;
+    let lenBytes: number[];
+    if (len < 128) {
+      lenBytes = [len];
+    } else if (len < 256) {
+      lenBytes = [0x81, len];
+    } else if (len < 65536) {
+      lenBytes = [0x82, (len >>> 8) & 0xff, len & 0xff];
+    } else {
+      // 2048 keys won't exceed this
+      lenBytes = [0x82, (len >>> 8) & 0xff, len & 0xff]; 
+    }
+    
+    return new Uint8Array([tag, ...lenBytes, ...content]);
   }
 
 }

@@ -1,6 +1,6 @@
 // AdbProtocol - ADB协议实现
 // 参考EasyControl的AdbProtocol.java实现
-import { buffer, util } from '@kit.ArkTS';
+import { buffer } from '@kit.ArkTS';
 import { AdbChannel } from './AdbChannel';
 
 // ADB消息

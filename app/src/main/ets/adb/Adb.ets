@@ -4,7 +4,9 @@ import { AdbChannel } from './AdbChannel';
 import { TcpChannel } from './TcpChannel';
 import { AdbProtocol, AdbMessage } from './AdbProtocol';
 import { BufferStream, UnderlySocketFunction } from '../buffer/BufferStream';
+import { LoggerAdb } from '../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
+import { common } from '@kit.AbilityKit';
 import { AdbKeyPair } from './AdbKeyPair';
 import { AdbBase64Impl } from './AdbBase64';
 
@@ -51,7 +53,7 @@ class UnderlySocketFunctionImpl implements UnderlySocketFunction {
     this.adb.writeToChannel(AdbProtocol.generateOkay(this.localId, this.remoteId));
   }
 
-  close(bufferStream: BufferStream): void {
+  close(_bufferStream: BufferStream): void {
     this.adb.connectionStreams.delete(this.localId);
     this.adb.writeToChannel(AdbProtocol.generateClose(this.localId, this.remoteId));
   }
@@ -79,15 +81,15 @@ export class Adb {
   }
 
   // 通过TCP连接创建ADB实例
-  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext: UIContext): Promise<Adb> {
+  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<Adb> {
     const channel = new TcpChannel();
     await channel.connect(address, port);
     const adb = new Adb(channel);
-    await adb.connect(keyPair, uiContext);
+    await adb.connect(keyPair, uiContext, onAuth);
     return adb;
   }
 
-  private async connect(keyPair: AdbKeyPair, uiContext: UIContext): Promise<void> {
+  private async connect(keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<void> {
     // 连接ADB并认证
     await this.channel.write(AdbProtocol.generateConnect());
 
@@ -106,8 +108,6 @@ export class Adb {
 
       if (message.command === AdbProtocol.CMD_AUTH) {
         // 需要发送公钥
-        // console.info('请在Android设备上点击"允许"授权');
-        // console.info('ADB: Public key bytes length:', keyPair.publicKeyBytes.length);
         
         // 重要：不能直接使用 Uint8Array.buffer，因为它可能指向一个更大的底层buffer
         // 必须创建一个新的正确大小的ArrayBuffer
@@ -115,16 +115,20 @@ export class Adb {
         const pubKeyView = new Uint8Array(pubKeyBuffer);
         pubKeyView.set(keyPair.publicKeyBytes);
         
-        console.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
-        
-        try {
+    // ADB: Sending public key
+        LoggerAdb.debug('ADB: Sending public key, size:', pubKeyBuffer.byteLength);
+
+        if (onAuth) {
+          onAuth();
+        } else {
+          const context = uiContext.getHostContext() as common.UIAbilityContext;
           uiContext.getPromptAction().showDialog({
-            title: '身份验证',
-            message: '正在请求设备授权。\n请在手机上查看并点击 [允许] 。',
-            buttons: [{ text: '好的', color: '#007AFF' }]
+            title: context.resourceManager.getStringSync($r('app.string.adb_auth_title').id),
+            message: context.resourceManager.getStringSync($r('app.string.adb_auth_message').id),
+            buttons: [{ text: context.resourceManager.getStringSync($r('app.string.adb_auth_button').id), color: '#007AFF' }]
+          }).catch((error: Error) => {
+            LoggerAdb.error('Show auth dialog failed:', error);
           });
-        } catch (e) {
-          console.error('Show auth dialog failed:', e);
         }
         await this.channel.write(AdbProtocol.generateAuth(AdbProtocol.AUTH_TYPE_RSA_PUBLIC, pubKeyBuffer));
         message = await AdbMessage.parseAdbMessage(this.channel);
@@ -137,7 +141,7 @@ export class Adb {
     }
 
     this.maxData = message.arg0;
-    console.info('ADB: 连接成功, maxData:', this.maxData);
+    LoggerAdb.info('ADB: 连接成功, maxData:', this.maxData);
 
     // 启动后台消息处理
     this.startHandleIn();
@@ -153,12 +157,19 @@ export class Adb {
       let wrteCount = 0;
       while (this.handleInRunning && !this.isClosed) {
         const message = await AdbMessage.parseAdbMessage(this.channel);
+        
+        // 检查是否已关闭，如果是则立即退出
+        if (this.isClosed || !this.handleInRunning) {
+          LoggerAdb.info('[ADB] handleIn: Connection closed, exiting loop');
+          break;
+        }
+        
         let bufferStream: BufferStream | undefined = this.connectionStreams.get(message.arg1);
         let isNeedNotify = bufferStream === undefined;
 
         // 新连接
         if (isNeedNotify) {
-          console.debug(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
+          LoggerAdb.debug(`[ADB] New connection: localId=${message.arg1}, remoteId=${message.arg0}`);
           bufferStream = this.createNewStream(message.arg1, message.arg0, message.arg1 > 0);
         }
 
@@ -171,15 +182,15 @@ export class Adb {
             await bufferStream.setCanWrite(true);
             break;
           case AdbProtocol.CMD_WRTE:
+            // 如果已关闭，不处理新数据
+            if (this.isClosed) break;
+            
             bufferStream.pushSource(message.payload!);
             wrteCount++;
-            if (wrteCount % 30 === 0) {
-              // console.info(`[ADB] Received ${wrteCount} WRTE messages, latest: localId=${message.arg1}, size=${message.payload?.byteLength || 0}`);
-            }
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
           case AdbProtocol.CMD_CLSE:
-            console.info(`[ADB] Connection closed: localId=${message.arg1}`);
+            LoggerAdb.debug(`[ADB] Connection closed: localId=${message.arg1}`);
             bufferStream.close();
             isNeedNotify = true;
             break;
@@ -189,8 +200,13 @@ export class Adb {
           this.notifyAll();
         }
       }
+      LoggerAdb.info('[ADB] handleIn loop exited normally');
     } catch (err) {
-      console.error('ADB handleIn error:', err);
+      if (!this.isClosed) {
+        LoggerAdb.error('ADB handleIn error:', err);
+      } else {
+        LoggerAdb.info('[ADB] handleIn exited due to close');
+      }
       this.close();
     }
   }
@@ -221,7 +237,7 @@ export class Adb {
       await this.wait();
     } while (!bufferStream.isStreamClosed());
     const result = bufferStream.readByteArrayBeforeClose();
-    const textDecoder = new util.TextDecoder('utf-8');
+    const textDecoder = util.TextDecoder.create('utf-8');
     return textDecoder.decodeToString(new Uint8Array(result));
   }
 
@@ -279,7 +295,7 @@ export class Adb {
       await this.wait();
     } while (!bufferStream.isStreamClosed());
     const result = bufferStream.readByteArrayBeforeClose();
-    const textDecoder = new util.TextDecoder('utf-8');
+    const textDecoder = util.TextDecoder.create('utf-8');
     return textDecoder.decodeToString(new Uint8Array(result));
   }
 
@@ -310,7 +326,7 @@ export class Adb {
     try {
       await this.channel.write(data);
     } catch (err) {
-      console.error('ADB writeToChannel error:', err);
+      LoggerAdb.error('ADB writeToChannel error:', err);
       this.close();
     }
   }

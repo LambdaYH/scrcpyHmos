@@ -1,52 +1,68 @@
 // ClientStream - 客户端流管理
 // 完全按照EasyControl的ClientStream.java实现
 import { Device } from '../../entity/Device';
-import { Adb, AdbKeyPair } from '../../adb/Adb';
+import { Adb } from '../../adb/Adb';
 import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
-import { ServerManager } from '../../helper/ServerManager';
+import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
+import { LoggerClientStream } from '../../helper/Logger';
 import socket from '@ohos.net.socket';
-import { buffer } from '@kit.ArkTS';
+import { buffer, util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 
-// 客户端流管理
+// Video configuration from handshake
+export interface VideoConfig {
+  codecId: number;
+  width: number;
+  height: number;
+}
+
 export class ClientStream {
   private mainSocket?: socket.TCPSocket;
   private videoSocket?: socket.TCPSocket;
-  private mainStream?: BufferStream;  // ADB转发的主stream
-  private videoStream?: BufferStream; // ADB转发的视频stream
-  private shellStream?: BufferStream; // 保存shell stream用于读取服务器日志
+  
+  // Correctly mapped streams
+  private vidStream?: BufferStream; // 1st connection: Video
+  private audStream?: BufferStream; // 2nd connection: Audio
+  private msgStream?: BufferStream; // 3rd connection: Control
+  
+  private shellStream?: BufferStream;
+  private currentScid: string = '';
   private isConnected: boolean = false;
-  private connectDirect: boolean = false; // 是否直连（true）或ADB转发（false）
+  private isClosing: boolean = false;
+  private connectDirect: boolean = false;
   private device: Device;
-  private adb?: Adb; // 保存adb实例用于转发
+  private adb?: Adb;
+  
+  // Handshake data
+  private deviceName: string = '';
+  private videoConfig?: VideoConfig;
 
-  // 完全按照原版：服务器名称包含版本号
-  // private static readonly serverName = '/data/local/tmp/easycontrol_server_1000000.jar'; // Moved to ServerManager
-  private static readonly timeoutDelay = 15000;
+
 
   constructor(device: Device) {
     this.device = device;
   }
 
-  async connect(context: common.UIAbilityContext, uiContext: UIContext): Promise<boolean> {
+  async connect(context: common.UIAbilityContext, uiContext: UIContext, onAuth?: () => void): Promise<boolean> {
     try {
-      console.info('Starting device connection...');
+      this.isClosing = false;
+      LoggerClientStream.info('Starting device connection...');
 
       // 0. Initialize ADB key manager with device address
       const keyManager = AdbKeyManager.getInstance();
       await keyManager.init(context);
-      console.info('ADB key manager initialized');
+      LoggerClientStream.info('ADB key manager initialized');
 
       // 1. 通过ADB连接设备
-      console.info(`Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
+      LoggerClientStream.info(`Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
 
       const keyPair = keyManager.getAdbKeyPair();
       if (!keyPair) {
         throw new Error('Failed to get ADB key pair');
       }
-      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext);
-      console.info('ADB connected successfully');
+      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext, onAuth);
+      LoggerClientStream.info('ADB connected successfully');
 
       // 保存adb实例用于后续转发
       this.adb = adb;
@@ -67,15 +83,20 @@ export class ClientStream {
         }
       }
 
-      // 3. 启动服务端
-      const config: string = this.buildServerArgs();
-      console.info(`Starting server with args: ${config}`);
+      // 3. 启动服务端 - 使用ServerManager的scrcpy启动命令
+      LoggerClientStream.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
 
-      this.shellStream = await ServerManager.startServer(adb, config);
+      const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
+      this.shellStream = serverResult.shellStream;
+      this.currentScid = serverResult.scid;
       this.adb = adb;
+      
+      // 构建socket名称
+      const socketName = `scrcpy_${this.currentScid}`;
+      LoggerClientStream.info(`Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
 
       // 4. 等待服务器启动并连接
-      console.info('Waiting for server to start...');
+      LoggerClientStream.info('Waiting for server to start...');
       await new Promise<void>(resolve => setTimeout(resolve, 50));
       
       // 重试连接服务器（参考easycontrol原版）
@@ -83,220 +104,177 @@ export class ClientStream {
       const reTryTime = 15000 / reTry;
       
       for (let i = 0; i < reTry; i++) {
+        if (this.isClosing) {
+          LoggerClientStream.info('Connection cancelled during retry loop');
+          return false;
+        }
+
         try {
-          if (!this.mainStream) {
-            this.mainStream = await adb.tcpForward(this.device.serverPort);
-            console.info('Main stream forwarded via ADB tcpForward');
+          // Sequential Connection & Handshake logic matching official client
+          // Server sends dummy byte ONLY on the FIRST accepted socket (DesktopConnection.java:68-88)
+          // So we only read from Video stream, not Audio or Control.
+          
+          // 1. Connect Video -> Read Dummy (FIRST socket, gets dummy byte)
+          LoggerClientStream.info('Connecting Video Stream...');
+          this.vidStream = await adb.localSocketForward(socketName);
+          LoggerClientStream.debug('Reading video dummy byte...');
+          await this.vidStream.readByteArray(1);
+
+      // Auto-detect audio support (Android 11+ required)
+      if (this.device.isAudio) {
+        try {
+          const sdkStr = await adb.runAdbCmd('shell getprop ro.build.version.sdk');
+          const sdk = parseInt(sdkStr.trim());
+          if (!isNaN(sdk) && sdk < 30) {
+            console.warn(`Device SDK ${sdk} < 30 (Android 11), disabling audio automatically.`);
+            this.device.isAudio = false;
           }
-          if (!this.videoStream) {
-            this.videoStream = await adb.tcpForward(this.device.serverPort);
-            console.info('Video stream forwarded via ADB tcpForward');
-          }
-          break;
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
-          this.mainStream = undefined;
-          this.videoStream = undefined;
-          if (i < reTry - 1) {
-            await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
-          }
+        } catch (e) {
+          LoggerClientStream.warn('Failed to check Android version, assuming audio supported:', e);
         }
       }
-      
-      if (!this.mainStream || !this.videoStream) {
-        throw new Error('Failed to connect to server after all retries');
+
+      // 2. Connect Audio (NO dummy byte - server already set sendDummyByte=false)
+      if (this.device.isAudio) {
+        LoggerClientStream.info('Connecting Audio Stream...');
+        this.audStream = await adb.localSocketForward(socketName);
+        // No dummy byte read - server only sends on first socket
       }
 
-      // 连接成功后才开始读取shell输出
-      this.readShellOutputAsync();
-
-      this.isConnected = true;
-      console.info('Connection established successfully');
-      return true;
+      // 3. Connect Control (NO dummy byte)
+      LoggerClientStream.info('Connecting Control Stream...');
+      this.msgStream = await adb.localSocketForward(socketName);
+      // No dummy byte read - server only sends on first socket
+      
+      break;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('ClientStream connect failed:', errMsg);
-
-      if (errMsg.includes('Read timeout')) {
-        try {
-          uiContext.getPromptAction().showDialog({
-            title: '连接超时',
-            message: '连接设备超时。通常是因为：\n1. 手机未弹出授权框或您未点击允许。\n2. 手机处于锁屏状态。\n\n请解锁手机并检查屏幕上是否有"允许USB调试"的弹窗。',
-            buttons: [{ text: '知道了', color: '#007AFF' }]
-          });
-        } catch (e) {
-          console.error('Show timeout dialog failed:', e);
-        }
+      LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+      this.vidStream = undefined;
+      this.audStream = undefined;
+      this.msgStream = undefined;
+      if (i < reTry - 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
       }
-      return false;
     }
   }
-
-  private buildServerArgs(): string {
-     return `serverPort=${this.device.serverPort}` +
-      ` listenClip=${this.device.listenClipOnRunning ? 1 : 0}` +
-      ` isAudio=${this.device.isAudio ? 1 : 0}` +
-      ` maxSize=${this.device.maxSize}` +
-      ` maxFps=${this.device.maxFps}` +
-      ` maxVideoBit=${this.device.maxVideoBit}` +
-      ` keepAwake=${this.device.keepAwake ? 1 : 0}` +
-      ` supportH265=${this.device.useH265 ? 1 : 0}` +
-      ` supportOpus=1` +
-      ` startApp=`;
+  
+  if (!this.vidStream || (this.device.isAudio && !this.audStream) || !this.msgStream) {
+    throw new Error('Failed to connect to server streams after all retries');
   }
 
-  // 使用ServerManager启动服务器
-  private async startServer(context: common.UIAbilityContext, adb: Adb): Promise<void> {
-    // 检查服务器是否存在
-    const exists = await ServerManager.checkServerExists(adb);
-    
-    if (!exists) {
-      console.info('Server not found, pushing new server...');
-      const resMgr = context.resourceManager;
-      const rawFileData = await resMgr.getRawFileContent('server.jar');
-      // ServerManager.pushServer handles verification internally
-      await ServerManager.pushServer(adb, rawFileData.buffer as ArrayBuffer);
-    } else {
-      console.info('Server already exists');
+  // 5. Perform Handshake (Rest)
+  LoggerClientStream.info('Performing handshake (Device Name, Codec)...');
+  await this.performHandshakeRest();
+
+  // 连接成功后才开始读取shell输出
+  this.readShellOutputAsync();
+
+  this.isConnected = true;
+  LoggerClientStream.info('Connection established successfully');
+  return true;
+} catch (err) {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  LoggerClientStream.error('ClientStream connect failed:', errMsg);
+
+  // 短暂延迟再检查isClosing，避免取消连接时的竞态条件
+  await new Promise<void>(resolve => setTimeout(resolve, 200));
+
+  if (errMsg.includes('Read timeout') && !this.isClosing) {
+    try {
+      await uiContext.getPromptAction().showDialog({
+        title: context.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
+        message: context.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
+        buttons: [{ text: context.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id), color: '#007AFF' }]
+      });
+    } catch (e) {
+      LoggerClientStream.error('Show timeout dialog failed:', e);
     }
-
-    // 构建启动参数
-    const params = `serverPort=${this.device.serverPort}` +
-      ` listenClip=${this.device.listenClipOnRunning ? 1 : 0}` +
-      ` isAudio=${this.device.isAudio ? 1 : 0}` +
-      ` maxSize=${this.device.maxSize}` +
-      ` maxFps=${this.device.maxFps}` +
-      ` maxVideoBit=${this.device.maxVideoBit}` +
-      ` keepAwake=${this.device.keepAwake ? 1 : 0}` +
-      ` supportH265=${this.device.useH265 ? 1 : 0}` +
-      ` supportOpus=1` +
-      ` startApp=`;
-
-    // 启动服务器 and save shell stream
-    console.info(`Server params: keepAwake=${this.device.keepAwake}`);
-    this.shellStream = await ServerManager.startServer(adb, params);
-    console.info('Server start command sent via ServerManager');
   }
+  return false;
+}
+}
 
-  private readShellOutputAsync(): void {
-    if (!this.shellStream) return;
+private readShellOutputAsync(): void {
+if (!this.shellStream) return;
 
-    const stream = this.shellStream;
+const stream = this.shellStream;
 
-    // 异步读取shell输出
-    const readLoop = async () => {
+// 异步读取shell输出
+const readLoop = async () => {
+  try {
+    let count = 0;
+    while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
+      if (this.isClosing) break;
+
       try {
-        let count = 0;
-        while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
-          try {
-            if (!stream.isEmpty()) {
-              const data = await stream.readAllBytes();
-              if (data.byteLength > 0) {
-                const text = buffer.from(data).toString('utf-8');
-                console.debug('=== Server shell output ===');
-                console.debug(text);
-                console.debug('===========================');
-                count++;
-              }
-            } else {
-              // 空数据，等���一下再继续
-              await this.delay(200);
-            }
-          } catch (readErr) {
-            const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
-            if (!errMsg.includes('timeout')) {
-              console.error('Shell read error:', errMsg);
-              break;
-            }
-            // 超时是正常的，继续
-            await this.delay(100);
+        if (!stream.isEmpty()) {
+          const data = await stream.readAllBytes();
+          if (data.byteLength > 0) {
+            const text = buffer.from(data).toString('utf-8');
+            LoggerClientStream.debug('=== Server shell output ===');
+            LoggerClientStream.debug(text);
+            LoggerClientStream.debug('===========================');
+            count++;
           }
+        } else {
+          // 空数据，等待一下再继续
+          await this.delay(200);
         }
-        console.info('Shell output reading finished');
-      } catch (err) {
-        console.error('Shell read loop error:', err);
-      }
-    };
-
-    // 启动读取循环（不阻塞主流程）
-    readLoop();
-  }
-
-  // 连接服务器 - 直接使用ADB转发（远程设备必须使用转发）
-  private async connectServer(): Promise<void> {
-    // 等待服务器启动 - 减少到100ms，服务器只等20秒超时
-    await this.delay(100);
-
-    const reTry = 40;
-    const reTryTime = 15000 / reTry;
-
-    // 对于远程ADB设备，必须使用ADB转发，不能直连
-    // 因为服务器监听的是Android设备本地的端口
-    console.info('Using ADB TCP forward (required for remote devices)...');
-
-    if (!this.adb) {
-      throw new Error('ADB instance not available');
-    }
-
-    for (let i = 0; i < reTry; i++) {
-      try {
-        if (!this.mainStream) {
-          this.mainStream = await this.adb.tcpForward(this.device.serverPort);
-          console.info('Main stream forwarded via ADB');
+      } catch (readErr) {
+        const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
+        if (!errMsg.includes('timeout')) {
+          LoggerClientStream.error('Shell read error:', errMsg);
+          break;
         }
-
-        if (!this.videoStream) {
-          this.videoStream = await this.adb.tcpForward(this.device.serverPort);
-          console.info('Video stream forwarded via ADB');
-        }
-
-        this.connectDirect = false;
-        console.info('ADB forward connection established');
-        return;
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.warn(`ADB forward attempt ${i + 1}/${reTry} failed:`, errMsg);
-
-        // 清理失败的stream
-        this.mainStream = undefined;
-        this.videoStream = undefined;
-
-        if (i < reTry - 1) {
-          await this.delay(reTryTime);
-        }
+        // 超时是正常的，继续
+        await this.delay(100);
       }
     }
-
-    throw new Error('Failed to connect to server after all retries');
+    LoggerClientStream.info('Shell output reading finished');
+  } catch (err) {
+    LoggerClientStream.error('Shell read loop error:', err);
   }
+};
 
-  private async connectSocket(tcpSocket: socket.TCPSocket, address: string, port: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      tcpSocket.on('connect', () => {
-        console.debug('Socket connected');
-        resolve();
-      });
+// 启动读取循环（不阻塞主流程）
+readLoop();
+}
 
-      tcpSocket.on('error', (err: Error) => {
-        console.error('Socket error:', err.message);
-        reject(err);
-      });
+// Remaining Handshake implementation (Device Name, Codec Meta)
+private async performHandshakeRest(): Promise<void> {
+if (!this.vidStream) {
+  throw new Error('Video stream not connected');
+}
 
-      const connectAddress: socket.TCPConnectOptions = {
-        address: {
-          address: address,
-          port: port,
-          family: 1
-        },
-        timeout: 10000
-      };
+// Dummy bytes already read in connect()
 
-      tcpSocket.connect(connectAddress).catch((err: Error) => {
-        reject(err);
-      });
-    });
-  }
+// 2. Read Device Name (64 bytes) from Video Stream
+LoggerClientStream.debug('Reading device name...');
+const deviceNameData = await this.vidStream.readByteArray(64);
+const decoder = util.TextDecoder.create('utf-8');
+this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
+LoggerClientStream.info(`Device Name: ${this.deviceName}`);
+
+// 3. Read Codec Metadata (12 bytes) from Video Stream
+LoggerClientStream.debug('Reading codec metadata...');
+const codecData = await this.vidStream.readByteArray(12);
+const view = new DataView(codecData);
+const codecId = view.getInt32(0, false);
+const width = view.getInt32(4, false);
+const height = view.getInt32(8, false);
+
+this.videoConfig = {
+  codecId: codecId,
+  width: width,
+  height: height
+};
+LoggerClientStream.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
+}
+
+getVideoConfig(): VideoConfig | undefined {
+return this.videoConfig;
+}
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -304,28 +282,26 @@ export class ClientStream {
 
   async writeMain(data: ArrayBuffer): Promise<void> {
     try {
+      // Debug: Log control message being sent
+      const view = new DataView(data);
+      const msgType = view.getUint8(0);
+      const msgSize = data.byteLength;
+      // LoggerClientStream.debug(`[Control] Sending message: type=${msgType}, size=${msgSize} bytes`);
+      
       if (this.connectDirect && this.mainSocket) {
         await this.mainSocket.send({ data: data });
-      } else if (!this.connectDirect && this.mainStream) {
-        await this.mainStream.write(data);
+      } else if (!this.connectDirect && this.msgStream) {
+        await this.msgStream.write(data);
       } else {
         throw new Error('No valid main connection');
       }
+      
+      // LoggerClientStream.debug(`[Control] Message sent successfully`);
     } catch (err) {
-      console.error('Write to main socket failed:', err);
+      LoggerClientStream.error('Write to main socket failed:', err);
       const error = err instanceof Error ? err : new Error(String(err));
       throw error;
     }
-  }
-
-  async readFromMain(length: number): Promise<ArrayBuffer> {
-    if (this.connectDirect) {
-      // TODO: 实现从socket读取
-      return new ArrayBuffer(0);
-    } else if (this.mainStream) {
-      return await this.mainStream.readByteArray(length);
-    }
-    return new ArrayBuffer(0);
   }
 
   // 从main stream读取一个字节
@@ -343,10 +319,10 @@ export class ClientStream {
 
   // 从main stream读取指定长度的字节
   async readBytesFromMain(length: number): Promise<ArrayBuffer> {
-    if (!this.mainStream) {
-      throw new Error('Main stream not connected');
+    if (!this.msgStream) {
+      throw new Error('Message stream not connected');
     }
-    return await this.mainStream.readByteArray(length);
+    return await this.msgStream.readByteArray(length);
   }
 
   // 从video stream读取一个字节
@@ -364,37 +340,48 @@ export class ClientStream {
 
   // 从video stream读取指定长度的字节
   async readBytesFromVideo(length: number): Promise<ArrayBuffer> {
-    if (!this.videoStream) {
+    if (!this.vidStream) {
       throw new Error('Video stream not connected');
     }
 
     // 从BufferStream读取
-    return await this.videoStream.readByteArray(length);
+    return await this.vidStream.readByteArray(length);
   }
 
-  // 读取一帧视频数据（先读4字节大小，再读帧数据）
+  // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
   async readFrameFromVideo(): Promise<ArrayBuffer> {
-    console.debug('[ClientStream] Reading frame size (4 bytes)...');
+    if (this.isClosing) throw new Error('Client is closing');
+
+    // console.debug('[ClientStream] Reading frame header...');
+    
+    // 1. Read PTS (8 bytes)
+    const ptsBytes = await this.readBytesFromVideo(8);
+    const view = new DataView(ptsBytes);
+    const pts = view.getBigInt64(0, false);
+    
+    // Check Config Packet flag (bit 63)
+    const PACKET_FLAG_CONFIG = 1n << 63n;
+    const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
+    
+    if (isConfig) {
+       LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
+    }
+
+    // 2. Read Size (4 bytes)
     const frameSize = await this.readIntFromVideo();
-    console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
-    if (frameSize <= 0 || frameSize > 10 * 1024 * 1024) { // 最大10MB
+    // console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
+    
+    if (frameSize <= 0 || frameSize > 20 * 1024 * 1024) { // Increase limit to 20MB for I-frames
       throw new Error(`Invalid frame size: ${frameSize}`);
     }
-    console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
+
+    // 3. Read Data
+    // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
     const frameData = await this.readBytesFromVideo(frameSize);
-    console.debug(`[ClientStream] Frame data read complete`);
+    // console.debug(`[ClientStream] Frame data read complete`);
     return frameData;
   }
 
-  async readFromVideo(length: number): Promise<ArrayBuffer> {
-    if (this.connectDirect) {
-      // TODO: 实现从socket读取
-      return new ArrayBuffer(0);
-    } else if (this.videoStream) {
-      return await this.videoStream.readByteArray(length);
-    }
-    return new ArrayBuffer(0);
-  }
 
   setMainMessageCallback(callback: (data: ArrayBuffer) => void): void {
     if (this.mainSocket) {
@@ -417,12 +404,14 @@ export class ClientStream {
   }
 
   async close(): Promise<void> {
+    this.isClosing = true;
+
     // 关闭直连socket
     if (this.mainSocket) {
       try {
         await this.mainSocket.close();
       } catch (err) {
-        console.error('Close main socket failed:', err);
+        LoggerClientStream.error('Close main socket failed:', err);
       }
       this.mainSocket = undefined;
     }
@@ -430,33 +419,41 @@ export class ClientStream {
       try {
         await this.videoSocket.close();
       } catch (err) {
-        console.error('Close video socket failed:', err);
+        LoggerClientStream.error('Close video socket failed:', err);
       }
       this.videoSocket = undefined;
     }
 
     // 关闭ADB转发streams
-    if (this.mainStream) {
+    if (this.vidStream) {
       try {
-        this.mainStream.close();
+        this.vidStream.close();
       } catch (err) {
-        console.error('Close main stream failed:', err);
+        LoggerClientStream.error('Close video stream failed:', err);
       }
-      this.mainStream = undefined;
+      this.vidStream = undefined;
     }
-    if (this.videoStream) {
+    if (this.audStream) {
       try {
-        this.videoStream.close();
+        this.audStream.close();
       } catch (err) {
-        console.error('Close video stream failed:', err);
+        LoggerClientStream.error('Close audio stream failed:', err);
       }
-      this.videoStream = undefined;
+      this.audStream = undefined;
+    }
+    if (this.msgStream) {
+      try {
+        this.msgStream.close();
+      } catch (err) {
+        LoggerClientStream.error('Close msg stream failed:', err);
+      }
+      this.msgStream = undefined;
     }
     if (this.shellStream) {
       try {
         this.shellStream.close();
       } catch (err) {
-        console.error('Close shell stream failed:', err);
+        LoggerClientStream.error('Close shell stream failed:', err);
       }
       this.shellStream = undefined;
     }

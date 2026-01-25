@@ -86,6 +86,11 @@ export class TcpChannel implements AdbChannel {
   }
 
   private onDataReceived(data: ArrayBuffer): void {
+    // 如果已关闭，忽略接收到的数据
+    if (this.isClosed) {
+      return;
+    }
+    
     // 将接收到的数据添加到缓冲区
     const newData = new Uint8Array(data);
     const temp = new Uint8Array(this.receiveBuffer.length + newData.length);
@@ -191,12 +196,29 @@ export class TcpChannel implements AdbChannel {
   close(): void {
     if (this.isClosed) return;
     this.isClosed = true;
+    console.info('TcpChannel: Closing connection');
+
+    // 拒绝所有pending的读取请求
+    for (const req of this.pendingReads) {
+      req.reject(new Error('Connection closed'));
+    }
+    this.pendingReads = [];
 
     if (this.tcpSocket) {
       try {
-        this.tcpSocket.close();
+        // 取消所有事件监听
+        this.tcpSocket.off('message');
+        this.tcpSocket.off('connect');
+        this.tcpSocket.off('close');
+        this.tcpSocket.off('error');
+        
+        // 关闭socket
+        this.tcpSocket.close().catch((err: Error) => {
+          console.error('Close socket failed:', err);
+        });
+        console.info('TcpChannel: Socket close requested');
       } catch (err) {
-        console.error('Close socket failed:', err);
+        console.error('Close socket error:', err);
       }
       this.isConnected = false;
       this.tcpSocket = undefined;
