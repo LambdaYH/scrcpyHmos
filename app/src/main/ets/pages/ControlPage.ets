@@ -264,9 +264,9 @@ struct ControlPage {
   startAutoHideTimer() {
     this.clearAutoHideTimer();
     this.autoHideTimer = setTimeout(() => {
-      if (!this.showControlPanel && this.componentWidth > 0) {
+      if (!this.showControlPanel && this.containerWidth > 0) {
         // 贴边隐藏：只露出一半
-        const hiddenX = this.componentWidth - this.FAB_SIZE / 2;
+        const hiddenX = this.containerWidth - this.FAB_SIZE / 2;
         this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
           this.fabX = hiddenX;
         })
@@ -284,8 +284,8 @@ struct ControlPage {
   
   // 显示悬浮按钮
   showFab() {
-    if (this.componentWidth > 0) {
-      const visibleX = this.componentWidth - this.FAB_SIZE - 20; // 离右边20px
+    if (this.containerWidth > 0) {
+      const visibleX = this.containerWidth - this.FAB_SIZE - 20; // 离右边20px
       this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
         this.fabX = visibleX;
       })
@@ -296,7 +296,7 @@ struct ControlPage {
   // 切换控制面板
   toggleControlPanel() {
     // 如果当前是隐藏状态(靠边)，先显示出来
-    if (this.componentWidth > 0 && this.fabX > this.componentWidth - this.FAB_SIZE) {
+    if (this.containerWidth > 0 && this.fabX > this.containerWidth - this.FAB_SIZE) {
         this.showFab();
         return;
     }
@@ -311,9 +311,9 @@ struct ControlPage {
 
   // 初始化悬浮按钮位置
   initFabPosition() {
-    if (this.componentWidth > 0 && this.componentHeight > 0 && !this.checkFabPosition) {
-       this.fabX = this.componentWidth - this.FAB_SIZE - 20; // 默认右下角
-       this.fabY = this.componentHeight - 150;
+    if (this.containerWidth > 0 && this.containerHeight > 0 && !this.checkFabPosition) {
+       this.fabX = this.containerWidth - this.FAB_SIZE - 20; // 默认右下角
+       this.fabY = this.containerHeight - 150;
        this.checkFabPosition = true;
     }
   }
@@ -346,8 +346,8 @@ struct ControlPage {
     // 重新校准悬浮按钮位置（如果有必要）
     if (this.checkFabPosition) {
       // 简单的越界检查，防止resize后按钮跑到看不见的地方
-       if (this.fabX > this.componentWidth) this.fabX = this.componentWidth - this.FAB_SIZE;
-       if (this.fabY > this.componentHeight) this.fabY = this.componentHeight - this.FAB_SIZE;
+       if (this.fabX > this.containerWidth) this.fabX = this.containerWidth - this.FAB_SIZE;
+       if (this.fabY > this.containerHeight) this.fabY = this.containerHeight - this.FAB_SIZE;
     }
   }
   
@@ -566,20 +566,20 @@ struct ControlPage {
                this.dragStartY = this.fabY;
             })
             .onActionUpdate((event: GestureEvent) => {
-               if (this.componentWidth > 0) {
+               if (this.containerWidth > 0) {
                  this.fabX = this.dragStartX + event.offsetX;
                  this.fabY = this.dragStartY + event.offsetY;
                }
             })
             .onActionEnd((_: GestureEvent) => {
                // 拖动结束，吸附到右侧
-               if (this.componentWidth > 0) {
-                 const dockX = this.componentWidth - this.FAB_SIZE - 20;
+               if (this.containerWidth > 0) {
+                 const dockX = this.containerWidth - this.FAB_SIZE - 20;
                  
                  // 限制Y轴防止跑出屏幕
                  let targetY = this.fabY;
                  if (targetY < 50) targetY = 50;
-                 if (targetY > this.componentHeight - 150) targetY = this.componentHeight - 150;
+                 if (targetY > this.containerHeight - 150) targetY = this.containerHeight - 150;
 
                  this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
                     this.fabX = dockX;
@@ -594,6 +594,7 @@ struct ControlPage {
       .width('100%')
       .layoutWeight(1) // 占用剩余空间，让底部导航栏不覆盖视频
       .backgroundColor($r('sys.color.black'))
+      .clip(false) // 允许悬浮按钮超出边界，实现吸边半隐藏效果
       
       // 底部导航栏
       if (this.device?.showBottomNavBar) {
