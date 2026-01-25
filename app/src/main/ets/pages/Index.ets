@@ -315,6 +315,7 @@ struct Index {
         .height('100%')
         .layoutWeight(1)
         .padding({ left: 16, right: 16, top: 0, bottom: 0 })
+        .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       }
     }
     .width('100%')
@@ -555,6 +556,7 @@ struct Index {
         .width('100%')
         .height('100%')
         .padding(16)
+        .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       }
       .layoutWeight(1)
 

@@ -108,6 +108,7 @@ struct LogPage {
       }
       .layoutWeight(1)
       .width('100%')
+      .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       .align(Alignment.TopStart)
       .backgroundColor($r('app.color.bg_primary'))
 

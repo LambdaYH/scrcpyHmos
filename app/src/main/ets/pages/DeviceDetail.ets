@@ -573,6 +573,7 @@ struct DeviceDetail {
         .padding(16)
       }
       .layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring) // 添加下拉/上拉回弹效果
 
       // 底部按钮
       Row({ space: 16 }) {
