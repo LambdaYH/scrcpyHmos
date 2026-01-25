@@ -177,6 +177,9 @@ export class ClientStream {
   const errMsg = err instanceof Error ? err.message : String(err);
   LoggerClientStream.error('ClientStream connect failed:', errMsg);
 
+  // 短暂延迟再检查isClosing，避免取消连接时的竞态条件
+  await new Promise<void>(resolve => setTimeout(resolve, 200));
+
   if (errMsg.includes('Read timeout') && !this.isClosing) {
     try {
       await uiContext.getPromptAction().showDialog({
