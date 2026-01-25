@@ -37,6 +37,7 @@ struct ControlPage {
   private clientReady: boolean = false;
   private autoHideTimer: number = -1;
   private readonly FAB_SIZE = 30; // 悬浮按钮大小
+  private readonly BOTTOM_SAFE_AREA = 28; // 底部安全区域高度(系统导航条)
   // 临时存储拖动开始时的位置
   private dragStartX: number = 0;
   private dragStartY: number = 0;
@@ -312,8 +313,9 @@ struct ControlPage {
   // 初始化悬浮按钮位置
   initFabPosition() {
     if (this.containerWidth > 0 && this.containerHeight > 0 && !this.checkFabPosition) {
-       this.fabX = this.containerWidth - this.FAB_SIZE - 20; // 默认右下角
-       this.fabY = this.containerHeight - 150;
+       this.fabX = this.containerWidth - this.FAB_SIZE - 20; // 默认右侧
+       // 考虑底部安全区域，FAB放在容器中部偏下位置
+       this.fabY = this.containerHeight - 150 - this.BOTTOM_SAFE_AREA;
        this.checkFabPosition = true;
     }
   }
@@ -576,10 +578,11 @@ struct ControlPage {
                if (this.containerWidth > 0) {
                  const dockX = this.containerWidth - this.FAB_SIZE - 20;
                  
-                 // 限制Y轴防止跑出屏幕
+                 // 限制Y轴防止跑出屏幕，考虑底部安全区域
                  let targetY = this.fabY;
                  if (targetY < 50) targetY = 50;
-                 if (targetY > this.containerHeight - 150) targetY = this.containerHeight - 150;
+                 const maxY = this.containerHeight - 150 - this.BOTTOM_SAFE_AREA;
+                 if (targetY > maxY) targetY = maxY;
 
                  this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
                     this.fabX = dockX;

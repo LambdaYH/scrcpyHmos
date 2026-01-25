@@ -133,7 +133,7 @@ struct LogPage {
           .layoutWeight(1)
       }
       .width('100%')
-      .padding(16)
+      .padding({ left: 16, right: 16, top: 16, bottom: 28 }) // bottom: 28vp for system nav bar
       .justifyContent(FlexAlign.Center)
       .backgroundColor($r('app.color.bg_card'))
       .shadow({ radius: 8, color: '#1A000000', offsetY: -2 })
