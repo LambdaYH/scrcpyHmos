@@ -10,11 +10,11 @@
     },
     {
       "name": "ScrcpyHmosAbility_label",
-      "value": "scrcpyHmos"
+      "value": "scrcpy mobile"
     },
     {
       "name": "app_name",
-      "value": "scrcpyHmos"
+      "value": "scrcpy mobile"
     },
     {
       "name": "main_device_type_network",
@@ -534,7 +534,7 @@
     },
     {
       "name": "help_step_2",
-      "value": "Connect Android via USB to PC. Run 'adb devices' to confirm connection."
+      "value": "Connect Android to PC, download ADB tools, run 'adb devices' to confirm connection."
     },
     {
       "name": "help_step_3",
@@ -570,7 +570,7 @@
     },
     {
       "name": "about_scrcpy_name",
-      "value": "Scrcpy Hmos"
+      "value": "scrcpy mobile"
     },
     {
       "name": "about_client_section",
@@ -635,6 +635,186 @@
     {
       "name": "show_bottom_nav_bar",
       "value": "Show Bottom Navigation"
+    },
+    {
+      "name": "help_controlled_end",
+      "value": "Controlled End (Android)"
+    },
+    {
+      "name": "help_control_end",
+      "value": "Control End (This App)"
+    },
+    {
+      "name": "help_config_intro",
+      "value": "Configuration Details"
+    },
+    {
+      "name": "config_desc_title",
+      "value": "Configuration Description"
+    },
+    {
+      "name": "config_video_settings",
+      "value": "Video Settings"
+    },
+    {
+      "name": "config_video_codec_title",
+      "value": "Video Codec"
+    },
+    {
+      "name": "config_video_codec_desc",
+      "value": "Select video codec (H.264, H.265, AV1). H.265 usually provides better compression."
+    },
+    {
+      "name": "config_max_size_title",
+      "value": "Max Size"
+    },
+    {
+      "name": "config_max_size_desc",
+      "value": "Limit max video width or height (e.g., 1024). 0 means original resolution."
+    },
+    {
+      "name": "config_bitrate_title",
+      "value": "Bitrate"
+    },
+    {
+      "name": "config_bitrate_desc",
+      "value": "Video stream bitrate (bps). Default 8Mbps. Higher values improve quality but increase latency."
+    },
+    {
+      "name": "config_max_fps_title",
+      "value": "Max FPS"
+    },
+    {
+      "name": "config_max_fps_desc",
+      "value": "Limit capture frame rate. Supported on Android 10+."
+    },
+    {
+      "name": "config_crop_title",
+      "value": "Crop"
+    },
+    {
+      "name": "config_crop_desc",
+      "value": "Mirror only a part of the screen (Width:Height:X:Y)."
+    },
+    {
+      "name": "config_audio_settings",
+      "value": "Audio Settings"
+    },
+    {
+      "name": "config_enable_audio_title",
+      "value": "Enable Audio"
+    },
+    {
+      "name": "config_enable_audio_desc",
+      "value": "Forward device audio. Requires Android 11+."
+    },
+    {
+      "name": "config_audio_codec_title",
+      "value": "Audio Codec"
+    },
+    {
+      "name": "config_audio_codec_desc",
+      "value": "Select audio codec (OPUS, AAC, RAW, FLAC)."
+    },
+    {
+      "name": "config_audio_bitrate_title",
+      "value": "Audio Bitrate"
+    },
+    {
+      "name": "config_audio_bitrate_desc",
+      "value": "Audio stream bitrate (bps). Default 128Kbps."
+    },
+    {
+      "name": "config_behavior_settings",
+      "value": "Behavior Settings"
+    },
+    {
+      "name": "config_show_touches_title",
+      "value": "Show Touches"
+    },
+    {
+      "name": "config_show_touches_desc",
+      "value": "Show physical touch points on the Android device."
+    },
+    {
+      "name": "config_stay_awake_title",
+      "value": "Stay Awake"
+    },
+    {
+      "name": "config_stay_awake_desc",
+      "value": "Prevent the device from sleeping while connected."
+    },
+    {
+      "name": "config_clipboard_title",
+      "value": "Clipboard Sync"
+    },
+    {
+      "name": "config_clipboard_desc",
+      "value": "Device clipboard syncs to this device automatically. Click button to send this device's clipboard to controlled device."
+    },
+    {
+      "name": "config_connection_actions",
+      "value": "Connection Actions"
+    },
+    {
+      "name": "config_turn_screen_off_connect_title",
+      "value": "Turn Screen Off on Connect"
+    },
+    {
+      "name": "config_turn_screen_off_connect_desc",
+      "value": "Turn off device physical screen (black screen) after connection to save power."
+    },
+    {
+      "name": "config_fullscreen_connect_title",
+      "value": "Fullscreen on Connect"
+    },
+    {
+      "name": "config_fullscreen_connect_desc",
+      "value": "Automatically enter fullscreen mode after connection."
+    },
+    {
+      "name": "config_turn_screen_off_close_title",
+      "value": "Turn Screen Off on Close"
+    },
+    {
+      "name": "config_turn_screen_off_close_desc",
+      "value": "Turn off device screen when disconnecting."
+    },
+    {
+      "name": "config_lock_screen_close_title",
+      "value": "Lock Screen on Close"
+    },
+    {
+      "name": "config_lock_screen_close_desc",
+      "value": "Lock device when disconnecting."
+    },
+    {
+      "name": "config_advanced_options",
+      "value": "Advanced Options"
+    },
+    {
+      "name": "config_downsize_error_title",
+      "value": "Downsize on Error"
+    },
+    {
+      "name": "config_downsize_error_desc",
+      "value": "Automatically reduce resolution and retry if encoding fails due to high resolution."
+    },
+    {
+      "name": "config_connect_start_title",
+      "value": "Connect on App Start"
+    },
+    {
+      "name": "config_connect_start_desc",
+      "value": "Try to automatically connect to this device when the app starts."
+    },
+    {
+      "name": "config_server_log_title",
+      "value": "Server Log Level"
+    },
+    {
+      "name": "config_server_log_desc",
+      "value": "Set scrcpy-server log level on the device."
     }
   ]
 }

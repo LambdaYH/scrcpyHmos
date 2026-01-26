@@ -1,6 +1,6 @@
 {
   "module": {
-    "name": "scrcpyHmos_test",
+    "name": "scrcpy_mobile_test",
     "type": "feature",
     "deviceTypes": [
       "phone",
