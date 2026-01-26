@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 
 interface ConfigItem {
   title: ResourceStr;
@@ -8,6 +8,18 @@ interface ConfigItem {
 @Entry
 @Component
 struct ConfigDescPage {
+
+  private openUrl(url: string) {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    let want: Want = {
+      action: 'ohos.want.action.viewData',
+      entities: ['entity.system.browsable'],
+      uri: url
+    };
+    context.startAbility(want).catch((err: Error) => {
+      console.error('Failed to open URL:', err);
+    });
+  }
 
   build() {
     Column() {
@@ -38,6 +50,24 @@ struct ConfigDescPage {
 
       Scroll() {
         Column({ space: 24 }) {
+
+          Column() {
+            Text($r('app.string.help_config_ref'))
+              .fontSize(14)
+              .fontColor($r('app.color.text_primary'))
+              .width('100%')
+              .margin({ bottom: 8 })
+
+            Text('https://github.com/Genymobile/scrcpy?tab=readme-ov-file')
+              .fontSize(14)
+              .fontColor($r('app.color.btn_primary'))
+              .width('100%')
+              .margin({ bottom: 0 })
+              .onClick(() => {
+                this.openUrl('https://github.com/Genymobile/scrcpy?tab=readme-ov-file');
+              })
+          }
+          .width('100%')
           
           this.ConfigSection($r('app.string.config_video_settings'), [
             { title: $r('app.string.config_video_codec_title'), desc: $r('app.string.config_video_codec_desc') },
