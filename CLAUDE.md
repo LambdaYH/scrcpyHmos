@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ScrcpyHmos is a HarmonyOS remote control application for Android devices, inspired by scrcpy and EasyControl. It allows HarmonyOS devices (phones/tablets) to remotely control Android devices over ADB via network connection.
+scrcpy mobile is a HarmonyOS remote control application for Android devices, inspired by scrcpy and EasyControl. It allows HarmonyOS devices (phones/tablets) to remotely control Android devices over ADB via network connection.
 
 **Bundle Name:** com.lambdayh.scrcpyHmos
 **Target SDK:** HarmonyOS API 9+ (6.0.0)
@@ -138,7 +138,7 @@ adb shell ls -l /data/local/tmp/easycontrol-server.jar
 - Check `Adb.ets` for protocol-level errors (message parsing, checksums)
 - Verify `AdbKeyManager.ets` key persistence (filesDir + device address)
 - Monitor `ServerManager.ets` for deployment failures
-- Use `hilog` filtering: `hdc shell hilog | grep ScrcpyHmos`
+- Use `hilog` filtering: `hdc shell hilog | grep 'scrcpyHmos'`
 
 ### Native Decoder Issues
 
