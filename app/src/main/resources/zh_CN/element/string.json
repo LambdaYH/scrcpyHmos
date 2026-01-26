@@ -482,7 +482,7 @@
         },
         {
             "name": "help_step_2",
-            "value": "将Android设备连接至PC，下载ADB工具，进入ADB目录，输入adb devices，确保设备连接成功。"
+            "value": "将Android设备连接至PC，下载ADB工具，输入adb devices，确保设备连接成功。"
         },
         {
             "name": "help_step_3",
@@ -583,6 +583,186 @@
         {
             "name": "show_bottom_nav_bar",
             "value": "底部显示导航栏"
+        },
+        {
+            "name": "help_controlled_end",
+            "value": "被控端 (Android)"
+        },
+        {
+            "name": "help_control_end",
+            "value": "控制端 (本应用)"
+        },
+        {
+            "name": "help_config_intro",
+            "value": "配置项介绍"
+        },
+        {
+            "name": "config_desc_title",
+            "value": "配置项说明"
+        },
+        {
+            "name": "config_video_settings",
+            "value": "视频设置"
+        },
+        {
+            "name": "config_video_codec_title",
+            "value": "视频编码"
+        },
+        {
+            "name": "config_video_codec_desc",
+            "value": "选择视频编码格式 (H.264, H.265, AV1)。H.265 通常提供更好的压缩率。"
+        },
+        {
+            "name": "config_max_size_title",
+            "value": "最大尺寸"
+        },
+        {
+            "name": "config_max_size_desc",
+            "value": "限制视频的最大宽度或高度 (如 1024)。0 表示原始分辨率。"
+        },
+        {
+            "name": "config_bitrate_title",
+            "value": "比特率"
+        },
+        {
+            "name": "config_bitrate_desc",
+            "value": "视频流的比特率 (bps)。默认 8Mbps，调高可提高画质，但增加延迟。"
+        },
+        {
+            "name": "config_max_fps_title",
+            "value": "最大帧率"
+        },
+        {
+            "name": "config_max_fps_desc",
+            "value": "限制视频捕获的帧率 (FPS)。Android 10+ 支持。"
+        },
+        {
+            "name": "config_crop_title",
+            "value": "裁剪区域"
+        },
+        {
+            "name": "config_crop_desc",
+            "value": "仅镜像屏幕的一部分 (宽:高:X:Y)。"
+        },
+        {
+            "name": "config_audio_settings",
+            "value": "音频设置"
+        },
+        {
+            "name": "config_enable_audio_title",
+            "value": "启用音频"
+        },
+        {
+            "name": "config_enable_audio_desc",
+            "value": "是否转发设备音频。需要 Android 11+。"
+        },
+        {
+            "name": "config_audio_codec_title",
+            "value": "音频编码"
+        },
+        {
+            "name": "config_audio_codec_desc",
+            "value": "选择音频编码格式 (OPUS, AAC, RAW, FLAC)。"
+        },
+        {
+            "name": "config_audio_bitrate_title",
+            "value": "音频比特率"
+        },
+        {
+            "name": "config_audio_bitrate_desc",
+            "value": "音频流的比特率 (bps)。默认 128Kbps。"
+        },
+        {
+            "name": "config_behavior_settings",
+            "value": "行为设置"
+        },
+        {
+            "name": "config_show_touches_title",
+            "value": "显示触摸点"
+        },
+        {
+            "name": "config_show_touches_desc",
+            "value": "在 Android 设备上显示物理触摸点位置。"
+        },
+        {
+            "name": "config_stay_awake_title",
+            "value": "保持唤醒"
+        },
+        {
+            "name": "config_stay_awake_desc",
+            "value": "连接时防止设备进入睡眠模式。"
+        },
+        {
+            "name": "config_clipboard_title",
+            "value": "剪贴板同步"
+        },
+        {
+            "name": "config_clipboard_desc",
+            "value": "被控方剪贴板自动同步至本设备，本设备剪贴板可点击按钮发送至被控方。"
+        },
+        {
+            "name": "config_connection_actions",
+            "value": "连接/断开操作"
+        },
+        {
+            "name": "config_turn_screen_off_connect_title",
+            "value": "连接时熄屏"
+        },
+        {
+            "name": "config_turn_screen_off_connect_desc",
+            "value": "连接建立后关闭设备物理屏幕 (实际上是变黑)，节省电量。"
+        },
+        {
+            "name": "config_fullscreen_connect_title",
+            "value": "连接时全屏"
+        },
+        {
+            "name": "config_fullscreen_connect_desc",
+            "value": "连接成功后自动进入全屏模式。"
+        },
+        {
+            "name": "config_turn_screen_off_close_title",
+            "value": "断开时熄屏"
+        },
+        {
+            "name": "config_turn_screen_off_close_desc",
+            "value": "断开连接时关闭设备屏幕。"
+        },
+        {
+            "name": "config_lock_screen_close_title",
+            "value": "断开时锁屏"
+        },
+        {
+            "name": "config_lock_screen_close_desc",
+            "value": "断开连接时锁定设备。"
+        },
+        {
+            "name": "config_advanced_options",
+            "value": "高级选项"
+        },
+        {
+            "name": "config_downsize_error_title",
+            "value": "错误时降低分辨率"
+        },
+        {
+            "name": "config_downsize_error_desc",
+            "value": "如果因分辨率过高导致编码失败，自动降低分辨率重试。"
+        },
+        {
+            "name": "config_connect_start_title",
+            "value": "应用启动时自动连接"
+        },
+        {
+            "name": "config_connect_start_desc",
+            "value": "App 启动时尝试自动连接此设备。"
+        },
+        {
+            "name": "config_server_log_title",
+            "value": "服务端日志级别"
+        },
+        {
+            "name": "config_server_log_desc",
+            "value": "设置 scrcpy-server 在设备端的日志输出级别。"
         }
     ]
 }

@@ -67,16 +67,50 @@ struct HelpPage {
             .margin({ bottom: 12 })
             .width('100%')
 
+          // 被控端 (Android)
+          Text($r('app.string.help_controlled_end'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+            .margin({ bottom: 8, top: 4 })
+            .width('100%')
+
           this.InstructionItem(1, $r('app.string.help_step_1'))
           this.InstructionItem(2, $r('app.string.help_step_2'))
           this.InstructionItem(3, $r('app.string.help_step_3'))
-          this.InstructionItem(4, $r('app.string.help_step_4'))
 
           Text($r('app.string.help_note'))
             .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
-            .margin({ top: 24 })
+            .margin({ top: 8, bottom: 16 })
             .width('100%')
+
+          // 控制端 (本应用)
+          Text($r('app.string.help_control_end'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+            .margin({ bottom: 8, top: 8 })
+            .width('100%')
+
+          this.InstructionItem(1, $r('app.string.help_step_4'))
+
+          Row() {
+             Text($r('app.string.help_config_intro'))
+               .fontSize(14)
+               .fontColor($r('app.color.btn_primary'))
+             SymbolGlyph($r('sys.symbol.chevron_right'))
+               .fontSize(14)
+               .fontColor([$r('app.color.btn_primary')])
+          }
+          .alignItems(VerticalAlign.Center)
+          .padding({ top: 8, bottom: 8 })
+          .onClick(() => {
+             this.getUIContext().getRouter().pushUrl({
+               url: 'pages/ConfigDescPage'
+             })
+          })
+          .margin({ bottom: 12, top: 0 })
 
           Divider().color($r('app.color.text_tertiary')).margin({ top: 24, bottom: 24 })
 
@@ -98,6 +132,7 @@ struct HelpPage {
         }
         .width('100%')
         .padding(16)
+        .alignItems(HorizontalAlign.Start)
       }
       .layoutWeight(1)
     }

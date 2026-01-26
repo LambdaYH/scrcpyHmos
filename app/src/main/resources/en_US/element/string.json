@@ -253,6 +253,10 @@
             "value": "Clipboard Autosync"
         },
         {
+            "name": "config_clipboard_desc",
+            "value": "Device clipboard syncs to this device automatically. Click button to send this device's clipboard to controlled device."
+        },
+        {
             "name": "turn_screen_off_on_close",
             "value": "Turn Screen Off on Close"
         },
@@ -482,7 +486,7 @@
         },
         {
             "name": "help_step_2",
-            "value": "Connect Android via USB to PC. Run 'adb devices' to confirm connection."
+            "value": "Connect Android to PC, download ADB tools, run 'adb devices' to confirm connection."
         },
         {
             "name": "help_step_3",
