@@ -202,9 +202,13 @@ export class Client {
 
       // 映射codecId到string
       // 0=H264, 1=H265, 2=AV1
+      // Scrcpy v2+ uses FourCC:
+      // h264 = 0x68323634 = 1748121140
+      // h265 = 0x68323635 = 1748121141
+      // av01 = 0x61763031 = 1635135537
       let codecType = 'h264';
-      if (config.codecId === 1) codecType = 'h265';
-      if (config.codecId === 2) codecType = 'av1';
+      if (config.codecId === 1 || config.codecId === 1748121141) codecType = 'h265';
+      if (config.codecId === 2 || config.codecId === 1635135537) codecType = 'av1';
 
       const width = config.width;
       const height = config.height;
@@ -246,14 +250,27 @@ export class Client {
           try {
             // 读取帧大小
             // LoggerClient.debug(`[Frame ${frameCount}] Reading frame size...`);
-            const frameData = await this.clientStream.readFrameFromVideo();
+            const frameObj = await this.clientStream.readFrameFromVideo();
+            const frameData = frameObj.data;
+            const pts = frameObj.pts;
             // LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
               // 解码帧 (PTS由解码器内部处理)
-              // LoggerClient.debug(`[Frame ${frameCount}] Calling videoDecoder.decode()...`);
-              await this.videoDecoder.decode(frameData, 0);
-              // LoggerClient.debug(`[Frame ${frameCount}] videoDecoder.decode() completed`);
+              const view = new DataView(frameData);
+              // Simple heuristic to detect NAL units (00 00 00 01)
+              let nalType = -1;
+               if (frameData.byteLength > 4) {
+                 // H.264: NAL type is first byte & 0x1F
+                 // H.265: NAL type is (first byte & 0x7E) >> 1
+                 // Assumes start code is stripped or we look after it? 
+                 // Scrcpy sends raw streams, usually start codes are present or not depending on container.
+                 // Actually scrcpy stream usually sends raw H.264/H.265 annex B stream.
+              }
+
+              LoggerClient.debug(`[Frame ${frameCount}] Pushing to decoder, size: ${frameData.byteLength} bytes, pts: ${pts}`);
+
+              await this.videoDecoder.decode(frameData, pts);
               
               // 首帧回调 - 通知UI视频已开始传输
               if (!this.firstFrameReceived && this.onFirstFrameCallback) {
@@ -264,7 +281,7 @@ export class Client {
               
               frameCount++;
             } else {
-              LoggerClient.warn(`[Frame ${frameCount}] Empty frame received: videoDecoder=${!!this.videoDecoder}`);
+              LoggerClient.warn(`[Frame ${frameCount}] Empty frame or no decoder: size=${frameData.byteLength}, decoder=${!!this.videoDecoder}`);
             }
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);

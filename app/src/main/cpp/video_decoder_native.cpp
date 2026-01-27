@@ -4,6 +4,7 @@
 #include <mutex>
 #include <cstring>  // for memcpy, strcmp
 #include "multimedia/player_framework/native_avbuffer.h"  // for OH_AVBuffer_SetBufferAttr
+#include "multimedia/player_framework/native_avcodec_videoencoder.h"  // for HEVC_PROFILE_MAIN
 
 #undef LOG_TAG
 #undef LOG_DOMAIN
@@ -42,35 +43,70 @@ void VideoDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
 
 void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     DecoderContext* context = static_cast<DecoderContext*>(userData);
+    if (context == nullptr) {
+        OH_LOG_ERROR(LOG_APP, "[Native] OnNeedInputBuffer: context is null");
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(context->queueMutex);
     if (buffer != nullptr) {
         context->inputBufferQueue.push(index);
         context->inputBuffers.push(buffer);  // 保存buffer指针
+        // Reduce log verbosity for input buffers, only log occasionally or on empty
+        if (context->inputBufferQueue.size() == 1) {
+             OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: Got first buffer! index=%{public}u", index);
+        }
+    } else {
+        OH_LOG_ERROR(LOG_APP, "[Native] OnNeedInputBuffer: buffer is null");
     }
     context->waitForFirstBuffer = false;
-    // OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, buffer=%{public}s, queueSize=%{public}zu",
-    //             index, buffer ? "valid" : "null", context->inputBufferQueue.size());
 }
 
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
-    // 获取buffer属性获取更多信息
+    DecoderContext* context = static_cast<DecoderContext*>(userData);
+    if (context == nullptr) {
+        OH_LOG_ERROR(LOG_APP, "[Native] OnNewOutputBuffer: context is null");
+        return;
+    }
+
+    // 第一帧输出时获取输出格式信息（对于H265特别重要）
+    if (context->isDecFirstFrame) {
+        OH_AVFormat* format = OH_VideoDecoder_GetOutputDescription(codec);
+        if (format != nullptr) {
+            OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_WIDTH, &context->outputWidth);
+            OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_HEIGHT, &context->outputHeight);
+            OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_STRIDE, &context->widthStride);
+            OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_SLICE_HEIGHT, &context->heightStride);
+
+            OH_LOG_INFO(LOG_APP, "[Native] First frame output format: %{public}dx%{public}d, stride=%{public}d, sliceHeight=%{public}d",
+                       context->outputWidth, context->outputHeight, context->widthStride, context->heightStride);
+
+            OH_AVFormat_Destroy(format);
+        }
+        context->isDecFirstFrame = false;
+    }
+
+    // 获取buffer属性
     OH_AVCodecBufferAttr attr;
     OH_AVErrCode ret = OH_AVBuffer_GetBufferAttr(buffer, &attr);
-//    if (ret == AV_ERR_OK) {
-//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld",
-//                    index, attr.size, (long long)attr.pts);
-//    } else {
-//        OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u", index);
-//    }
+    if (ret == AV_ERR_OK) {
+    // Get presentation timestamp
+    int64_t pts = (int64_t)attr.pts;
+    
+    // Log output buffer info
+    OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld, flags=0x%{public}x", 
+                 index, attr.size, (long long)pts, attr.flags);
 
-    // 渲染到Surface
+    // 渲染到Surface - 只调用RenderOutputBuffer，不要调用FreeOutputBuffer
     OH_AVErrCode renderRet = OH_VideoDecoder_RenderOutputBuffer(codec, index);
     if (renderRet != AV_ERR_OK) {
         OH_LOG_ERROR(LOG_APP, "[Native] RenderOutputBuffer failed: %{public}d", renderRet);
+        // 如果渲染失败，尝试释放buffer
+        OH_VideoDecoder_FreeOutputBuffer(codec, index);
+    } else {
+        // OH_LOG_DEBUG(LOG_APP, "[Native] Rendered frame pts=%{public}lld", (long long)pts);
     }
-
-    // 释放输出buffer (HarmonyOS只需要2个参数)
-    OH_VideoDecoder_FreeOutputBuffer(codec, index);
+    } // Close if (ret == AV_ERR_OK)
 }
 
 int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height) {
@@ -109,6 +145,17 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_WIDTH, width);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_HEIGHT, height);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
+    OH_AVFormat_SetIntValue(format, OH_MD_KEY_FRAME_RATE, 60);
+
+    // 为H265添加特定的配置参数
+    if (strcmp(codecType_.c_str(), "h265") == 0) {
+        OH_LOG_INFO(LOG_APP, "[Native] Setting H265 specific parameters");
+        // H265 Profile由解码器自动识别，不强制设置
+        // OH_AVFormat_SetIntValue(format, OH_MD_KEY_PROFILE, HEVC_PROFILE_MAIN);
+    }
+
+    OH_LOG_INFO(LOG_APP, "[Native] Decoder config: width=%{public}d, height=%{public}d, pixelFormat=NV12, frameRate=60",
+                width, height);
 
     int32_t ret = OH_VideoDecoder_Configure(decoder_, format);
     OH_AVFormat_Destroy(format);
@@ -136,6 +183,11 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     context_ = new DecoderContext();
     context_->decoder = this;
     context_->waitForFirstBuffer = true;
+    context_->isDecFirstFrame = true;  // 标记第一帧输出
+    context_->outputWidth = width;
+    context_->outputHeight = height;
+    context_->widthStride = 0;
+    context_->heightStride = 0;
 
     OH_AVCodecCallback callback;
     callback.onError = OnError;
@@ -239,8 +291,31 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     attr.pts = pts;
     attr.size = size;
     attr.offset = 0;
-    // 对于CSD数据（SPS/PPS），设置为codec config flag；对于普通帧数据，设置为0
-    attr.flags = (frameCount_ < 2) ? OH_AVCodecBufferFlags::AVCODEC_BUFFER_FLAGS_CODEC_DATA : 0;
+
+    // 对于CSD数据（Codec Specific Data），需要正确标记
+    // H264: SPS/PPS (前两帧通常是CSD)
+    // H265: VPS/SPS/PPS (可能需要三帧，或者包含在第一帧中)
+    // 判断CSD数据的依据：VideoDecoder.ets 明确先发送 CSD 数据
+    // 移除 size < 100 的限制，因为 H265 的 CSD 数据可能更大
+    // For H265, we might need to be more careful.
+    // Frame count < 1 is safe for H264 CSD.
+    // For H265, if the first packet is large, it might be a keyframe WITH CSD.
+    // Let's log the first few frames' sizes.
+    if (frameCount_ < 5) {
+        OH_LOG_INFO(LOG_APP, "[Native] PushData Frame %{public}u: size=%{public}d", frameCount_, size);
+    }
+
+    bool isCSD = false;
+    if (frameCount_ < 1) {  // Only mark first frame as CSD
+        isCSD = true;
+    }
+
+    if (isCSD) {
+        attr.flags = AVCODEC_BUFFER_FLAGS_CODEC_DATA;
+        OH_LOG_DEBUG(LOG_APP, "[Native] Frame %{public}u marked as CSD data (size=%{public}d)", frameCount_, size);
+    } else {
+        attr.flags = 0;
+    }
 
     OH_AVErrCode attrRet = OH_AVBuffer_SetBufferAttr(buffer, &attr);
     if (attrRet != AV_ERR_OK) {
@@ -278,9 +353,11 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     // buffer已经提交，不需要清理
 
     frameCount_++;
-    // if (frameCount_ % 30 == 0) {
-    //    OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames (size=%{public}d)", frameCount_, size);
-    // }
+
+    // 每50帧输出一次统计信息
+    if (frameCount_ % 50 == 0) {
+        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames total (last size=%{public}d)", frameCount_, size);
+    }
 
     return 0;
 }

@@ -768,6 +768,8 @@ struct ControlPage {
         this.videoWidth = videoSize.width;
         this.videoHeight = videoSize.height;
         LoggerControlPage.info(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        // 重新计算显示尺寸，确保比例正确
+        this.calcVideoDisplaySize();
       }
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init video decoder:', err.message);

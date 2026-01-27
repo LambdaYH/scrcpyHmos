@@ -17,6 +17,12 @@ export interface VideoConfig {
   height: number;
 }
 
+// 视频帧接口
+export interface VideoFrame {
+  data: ArrayBuffer;
+  pts: number;
+}
+
 export class ClientStream {
   private mainSocket?: socket.TCPSocket;
   private videoSocket?: socket.TCPSocket;
@@ -349,7 +355,7 @@ return this.videoConfig;
   }
 
   // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
-  async readFrameFromVideo(): Promise<ArrayBuffer> {
+  async readFrameFromVideo(): Promise<VideoFrame> {
     if (this.isClosing) throw new Error('Client is closing');
 
     // console.debug('[ClientStream] Reading frame header...');
@@ -362,6 +368,9 @@ return this.videoConfig;
     // Check Config Packet flag (bit 63)
     const PACKET_FLAG_CONFIG = 1n << 63n;
     const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
+    
+    // Clean PTS (remove flag)
+    const cleanPts = pts & ~PACKET_FLAG_CONFIG;
     
     if (isConfig) {
        LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
@@ -379,7 +388,11 @@ return this.videoConfig;
     // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
     const frameData = await this.readBytesFromVideo(frameSize);
     // console.debug(`[ClientStream] Frame data read complete`);
-    return frameData;
+    
+    // Convert BigInt PTS to number for now (microseconds usually fit in safe integer)
+    // If Scrcpy sends nanoseconds or similar that exceeds 2^53, precise low bits might be lost, but VideoDecoder usually handles microseconds.
+    const frame: VideoFrame = { data: frameData, pts: Number(cleanPts) };
+    return frame;
   }
 
 

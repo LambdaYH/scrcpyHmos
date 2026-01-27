@@ -59,13 +59,26 @@ export class VideoDecoder {
       this.isStarted = true;
       console.info(`[VideoDecoder] Native decoder started successfully!`);
 
-      // 推送CSD数据
-      if (csd0) {
+      // 等待一小段时间确保解码器准备好
+      await new Promise<void>((resolve: () => void) => setTimeout(resolve, 100));
+
+      // 推送CSD数据（Codec Specific Data）
+      // H264: SPS/PPS
+      // H265: VPS/SPS/PPS
+      if (csd0 && csd0.byteLength > 0) {
+        console.info(`[VideoDecoder] Pushing CSD-0 (size: ${csd0.byteLength} bytes)`);
         await this.decode(csd0, 0);
+        // 等待CSD-0被处理
+        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
       }
-      if (csd1) {
+      if (csd1 && csd1.byteLength > 0) {
+        console.info(`[VideoDecoder] Pushing CSD-1 (size: ${csd1.byteLength} bytes)`);
         await this.decode(csd1, 0);
+        // 等待CSD-1被处理
+        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
       }
+
+      console.info(`[VideoDecoder] CSD data pushed, ready for frame data`);
 
     } catch (err) {
       const error = err as Error;
@@ -96,6 +109,9 @@ export class VideoDecoder {
         } else if (result === -2) {
           // 没有可用输入缓冲区，等待后重试
           retryCount++;
+          if (retryCount % 5 === 0) {
+             console.warn(`[VideoDecoder] Retry ${retryCount}/${maxRetries} pushing data...`);
+          }
           if (retryCount < maxRetries) {
             await new Promise<void>((resolve: () => void) => setTimeout(resolve, 10));
           }

@@ -14,6 +14,13 @@ struct DecoderContext {
     std::mutex queueMutex;
     class VideoDecoderNative* decoder;
     bool waitForFirstBuffer;  // 标记是否在等待第一个buffer
+    
+    // Output format info
+    bool isDecFirstFrame;
+    int32_t outputWidth;
+    int32_t outputHeight;
+    int32_t widthStride;
+    int32_t heightStride;
 };
 
 class VideoDecoderNative {

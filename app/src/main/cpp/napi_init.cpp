@@ -89,7 +89,19 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
 
     napi_get_value_int64(env, args[0], &decoderId);
     napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
-    napi_get_value_int64(env, args[2], &pts);
+    
+    // Check PTS type (Number or BigInt)
+    napi_valuetype valueType;
+    napi_typeof(env, args[2], &valueType);
+    
+    if (valueType == napi_bigint) {
+        bool lossless;
+        napi_get_value_bigint_int64(env, args[2], &pts, &lossless);
+    } else {
+        napi_get_value_int64(env, args[2], &pts);
+    }
+    
+    // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld", dataSize, (long)pts);
 
     auto it = g_videoDecoders.find(decoderId);
     if (it != g_videoDecoders.end()) {
