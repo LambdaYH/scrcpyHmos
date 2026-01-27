@@ -36,13 +36,15 @@ export class ClientPlayer {
       console.info(`Video height: ${this.videoHeight}`);
 
       // 读取CSD-0 (SPS/VPS)
-      const csd0 = await this.clientStream.readFrameFromVideo();
+      const csd0Frame = await this.clientStream.readFrameFromVideo();
+      const csd0 = csd0Frame.data;
       console.info(`CSD-0 size: ${csd0.byteLength}`);
 
       // H.264需要CSD-1 (PPS)
       let csd1: ArrayBuffer | undefined = undefined;
       if (!this.useH265) {
-        csd1 = await this.clientStream.readFrameFromVideo();
+        const csd1Frame = await this.clientStream.readFrameFromVideo();
+        csd1 = csd1Frame.data;
         console.info(`CSD-1 size: ${csd1.byteLength}`);
       }
 
@@ -68,9 +70,9 @@ export class ClientPlayer {
     const readLoop = async () => {
       try {
         while (!this.isClose && this.videoDecode) {
-          const frameData = await this.clientStream.readFrameFromVideo();
-          if (frameData.byteLength > 0) {
-            await this.videoDecode.decode(frameData, 0);
+          const frame = await this.clientStream.readFrameFromVideo();
+          if (frame.data.byteLength > 0) {
+            await this.videoDecode.decode(frame.data, frame.pts, frame.flags);
           }
         }
       } catch (err) {

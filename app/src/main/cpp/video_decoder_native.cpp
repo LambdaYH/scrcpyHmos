@@ -231,7 +231,7 @@ int32_t VideoDecoderNative::Start() {
     return ret;
 }
 
-int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
+int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags) {
     if (!isStarted_ || decoder_ == nullptr || context_ == nullptr) {
         OH_LOG_ERROR(LOG_APP, "[Native] PushData: decoder not ready, started=%{public}d, decoder=%{public}s, context=%{public}s",
                      isStarted_, decoder_ ? "valid" : "null", context_ ? "valid" : "null");
@@ -293,30 +293,10 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     attr.pts = pts;
     attr.size = size;
     attr.offset = 0;
+    attr.flags = flags;
 
-    // 对于CSD数据（Codec Specific Data），需要正确标记
-    // H264: SPS/PPS (前两帧通常是CSD)
-    // H265: VPS/SPS/PPS (可能需要三帧，或者包含在第一帧中)
-    // 判断CSD数据的依据：VideoDecoder.ets 明确先发送 CSD 数据
-    // 移除 size < 100 的限制，因为 H265 的 CSD 数据可能更大
-    // For H265, we might need to be more careful.
-    // Frame count < 1 is safe for H264 CSD.
-    // For H265, if the first packet is large, it might be a keyframe WITH CSD.
-    // Let's log the first few frames' sizes.
-    if (frameCount_ < 5) {
-        OH_LOG_INFO(LOG_APP, "[Native] PushData Frame %{public}u: size=%{public}d", frameCount_, size);
-    }
-
-    bool isCSD = false;
-    if (frameCount_ < 1) {  // Only mark first frame as CSD
-        isCSD = true;
-    }
-
-    if (isCSD) {
-        attr.flags = AVCODEC_BUFFER_FLAGS_CODEC_DATA;
+    if (flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA) {
         OH_LOG_DEBUG(LOG_APP, "[Native] Frame %{public}u marked as CSD data (size=%{public}d)", frameCount_, size);
-    } else {
-        attr.flags = 0;
     }
 
     OH_AVErrCode attrRet = OH_AVBuffer_SetBufferAttr(buffer, &attr);

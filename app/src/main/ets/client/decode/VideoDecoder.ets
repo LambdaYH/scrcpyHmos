@@ -10,6 +10,9 @@ export class VideoDecoder {
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
+  // Flags
+  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA = 8;
+
   // 支持两种调用方式：新的codecType字符串 或 旧的useH265布尔值
   async init(codecTypeOrUseH265: string | boolean, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
     // 兼容旧API
@@ -65,15 +68,16 @@ export class VideoDecoder {
       // 推送CSD数据（Codec Specific Data）
       // H264: SPS/PPS
       // H265: VPS/SPS/PPS
+      // Pass AVCODEC_BUFFER_FLAGS_CODEC_DATA (8)
       if (csd0 && csd0.byteLength > 0) {
         console.info(`[VideoDecoder] Pushing CSD-0 (size: ${csd0.byteLength} bytes)`);
-        await this.decode(csd0, 0);
+        await this.decode(csd0, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
         // 等待CSD-0被处理
         await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
       }
       if (csd1 && csd1.byteLength > 0) {
-        console.info(`[VideoDecoder] Pushing CSD-1 (size: ${csd1.byteLength} bytes)`);
-        await this.decode(csd1, 0);
+        console.info(`[VideoDecoder] Pushing CSD-1 (PPS) (size: ${csd1.byteLength} bytes)`);
+        await this.decode(csd1, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
         // 等待CSD-1被处理
         await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
       }
@@ -88,7 +92,7 @@ export class VideoDecoder {
     }
   }
 
-  async decode(data: ArrayBuffer, pts: number, isKeyFrame: boolean = true): Promise<void> {
+  async decode(data: ArrayBuffer, pts: number, flags: number = 0): Promise<void> {
     if (!this.isStarted || this.decoderId === 0) {
       console.warn('[VideoDecoder] Not ready, frame dropped');
       return;
@@ -96,14 +100,16 @@ export class VideoDecoder {
 
     try {
       // 推送数据到Native解码器，带重试机制
-      // KeyFrame: Max 5 retries (aggressive, but we really want keyframes)
-      // Non-KeyFrame: 0 retries (drop immediately if full)
-      const maxRetries = isKeyFrame ? 5 : 0;
+      // KeyFrame or CSD: Max 5 retries (aggressive)
+      // Others: 5 retries (always retry for smoothness)
+      const maxRetries = 5; 
+      
       let retryCount = 0;
       let result: number = -2;
 
       while (retryCount <= maxRetries) {
-        result = scrcpy_native.pushVideoData(this.decoderId, data, pts);
+        // Native expects: id, data, pts, flags
+        result = scrcpy_native.pushVideoData(this.decoderId, data, pts, flags);
 
         if (result === 0) {
           // 成功
@@ -112,7 +118,7 @@ export class VideoDecoder {
           // 没有可用输入缓冲区
           if (retryCount < maxRetries) {
             retryCount++;
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 5));
+            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2)); // Reduced wait time to 2ms
           } else {
              break;
           }
@@ -126,12 +132,7 @@ export class VideoDecoder {
       if (result === 0) {
         this.frameCount++;
       } else if (result === -2) {
-        // Only log if it's significant (e.g. keyframe dropped) or verbose mode
-        if (isKeyFrame) {
-             console.warn(`[VideoDecoder] Keyframe dropped! pts=${pts}`);
-        } else {
-             // console.debug(`[VideoDecoder] Frame dropped (latency optimized) pts=${pts}`);
-        }
+          // console.warn(`[VideoDecoder] Frame dropped (full) pts=${pts}`);
       }
     } catch (err) {
       console.error('[VideoDecoder] Decode error:', err);

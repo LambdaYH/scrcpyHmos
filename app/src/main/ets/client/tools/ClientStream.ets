@@ -21,6 +21,7 @@ export interface VideoConfig {
 export interface VideoFrame {
   data: ArrayBuffer;
   pts: number;
+  flags: number;
 }
 
 export class ClientStream {
@@ -372,8 +373,10 @@ return this.videoConfig;
     // Clean PTS (remove flag)
     const cleanPts = pts & ~PACKET_FLAG_CONFIG;
     
+    let flags = 0;
     if (isConfig) {
        LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
+       flags = 8; // AVCODEC_BUFFER_FLAGS_CODEC_DATA
     }
 
     // 2. Read Size (4 bytes)
@@ -391,7 +394,7 @@ return this.videoConfig;
     
     // Convert BigInt PTS to number for now (microseconds usually fit in safe integer)
     // If Scrcpy sends nanoseconds or similar that exceeds 2^53, precise low bits might be lost, but VideoDecoder usually handles microseconds.
-    const frame: VideoFrame = { data: frameData, pts: Number(cleanPts) };
+    const frame: VideoFrame = { data: frameData, pts: Number(cleanPts), flags: flags };
     return frame;
   }
 

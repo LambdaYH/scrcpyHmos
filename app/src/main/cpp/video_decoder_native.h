@@ -31,7 +31,7 @@ public:
     // codecType: "h264", "h265", "av1"
     int32_t Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height);
     int32_t Start();
-    int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
+    int32_t PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags);
     int32_t Stop();
     int32_t Release();
 

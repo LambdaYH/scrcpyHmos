@@ -78,14 +78,15 @@ static napi_value StartVideoDecoder(napi_env env, napi_callback_info info) {
 
 // 推送视频数据
 static napi_value PushVideoData(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 4;
+    napi_value args[4];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t decoderId;
     void* data;
     size_t dataSize;
     int64_t pts;
+    uint32_t flags = 0;
 
     napi_get_value_int64(env, args[0], &decoderId);
     napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
@@ -100,12 +101,20 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
     } else {
         napi_get_value_int64(env, args[2], &pts);
     }
+
+    // Get flags if provided
+    if (argc > 3) {
+        napi_typeof(env, args[3], &valueType);
+        if (valueType == napi_number) {
+            napi_get_value_uint32(env, args[3], &flags);
+        }
+    }
     
-    // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld", dataSize, (long)pts);
+    // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld, flags=%{public}u", dataSize, (long)pts, flags);
 
     auto it = g_videoDecoders.find(decoderId);
     if (it != g_videoDecoders.end()) {
-        int32_t ret = it->second->PushData(static_cast<uint8_t*>(data), static_cast<int32_t>(dataSize), pts);
+        int32_t ret = it->second->PushData(static_cast<uint8_t*>(data), static_cast<int32_t>(dataSize), pts, flags);
         napi_value result;
         napi_create_int32(env, ret, &result);
         return result;
