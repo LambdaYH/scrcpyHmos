@@ -256,21 +256,50 @@ export class Client {
             // LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
-              // 解码帧 (PTS由解码器内部处理)
               const view = new DataView(frameData);
-              // Simple heuristic to detect NAL units (00 00 00 01)
-              let nalType = -1;
-               if (frameData.byteLength > 4) {
-                 // H.264: NAL type is first byte & 0x1F
-                 // H.265: NAL type is (first byte & 0x7E) >> 1
-                 // Assumes start code is stripped or we look after it? 
-                 // Scrcpy sends raw streams, usually start codes are present or not depending on container.
-                 // Actually scrcpy stream usually sends raw H.264/H.265 annex B stream.
+              let isKeyFrame = false;
+              
+              // NAL Unit detection (Scrcpy sends Annex B: 00 00 00 01/00 00 01)
+              // We just look at the first non-zero byte after start code?
+              // Actually scrcpy sends raw packet which starts with start code.
+              // Let's assume start code is 4 bytes (00 00 00 01)
+              if (frameData.byteLength > 5) {
+                 const b0 = view.getUint8(0);
+                 const b1 = view.getUint8(1);
+                 const b2 = view.getUint8(2);
+                 const b3 = view.getUint8(3);
+                 const b4 = view.getUint8(4);
+                 
+                 let nalByte = -1;
+                 
+                 if (b0 === 0 && b1 === 0 && b2 === 0 && b3 === 1) {
+                    nalByte = b4;
+                 } else if (b0 === 0 && b1 === 0 && b2 === 1) {
+                    nalByte = b3;
+                 }
+                 
+                 if (nalByte !== -1) {
+                    if (this.videoConfig?.codecId === 1 || this.videoConfig?.codecId === 1748121141) { // H265
+                       const nalType = (nalByte & 0x7E) >> 1;
+                       // IDR_W_RADL(19), IDR_N_LP(20), CRA_NUT(21)
+                       isKeyFrame = (nalType >= 19 && nalType <= 21);
+                    } else { // H264
+                       const nalType = nalByte & 0x1F;
+                       // IDR (5)
+                       isKeyFrame = (nalType === 5);
+                    }
+                 } else {
+                    // Fallback assuming it's a keyframe if we can't parse, to be safe? 
+                    // Or just treat as P-frame. Treat as true to avoid dropping if unsure.
+                    isKeyFrame = true; 
+                 }
+              } else {
+                 isKeyFrame = true; // Small/weird packet, try to decode
               }
 
-              LoggerClient.debug(`[Frame ${frameCount}] Pushing to decoder, size: ${frameData.byteLength} bytes, pts: ${pts}`);
+              // LoggerClient.debug(`[Frame ${frameCount}] Pushing to decoder, size: ${frameData.byteLength} bytes, pts: ${pts}, key: ${isKeyFrame}`);
 
-              await this.videoDecoder.decode(frameData, pts);
+              await this.videoDecoder.decode(frameData, pts, isKeyFrame);
               
               // 首帧回调 - 通知UI视频已开始传输
               if (!this.firstFrameReceived && this.onFirstFrameCallback) {

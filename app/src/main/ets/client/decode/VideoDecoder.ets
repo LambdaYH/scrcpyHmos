@@ -88,7 +88,7 @@ export class VideoDecoder {
     }
   }
 
-  async decode(data: ArrayBuffer, pts: number): Promise<void> {
+  async decode(data: ArrayBuffer, pts: number, isKeyFrame: boolean = true): Promise<void> {
     if (!this.isStarted || this.decoderId === 0) {
       console.warn('[VideoDecoder] Not ready, frame dropped');
       return;
@@ -96,24 +96,25 @@ export class VideoDecoder {
 
     try {
       // 推送数据到Native解码器，带重试机制
-      const maxRetries = 10;
+      // KeyFrame: Max 5 retries (aggressive, but we really want keyframes)
+      // Non-KeyFrame: 0 retries (drop immediately if full)
+      const maxRetries = isKeyFrame ? 5 : 0;
       let retryCount = 0;
       let result: number = -2;
 
-      while (retryCount < maxRetries) {
+      while (retryCount <= maxRetries) {
         result = scrcpy_native.pushVideoData(this.decoderId, data, pts);
 
         if (result === 0) {
           // 成功
           break;
         } else if (result === -2) {
-          // 没有可用输入缓冲区，等待后重试
-          retryCount++;
-          if (retryCount % 5 === 0) {
-             console.warn(`[VideoDecoder] Retry ${retryCount}/${maxRetries} pushing data...`);
-          }
+          // 没有可用输入缓冲区
           if (retryCount < maxRetries) {
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 10));
+            retryCount++;
+            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 5));
+          } else {
+             break;
           }
         } else {
           // 其他错误，不重试
@@ -125,7 +126,12 @@ export class VideoDecoder {
       if (result === 0) {
         this.frameCount++;
       } else if (result === -2) {
-        console.warn(`[VideoDecoder] Frame dropped after ${maxRetries} retries (no available input buffer)`);
+        // Only log if it's significant (e.g. keyframe dropped) or verbose mode
+        if (isKeyFrame) {
+             console.warn(`[VideoDecoder] Keyframe dropped! pts=${pts}`);
+        } else {
+             // console.debug(`[VideoDecoder] Frame dropped (latency optimized) pts=${pts}`);
+        }
       }
     } catch (err) {
       console.error('[VideoDecoder] Decode error:', err);
