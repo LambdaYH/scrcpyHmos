@@ -9,7 +9,7 @@ import { common } from '@kit.AbilityKit';
 
 // 视频配置接口
 // 视频配置接口（使用ClientStream中的定义）
-import { VideoConfig } from './tools/ClientStream';
+import { VideoConfig, VideoFrame } from './tools/ClientStream';
 
 // 客户端管理器
 export class Client {
@@ -35,6 +35,10 @@ export class Client {
   constructor(device: Device) {
     this.device = device;
   }
+  
+  // 视频帧队列
+  private frameQueue: VideoFrame[] = [];
+  private readonly MAX_QUEUE_SIZE = 2; // 允许的最大缓冲帧数
   
   // 获取视频尺寸 (用于触摸坐标计算)
   getVideoSize(): VideoConfig | null {
