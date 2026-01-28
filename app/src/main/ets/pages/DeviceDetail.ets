@@ -14,8 +14,7 @@ struct DeviceDetail {
   // 视频编码选项
   private videoCodecOptions: SelectOption[] = [
     { value: 'h264' },
-    { value: 'h265' },
-    { value: 'av1' }
+    { value: 'h265' }
   ];
 
   // 音频编码选项

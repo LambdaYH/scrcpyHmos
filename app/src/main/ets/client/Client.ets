@@ -217,6 +217,8 @@ export class Client {
       let codecType = 'h264';
       if (config.codecId === 1 || config.codecId === 1748121141) codecType = 'h265';
       if (config.codecId === 2 || config.codecId === 1635135537) codecType = 'av1';
+      
+      LoggerClient.info(`[Client] Codec detection: id=${config.codecId}, type=${codecType}`);
 
       const width = config.width;
       const height = config.height;

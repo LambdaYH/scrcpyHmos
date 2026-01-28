@@ -13,7 +13,7 @@ export class Device {
   type: number = Device.TYPE_NETWORK;
 
   // 视频参数
-  videoCodec: string = 'h264'; // 'h264', 'h265', 'av1'
+  videoCodec: string = 'h265'; // 'h264', 'h265'
   maxSize: number = 0;
   maxFps: number = 0;
   maxVideoBit: number = 0; // bps
