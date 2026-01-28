@@ -260,18 +260,24 @@ export class Client {
             // LoggerClient.debug(`[Frame ${frameCount}] Got frame data: ${frameData.byteLength} bytes`);
 
             if (frameData.byteLength > 0 && this.videoDecoder) {
-              // LoggerClient.debug(`[Frame ${frameCount}] Pushing to decoder, size: ${frameData.byteLength} bytes, pts: ${pts}, flags: ${frameObj.flags}`);
-              
-              await this.videoDecoder.decode(frameData, pts, frameObj.flags);
-              
-              // 首帧回调 - 通知UI视频已开始传输
-              if (!this.firstFrameReceived && this.onFirstFrameCallback) {
-                this.firstFrameReceived = true;
-                LoggerClient.info('🎬 First frame received, triggering callback');
-                this.onFirstFrameCallback();
+              // Scrcpy Strategy: Decode EVERYTHING.
+              // If the queue is full, we BLOCK (wait). This creates backpressure on the network (TCP flow control),
+              // causing the server to slow down sending.
+              while (this.frameQueue.length >= this.MAX_QUEUE_SIZE && !this.isClosed && this.videoLoopRunning) {
+                 // Wait for consumer to consume frames
+                 await new Promise<void>((resolve) => setTimeout(resolve, 2));
               }
-              
-              frameCount++;
+
+              this.frameQueue.push({ data: frameData, pts, flags: frameObj.flags });
+
+              // Notification: first frame callback (early)
+               if (!this.firstFrameReceived && this.onFirstFrameCallback) {
+                  this.firstFrameReceived = true;
+                  LoggerClient.info('🎬 First frame received (read), triggering callback');
+                  this.onFirstFrameCallback();
+                }
+                
+                frameCount++;
             } else {
               LoggerClient.warn(`[Frame ${frameCount}] Empty frame or no decoder: size=${frameData.byteLength}, decoder=${!!this.videoDecoder}`);
             }
@@ -302,6 +308,26 @@ export class Client {
 
     // 启动读取循环
     readLoop();
+    
+    // 2. 消费者：解码循环 (Restore Pipeline)
+    const decodeLoop = async () => {
+      LoggerClient.info('Video decode loop started');
+      while (!this.isClosed && this.videoLoopRunning) {
+        if (this.frameQueue.length > 0 && this.videoDecoder) {
+          const frame = this.frameQueue.shift();
+          if (frame) {
+            // Pass flags to decoder (CSD handling)
+            await this.videoDecoder.decode(frame.data, frame.pts, frame.flags);
+          }
+        } else {
+           // Queue empty, wait
+           await new Promise<void>((resolve) => setTimeout(resolve, 1));
+        }
+      }
+      LoggerClient.info('Video decode loop stopped');
+    };
+
+    decodeLoop();
   }
 
   // handleAction - 对应 Java ClientController.handleAction
