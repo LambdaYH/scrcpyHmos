@@ -196,7 +196,7 @@ export class Client {
     }
     
     try {
-      LoggerClient.info('Initializing video decoder...');
+      LoggerClient.debug('Initializing video decoder...');
       LoggerClient.debug('Waiting for video config (timeout: 5 seconds)...');
       
       // 等待视频配置预加载完成
@@ -289,6 +289,13 @@ export class Client {
             }
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
+            
+            // If closed intentionally, this error is expected
+            if (this.isClosed || errMsg.includes('closed during read') || errMsg.includes('Socket closed')) {
+               LoggerClient.info('Video read loop terminated (connection closed)');
+               break;
+            }
+
             LoggerClient.error('Video frame read error:', errMsg);
             if (frameErr instanceof Error && frameErr.stack) {
               LoggerClient.error('Stack:', frameErr.stack);

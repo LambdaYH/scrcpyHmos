@@ -156,19 +156,27 @@ export class ClientStream {
       break;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
       
-      // If server crashed (EOF or closed), we might see it in shellStream
-      if (this.shellStream && !this.shellStream.isStreamClosed() && !this.shellStream.isEmpty()) {
-          try {
-             const data = await this.shellStream.readAllBytes();
-             if (data.byteLength > 0) {
-                const text = buffer.from(data).toString('utf-8');
-                LoggerClientStream.error('Server output during connection failure:', text);
-             }
-          } catch (e) {
-             // ignore
-          }
+      if (errMsg === 'error forward') {
+        // "error forward" usually means the server socket is not ready yet (Connection Refused)
+        // This is normal during the startup phase.
+        LoggerClientStream.info(`Server socket not ready (attempt ${i + 1}/${reTry}), waiting...`);
+      } else {
+        LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+        
+        // If server crashed (EOF or closed), we might see it in shellStream
+        // Only read output for unexpected errors
+        if (this.shellStream && !this.shellStream.isStreamClosed() && !this.shellStream.isEmpty()) {
+            try {
+               const data = await this.shellStream.readAllBytes();
+               if (data.byteLength > 0) {
+                  const text = buffer.from(data).toString('utf-8');
+                  LoggerClientStream.error('Server output during connection failure:', text);
+               }
+            } catch (e) {
+               // ignore
+            }
+        }
       }
 
       this.vidStream = undefined;

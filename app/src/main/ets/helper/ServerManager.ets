@@ -125,7 +125,7 @@ export class ServerManager {
       LoggerServerManager.error('Push server failed:', errMsg);
 
       // 如果sync协议失败，尝试使用shell方式
-      LoggerServerManager.info('Trying shell-based push method...');
+      LoggerServerManager.debug('Trying shell-based push method...');
       return await ServerManager.pushServerViaShell(adb, serverData);
     }
   }
