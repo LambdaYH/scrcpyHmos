@@ -28,6 +28,10 @@ export class Client {
   private onFirstFrameCallback?: () => void;
   private firstFrameReceived: boolean = false;
   
+  // 触控事件优化
+  private isWritingMove: boolean = false;
+  private pendingMovePacket: ArrayBuffer | null = null;
+  
   constructor(device: Device) {
     this.device = device;
   }
@@ -447,7 +451,55 @@ export class Client {
       screenHeight,
       pressure
     );
-    await this.clientStream.writeMain(packet);
+
+    // 优化：合并 ACTION_MOVE 事件
+    // 如果之前有 ACTION_MOVE 正在发送，则暂存最新的这个包，等待发送完成后立即发送
+    // 这样可以避免 Socket 缓冲区积压导致的延迟
+    if (action === TouchAction.ACTION_MOVE) {
+      if (this.isWritingMove) {
+        // 覆盖待发送的包，只保留最新的位置
+        this.pendingMovePacket = packet;
+        return;
+      }
+      this.isWritingMove = true;
+    }
+
+    try {
+      await this.clientStream.writeMain(packet);
+    } finally {
+      if (action === TouchAction.ACTION_MOVE) {
+        this.isWritingMove = false;
+        // 检查是否有排队的包需要发送
+        if (this.pendingMovePacket) {
+           const nextPacket = this.pendingMovePacket;
+           this.pendingMovePacket = null;
+           // 递归发送最新的包
+           this.sendRawMovePacket(nextPacket);
+        }
+      }
+    }
+  }
+
+  // 内部方法：递归发送排队的移动包
+  private async sendRawMovePacket(packet: ArrayBuffer): Promise<void> {
+    if (this.isWritingMove) {
+       this.pendingMovePacket = packet;
+       return;
+    }
+    
+    this.isWritingMove = true;
+    try {
+      if (this.clientStream) {
+        await this.clientStream.writeMain(packet);
+      }
+    } finally {
+      this.isWritingMove = false;
+      if (this.pendingMovePacket) {
+        const nextPacket = this.pendingMovePacket;
+        this.pendingMovePacket = null;
+        this.sendRawMovePacket(nextPacket);
+      }
+    }
   }
 
   

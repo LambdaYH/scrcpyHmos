@@ -41,6 +41,8 @@ export class Device {
   showTouches: boolean = false;
   clipboardAutosync: boolean = true; // 原 listenClipOnRunning
   changeResolutionOnRunning: boolean = false;
+  control: boolean = true;
+  cleanup: boolean = true;
 
   // 断开时操作
   lockOnClose: boolean = false;

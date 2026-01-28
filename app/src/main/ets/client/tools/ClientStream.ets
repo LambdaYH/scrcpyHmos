@@ -157,6 +157,20 @@ export class ClientStream {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+      
+      // If server crashed (EOF or closed), we might see it in shellStream
+      if (this.shellStream && !this.shellStream.isStreamClosed() && !this.shellStream.isEmpty()) {
+          try {
+             const data = await this.shellStream.readAllBytes();
+             if (data.byteLength > 0) {
+                const text = buffer.from(data).toString('utf-8');
+                LoggerClientStream.error('Server output during connection failure:', text);
+             }
+          } catch (e) {
+             // ignore
+          }
+      }
+
       this.vidStream = undefined;
       this.audStream = undefined;
       this.msgStream = undefined;
@@ -167,6 +181,13 @@ export class ClientStream {
   }
   
   if (!this.vidStream || (this.device.isAudio && !this.audStream) || !this.msgStream) {
+    // Try one last read of server output
+    if (this.shellStream) {
+        try {
+           const data = await this.shellStream.readAllBytes();
+           if (data.byteLength > 0) LoggerClientStream.error('Final server output:', buffer.from(data).toString('utf-8'));
+        } catch (e) {}
+    }
     throw new Error('Failed to connect to server streams after all retries');
   }
 
@@ -175,7 +196,8 @@ export class ClientStream {
   await this.performHandshakeRest();
 
   // 连接成功后才开始读取shell输出
-  this.readShellOutputAsync();
+  // this.readShellOutputAsync(); // Move this to be safer or ensure it doesn't race
+  this.readShellOutputAsync(); 
 
   this.isConnected = true;
   LoggerClientStream.info('Connection established successfully');

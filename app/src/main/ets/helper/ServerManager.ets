@@ -250,7 +250,8 @@ export class ServerManager {
     args.push(`scid=${ServerManager.generateScid()}`);
 
     // 视频参数
-    args.push(`video=true`);
+    // video=true is default, remove
+    // args.push(`video=true`);
     args.push(`video_codec=${device.videoCodec}`);
     // max_size 为 0 时不传递，使用原始分辨率
     if (device.maxSize) {
@@ -272,8 +273,10 @@ export class ServerManager {
     }
 
     // 音频参数
-    args.push(`audio=${device.isAudio}`);
-    if (device.isAudio) {
+    // audio=true is default, remove. Only send if false.
+    if (!device.isAudio) {
+      args.push(`audio=false`);
+    } else {
       args.push(`audio_codec=${device.audioCodec}`);
       // audio_bit_rate 为 0 时不传递，使用服务端默认值
       if (device.maxAudioBit) {
@@ -283,15 +286,22 @@ export class ServerManager {
 
     // 控制和行为参数
     args.push(`control=true`);
+    
+    // Explicitly enable tunnel_forward to force "forward" mode (server listens)
+    // This allows our client (adb.localSocketForward) to connect to the listening socket.
     args.push(`tunnel_forward=true`);
+    
     args.push(`show_touches=${device.showTouches}`);
     args.push(`stay_awake=${device.stayAwake}`);
     args.push(`power_off_on_close=${device.powerOffScreenOnClose}`);
     args.push(`clipboard_autosync=${device.clipboardAutosync}`);
     args.push(`downsize_on_error=${device.downsizeOnError}`);
+    
     args.push(`cleanup=true`);
 
-    args.push(`log_level=${device.logLevel}`);
+    if (device.logLevel !== 'info') {
+        args.push(`log_level=${device.logLevel}`);
+    }
     
     // 元数据参数（用于客户端解析）
     // 官方客户端不传递以下Meta参数，使用默认值(true)。

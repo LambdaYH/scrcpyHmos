@@ -41,22 +41,25 @@ export class TcpChannel implements AdbChannel {
         }
       });
 
-      // Enable TCP_NODELAY for low latency (critical for scrcpy touch events)
-      try {
-        this.tcpSocket.setExtraOptions({
-          TCPNoDelay: true,
-          keepAlive: true // Also good to have
-        }).then(() => {
-          console.debug('TcpChannel: TCP_NODELAY enabled');
-        }).catch((err: Error) => {
-          console.error('TcpChannel: Failed to set TCP_NODELAY:', err);
-        });
-      } catch (err) {
-        console.error('TcpChannel: Error setting extra options:', err);
-      }
-
       this.tcpSocket.on('connect', () => {
         console.info(`TcpChannel: TCP connected to ${address}:${port}`);
+        
+        // Enable TCP_NODELAY for low latency (critical for scrcpy touch events)
+        if (this.tcpSocket) {
+          try {
+            this.tcpSocket.setExtraOptions({
+              TCPNoDelay: true,
+              keepAlive: true // Also good to have
+            }).then(() => {
+              console.debug('TcpChannel: TCP_NODELAY enabled');
+            }).catch((err: Object) => {
+              console.warn('TcpChannel: Failed to set TCP_NODELAY (non-critical):', JSON.stringify(err));
+            });
+          } catch (err) {
+            console.warn('TcpChannel: Error setting extra options:', JSON.stringify(err));
+          }
+        }
+
         clearTimeout(timeoutId);
         this.isConnected = true;
         resolve();
