@@ -269,7 +269,6 @@ export const LoggerAdbKeyManager = new Logger('AdbKeyManager');
 export const LoggerPreferences = new Logger('Preferences');
 export const LoggerClient = new Logger('Client');
 export const LoggerClientStream = new Logger('ClientStream');
-export const LoggerClientController = new Logger('ClientController');
 export const LoggerVideoDecoder = new Logger('VideoDecoder');
 export const LoggerAudioDecoder = new Logger('AudioDecoder');
 export const LoggerAdb = new Logger('Adb');
