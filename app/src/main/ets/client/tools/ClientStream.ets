@@ -24,6 +24,12 @@ export interface VideoFrame {
   flags: number;
 }
 
+// 音频帧接口
+export interface AudioFrame {
+  data: ArrayBuffer;
+  pts: number;  // Presentation timestamp in microseconds
+}
+
 export class ClientStream {
   private mainSocket?: socket.TCPSocket;
   private videoSocket?: socket.TCPSocket;
@@ -425,6 +431,41 @@ return this.videoConfig;
     // Convert BigInt PTS to number for now (microseconds usually fit in safe integer)
     // If Scrcpy sends nanoseconds or similar that exceeds 2^53, precise low bits might be lost, but VideoDecoder usually handles microseconds.
     const frame: VideoFrame = { data: frameData, pts: Number(cleanPts), flags: flags };
+    return frame;
+  }
+
+  // 从audio stream读取指定长度的字节
+  async readBytesFromAudio(length: number): Promise<ArrayBuffer> {
+    if (!this.audStream) {
+      throw new Error('Audio stream not connected');
+    }
+    return await this.audStream.readByteArray(length);
+  }
+
+  // 读取一帧音频数据
+  // Scrcpy V2 audio format: [4 bytes size] [N bytes audio data]
+  async readFrameFromAudio(): Promise<AudioFrame> {
+    if (this.isClosing) throw new Error('Client is closing');
+
+    // 1. Read Size (4 bytes, big-endian)
+    const sizeBytes = await this.readBytesFromAudio(4);
+    const view = new DataView(sizeBytes);
+    const frameSize = view.getInt32(0, false);
+
+    if (frameSize <= 0 || frameSize > 1024 * 1024) { // 1MB limit
+      throw new Error(`Invalid audio frame size: ${frameSize}`);
+    }
+
+    // 2. Read Audio Data
+    const frameData = await this.readBytesFromAudio(frameSize);
+
+    // Calculate PTS based on audio position
+    // For scrcpy, audio frames are typically sent at a consistent rate
+    // We'll use a simple counter-based PTS for now
+    // Note: In a real implementation, this should use proper audio clock
+    const pts = 0; // Use 0 for now, audio decoder will handle timing
+
+    const frame: AudioFrame = { data: frameData, pts: pts };
     return frame;
   }
 

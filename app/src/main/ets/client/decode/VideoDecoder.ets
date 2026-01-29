@@ -158,4 +158,78 @@ export class VideoDecoder {
       }
     }
   }
+
+  // ============== Stream Mode APIs (C++ processing) ==============
+
+  private streamProcessorId: number = 0;
+
+  /**
+   * Create and initialize stream processor (C++ mode)
+   * Must be called after init() and startVideoDecoder()
+   */
+  async createStreamProcessor(codecType: string): Promise<number> {
+    try {
+      console.info(`[VideoDecoder] Creating stream processor...`);
+
+      // Create stream processor linked to this decoder
+      this.streamProcessorId = scrcpy_native.createVideoStreamProcessor(this.decoderId, codecType);
+
+      if (this.streamProcessorId <= 0) {
+        throw new Error(`Failed to create stream processor: ${this.streamProcessorId}`);
+      }
+
+      console.info(`[VideoDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
+      return this.streamProcessorId;
+
+    } catch (err) {
+      const error = err as Error;
+      console.error(`[VideoDecoder] createStreamProcessor failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Start stream processor (C++ processing thread)
+   */
+  async startStreamProcessor(): Promise<void> {
+    if (this.streamProcessorId === 0) {
+      console.warn('[VideoDecoder] Stream processor not created');
+      return;
+    }
+
+    const ret: number = scrcpy_native.startVideoStreamProcessor(this.streamProcessorId);
+    if (ret !== 0) {
+      throw new Error(`Failed to start stream processor: ${ret}`);
+    }
+
+    console.info('[VideoDecoder] Stream processor started');
+  }
+
+  /**
+   * Push data to stream processor (ArkTS continuously calls this)
+   * This is a lightweight call - just writes to ring buffer
+   */
+  pushDataToStream(data: ArrayBuffer, pts: number, flags: number = 0): number {
+    if (this.streamProcessorId === 0) {
+      return -1;
+    }
+
+    // Direct call to native - no async, minimal overhead
+    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, data, pts, flags);
+  }
+
+  /**
+   * Release stream processor
+   */
+  async releaseStreamProcessor(): Promise<void> {
+    if (this.streamProcessorId !== 0) {
+      try {
+        scrcpy_native.releaseVideoStreamProcessor(this.streamProcessorId);
+        this.streamProcessorId = 0;
+        console.info('[VideoDecoder] Stream processor released');
+      } catch (err) {
+        console.error('[VideoDecoder] Release stream processor failed:', err);
+      }
+    }
+  }
 }

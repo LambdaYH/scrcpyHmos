@@ -759,7 +759,7 @@ struct ControlPage {
       LoggerControlPage.error('Cannot init video decoder: client or surfaceId missing');
       return;
     }
-    
+
     LoggerControlPage.info('Initializing video decoder with surfaceId:', this.surfaceId);
     this.client.initVideoDecoder(this.surfaceId).then(() => {
       // 从 Client 获取实际视频尺寸
@@ -771,6 +771,11 @@ struct ControlPage {
         // 重新计算显示尺寸，确保比例正确
         this.calcVideoDisplaySize();
       }
+
+      // 初始化音频解码器（如果启用）
+      if (this.client?.getDevice()?.isAudio) {
+        this.initAudioDecoder();
+      }
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init video decoder:', err.message);
       try {
@@ -779,5 +784,29 @@ struct ControlPage {
         LoggerControlPage.error('Show toast failed:', e);
       }
     });
+  }
+
+  // 初始化音频解码器
+  private initAudioDecoder(): void {
+    if (!this.client) {
+      LoggerControlPage.error('Cannot init audio decoder: client missing');
+      return;
+    }
+
+    LoggerControlPage.info('Initializing audio decoder...');
+    this.client.initAudioDecoder('opus', 48000, 2).then(() => {
+      LoggerControlPage.info('[ControlPage] Audio decoder initialized successfully');
+    }).catch((err: Error) => {
+      LoggerControlPage.error('Failed to init audio decoder:', err.message);
+      // 音频失败不应该影响视频功能，不显示错误提示
+    });
+  }
+
+  // 启用流模式（C++处理）
+  private enableStreamMode(enable: boolean = true): void {
+    if (this.client) {
+      this.client.enableStreamMode(enable);
+      LoggerControlPage.info(`[ControlPage] Stream mode ${enable ? 'enabled' : 'disabled'}`);
+    }
   }
 }
