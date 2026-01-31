@@ -24,11 +24,13 @@ hvigorw assembleHap
 
 ### Building Android Server
 
-The Android server component must be built separately:
+The Android server component must be built separately (uses official scrcpy server):
 
 ```bash
-cd easycontrol/server
-gradlew.bat assembleRelease
+# Build scrcpy server from sample
+cd sample/scrcpy/server
+../../gradlew.bat assembleRelease
+# Output: server/build/outputs/apk/release/scrcpy-server.jar
 ```
 
 ### Installing to Device
@@ -38,8 +40,8 @@ gradlew.bat assembleRelease
 hdc install app/build/default/outputs/default/app-default-signed.hap
 
 # Push Android server to target device
-adb push easycontrol/server/build/outputs/apk/release/server.jar /data/local/tmp/easycontrol-server.jar
-adb shell chmod 755 /data/local/tmp/easycontrol-server.jar
+adb push sample/scrcpy/server/build/outputs/apk/release/scrcpy-server.jar /data/local/tmp/scrcpy-server.jar
+adb shell chmod 755 /data/local/tmp/scrcpy-server.jar
 ```
 
 ### Testing Setup
@@ -50,7 +52,7 @@ adb tcpip 5555
 adb connect <device-ip>:5555
 
 # Check server deployment
-adb shell ls -l /data/local/tmp/easycontrol-server.jar
+adb shell ls -l /data/local/tmp/scrcpy-server.jar
 ```
 
 ## Architecture
@@ -63,34 +65,38 @@ adb shell ls -l /data/local/tmp/easycontrol-server.jar
 - `AdbKeyManager.ets` - RSA key management for ADB authentication (per-device key persistence using file system)
 
 **Client Layer** (`app/src/main/ets/client/`)
-- `Client.ets` - Main client orchestrator managing lifecycle and video config preloading
+- `Client.ets` - Main client orchestrator managing lifecycle and audio/video config
 - `ClientStream.ets` - Handles bi-directional streaming (video, audio, clipboard, control events)
-- `VideoDecoder.ets` - ArkTS wrapper for native C++ decoder (H.264/H.265)
-- `AudioDecoder.ets` - Audio stream handling (AAC/Opus)
+- `VideoDecoder.ets` - ArkTS wrapper for native C++ video decoder (H.264/H.265)
+- `AudioDecoder.ets` - ArkTS wrapper for native C++ audio decoder (AAC/Opus/FLAC/RAW)
 - `ControlPacket.ets` - Touch and keyboard event serialization for remote control
 
 **Helper Layer** (`app/src/main/ets/helper/`)
 - `ServerManager.ets` - Manages Android server deployment (sync protocol + shell fallback)
 - `PreferencesHelper.ets` - Device configuration persistence
 - `AdbKeyManager.ets` - Cryptographic key storage and RSA signature generation
+- `Logger.ts` - Logging utilities with tag-based filtering
 
 **UI Layer** (`app/src/main/ets/pages/`)
 - `Index.ets` - Device list management
-- `DeviceDetail.ets` - Device configuration editor
+- `DeviceDetail.ets` - Device configuration editor (video codec, audio codec, bitrate, etc.)
 - `ControlPage.ets` - Remote control interface with XComponent for video rendering
 
 **Native Layer** (`app/src/main/cpp/`)
 - `video_decoder_native.cpp` - Hardware video decoder using OH_VideoDecoder APIs
+- `audio_decoder_native.cpp` - Audio decoder using OH_AudioCodec and OH_AudioRenderer
+- `video_stream_processor.cpp` - Ring buffer for video frame processing
 - `napi_init.cpp` - N-API bridge for ArkTS ↔ C++ communication
 - CMake build system targeting arm64-v8a and x86_64
 
 ### Data Flow
 
 1. **Connection**: ADB TCP → RSA Auth → Shell Stream → Server Deployment Check
-2. **Server Launch**: Execute `/data/local/tmp/easycontrol-server.jar` via ADB shell
-3. **Stream Initialization**: Open control socket → Read video config (SPS/PPS/VPS)
-4. **Video Pipeline**: Video packets → ClientStream → VideoDecoder (ArkTS) → Native decoder → XComponent Surface
-5. **Control Events**: Touch/Key input → ControlPacket → ClientStream → Android server
+2. **Server Launch**: Execute `/data/local/tmp/scrcpy-server.jar` via ADB shell
+3. **Stream Initialization**: Open 3 sockets (video, audio, control) → Read codec headers
+4. **Video Pipeline**: Video packets (12-byte header: 8-byte PTS + 4-byte size + data) → ClientStream → VideoDecoder → Native decoder → XComponent Surface
+5. **Audio Pipeline**: Audio packets (same 12-byte header format) → ClientStream → AudioDecoder → Native decoder → AudioRenderer
+6. **Control Events**: Touch/Key input → ControlPacket → ClientStream → Android server
 
 ### Key Technical Details
 
@@ -109,8 +115,15 @@ adb shell ls -l /data/local/tmp/easycontrol-server.jar
 **Server Management**
 - Primary: ADB sync protocol for binary transfer
 - Fallback: Shell-based push via `dd` command with base64 encoding
-- Server path: `/data/local/tmp/easycontrol-server.jar`
+- Server path: `/data/local/tmp/scrcpy-server.jar`
 - Validation via shell command: `ls <path> && echo FILE_EXISTS`
+
+**Audio Decoding**
+- Native C++ decoder for performance (libnative_media_adec.so)
+- Supports AAC, Opus, FLAC, and RAW PCM codecs
+- Sample rate: 48000Hz, Channels: 2 (stereo)
+- Audio codec determined dynamically from server handshake (4-byte header)
+- Uses OH_AudioRenderer for PCM playback
 
 **Touch Coordination**
 - Multi-touch support with pointer ID tracking
@@ -158,7 +171,7 @@ adb shell ls -l /data/local/tmp/easycontrol-server.jar
 
 - **ADB Authorization**: First connection requires manual approval on Android device (RSA public key acceptance)
 - **Network Requirement**: Both devices must be on same local network
-- **Android Compatibility**: Target Android 5.0+, full audio support requires Android 12+
+- **Android Compatibility**: Target Android 5.0+, audio capture requires Android 11+ with RECORD_AUDIO permission
 - **Native ABIs**: Only arm64-v8a and x86_64 architectures supported
 - **Server Dependency**: Android server JAR must be pre-deployed before connection
 
@@ -167,3 +180,10 @@ adb shell ls -l /data/local/tmp/easycontrol-server.jar
 - `ohos.permission.INTERNET` - Network communication
 - `ohos.permission.GET_NETWORK_INFO` - Network state detection
 - `ohos.permission.MICROPHONE` - Audio streaming (if enabled)
+
+## Audio Capture Note
+
+Android audio capture requires:
+1. `RECORD_AUDIO` permission granted on target Android device
+2. Android 11+ (API 30+) for AudioPlaybackCapture API
+3. Target app must be in foreground for audio capture to work
