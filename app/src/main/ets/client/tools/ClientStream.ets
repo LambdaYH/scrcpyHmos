@@ -17,6 +17,25 @@ export interface VideoConfig {
   height: number;
 }
 
+// Audio configuration - actual codec from server
+export interface AudioConfig {
+  codecId: number;  // Raw codec ID from server (e.g., 0x6F707573 for opus)
+  codecName: string; // Human readable codec name (e.g., "opus", "aac")
+}
+
+// 视频帧接口
+export interface VideoFrame {
+  data: ArrayBuffer;
+  pts: number;
+  flags: number;
+}
+
+// 音频帧接口
+export interface AudioFrame {
+  data: ArrayBuffer;
+  pts: number;  // Presentation timestamp in microseconds
+}
+
 export class ClientStream {
   private mainSocket?: socket.TCPSocket;
   private videoSocket?: socket.TCPSocket;
@@ -37,6 +56,7 @@ export class ClientStream {
   // Handshake data
   private deviceName: string = '';
   private videoConfig?: VideoConfig;
+  private audioConfig?: AudioConfig;
 
 
 
@@ -149,7 +169,29 @@ export class ClientStream {
       break;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+      
+      if (errMsg === 'error forward') {
+        // "error forward" usually means the server socket is not ready yet (Connection Refused)
+        // This is normal during the startup phase.
+        LoggerClientStream.info(`Server socket not ready (attempt ${i + 1}/${reTry}), waiting...`);
+      } else {
+        LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
+        
+        // If server crashed (EOF or closed), we might see it in shellStream
+        // Only read output for unexpected errors
+        if (this.shellStream && !this.shellStream.isStreamClosed() && !this.shellStream.isEmpty()) {
+            try {
+               const data = await this.shellStream.readAllBytes();
+               if (data.byteLength > 0) {
+                  const text = buffer.from(data).toString('utf-8');
+                  LoggerClientStream.error('Server output during connection failure:', text);
+               }
+            } catch (e) {
+               // ignore
+            }
+        }
+      }
+
       this.vidStream = undefined;
       this.audStream = undefined;
       this.msgStream = undefined;
@@ -160,6 +202,13 @@ export class ClientStream {
   }
   
   if (!this.vidStream || (this.device.isAudio && !this.audStream) || !this.msgStream) {
+    // Try one last read of server output
+    if (this.shellStream) {
+        try {
+           const data = await this.shellStream.readAllBytes();
+           if (data.byteLength > 0) LoggerClientStream.error('Final server output:', buffer.from(data).toString('utf-8'));
+        } catch (e) {}
+    }
     throw new Error('Failed to connect to server streams after all retries');
   }
 
@@ -168,7 +217,8 @@ export class ClientStream {
   await this.performHandshakeRest();
 
   // 连接成功后才开始读取shell输出
-  this.readShellOutputAsync();
+  // this.readShellOutputAsync(); // Move this to be safer or ensure it doesn't race
+  this.readShellOutputAsync(); 
 
   this.isConnected = true;
   LoggerClientStream.info('Connection established successfully');
@@ -273,7 +323,73 @@ LoggerClientStream.info(`Video Config: Codec=${codecId}, Size=${width}x${height}
 }
 
 getVideoConfig(): VideoConfig | undefined {
-return this.videoConfig;
+  return this.videoConfig;
+}
+
+// Audio codec ID constants (4-byte ASCII representation in big-endian)
+private static readonly AUDIO_CODEC_OPUS: number = 0x6F707573; // "opus"
+private static readonly AUDIO_CODEC_AAC: number = 0x00616163;  // "aac\0"
+private static readonly AUDIO_CODEC_FLAC: number = 0x666C6163; // "flac"
+private static readonly AUDIO_CODEC_RAW: number = 0x00726177;  // "raw\0"
+
+// Get the actual audio codec configuration
+getAudioConfig(): AudioConfig | undefined {
+  return this.audioConfig;
+}
+
+// Convert codec ID to codec name
+private codecIdToName(codecId: number): string {
+  switch (codecId) {
+    case ClientStream.AUDIO_CODEC_OPUS:
+      return 'opus';
+    case ClientStream.AUDIO_CODEC_AAC:
+      return 'aac';
+    case ClientStream.AUDIO_CODEC_FLAC:
+      return 'flac';
+    case ClientStream.AUDIO_CODEC_RAW:
+      return 'raw';
+    default:
+      LoggerClientStream.warn(`[ClientStream] Unknown audio codec ID: 0x${codecId.toString(16)}, fallback to opus`);
+      return 'opus';
+  }
+}
+
+// Read audio codec header from server (4 bytes)
+// This must be called after connecting to audio stream
+async readAudioCodecHeader(): Promise<boolean> {
+  if (!this.audStream) {
+    LoggerClientStream.error('[ClientStream] Audio stream not connected');
+    return false;
+  }
+
+  try {
+    // Read 4-byte codec ID
+    const codecBytes = await this.readBytesFromAudio(4);
+    const view = new DataView(codecBytes);
+    const codecId = view.getInt32(0, false); // big-endian
+
+    // Check for audio disabled (codecId == 0) or error (codecId == 1)
+    if (codecId === 0) {
+      LoggerClientStream.info('[ClientStream] Audio stream disabled by server');
+      this.audioConfig = { codecId: 0, codecName: 'disabled' };
+      return true;
+    }
+
+    if (codecId === 1) {
+      LoggerClientStream.error('[ClientStream] Audio stream configuration error');
+      return false;
+    }
+
+    const codecName = this.codecIdToName(codecId);
+    this.audioConfig = { codecId, codecName };
+
+    LoggerClientStream.info(`[ClientStream] Audio codec: ${codecName} (0x${codecId.toString(16).toUpperCase()})`);
+    return true;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    LoggerClientStream.error('[ClientStream] Failed to read audio codec header:', errMsg);
+    return false;
+  }
 }
 
   private delay(ms: number): Promise<void> {
@@ -349,7 +465,7 @@ return this.videoConfig;
   }
 
   // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
-  async readFrameFromVideo(): Promise<ArrayBuffer> {
+  async readFrameFromVideo(): Promise<VideoFrame> {
     if (this.isClosing) throw new Error('Client is closing');
 
     // console.debug('[ClientStream] Reading frame header...');
@@ -363,8 +479,13 @@ return this.videoConfig;
     const PACKET_FLAG_CONFIG = 1n << 63n;
     const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
     
+    // Clean PTS (remove flag)
+    const cleanPts = pts & ~PACKET_FLAG_CONFIG;
+    
+    let flags = 0;
     if (isConfig) {
        LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
+       flags = 8; // AVCODEC_BUFFER_FLAGS_CODEC_DATA
     }
 
     // 2. Read Size (4 bytes)
@@ -379,7 +500,60 @@ return this.videoConfig;
     // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
     const frameData = await this.readBytesFromVideo(frameSize);
     // console.debug(`[ClientStream] Frame data read complete`);
-    return frameData;
+    
+    // Convert BigInt PTS to number for now (microseconds usually fit in safe integer)
+    // If Scrcpy sends nanoseconds or similar that exceeds 2^53, precise low bits might be lost, but VideoDecoder usually handles microseconds.
+    const frame: VideoFrame = { data: frameData, pts: Number(cleanPts), flags: flags };
+    return frame;
+  }
+
+  // 从audio stream读取指定长度的字节
+  async readBytesFromAudio(length: number): Promise<ArrayBuffer> {
+    if (!this.audStream) {
+      throw new Error('Audio stream not connected');
+    }
+    return await this.audStream.readByteArray(length);
+  }
+
+  // 读取一帧音频数据
+  // Scrcpy V2 audio format: [8 bytes PTS] [4 bytes size] [N bytes audio data]
+  // Reference: scrcpy/app/src/demuxer.c sc_demuxer_recv_packet()
+  async readFrameFromAudio(): Promise<AudioFrame> {
+    if (this.isClosing) throw new Error('Client is closing');
+
+    // Constants for packet flags (same as video)
+    const PACKET_FLAG_CONFIG = 1n << 63n;
+    const PACKET_FLAG_KEY_FRAME = 1n << 62n;
+    const PTS_MASK = PACKET_FLAG_KEY_FRAME - 1n;
+
+    // 1. Read PTS (8 bytes, big-endian)
+    const ptsBytes = await this.readBytesFromAudio(8);
+    const ptsView = new DataView(ptsBytes);
+    const ptsRaw = ptsView.getBigInt64(0, false);
+
+    // Check if this is a config packet (for opus/flac, the config data comes as a packet with special PTS)
+    const isConfig = (ptsRaw & PACKET_FLAG_CONFIG) !== 0n;
+    const cleanPts = Number(ptsRaw & PTS_MASK); // Convert to microseconds
+
+    // 2. Read Size (4 bytes, big-endian)
+    const sizeBytes = await this.readBytesFromAudio(4);
+    const sizeView = new DataView(sizeBytes);
+    const frameSize = sizeView.getInt32(0, false);
+
+    if (frameSize <= 0 || frameSize > 1024 * 1024) { // 1MB limit
+      throw new Error(`Invalid audio frame size: ${frameSize}`);
+    }
+
+    // 3. Read Audio Data
+    const frameData = await this.readBytesFromAudio(frameSize);
+
+    // Log config packet reception
+    if (isConfig) {
+      LoggerClientStream.info(`[ClientStream] Audio config packet received: ${frameSize} bytes`);
+    }
+
+    const frame: AudioFrame = { data: frameData, pts: cleanPts };
+    return frame;
   }
 
 

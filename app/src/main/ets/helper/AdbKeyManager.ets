@@ -30,8 +30,6 @@ class KeyGenerationInfo {
 export class AdbKeyManager {
   private static instance: AdbKeyManager;
   private preferences?: preferences.Preferences;
-  // private context?: Context; // Removed unused
-  // private currentDeviceKey: string = ''; // Removed unused
   private publicKeyBase64: string = '';
   private privateKeyBase64: string = '';
   private adbPublicKeyBase64: string = ''; // 保存ADB格式的公钥

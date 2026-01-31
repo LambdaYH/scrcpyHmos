@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.5.0)
 project(scrcpy_native)
 
 set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
@@ -8,6 +8,7 @@ include_directories(${NATIVERENDER_ROOT_PATH})
 add_library(scrcpy_native SHARED
     video_decoder_native.cpp
     audio_decoder_native.cpp
+    video_stream_processor.cpp
     napi_init.cpp
 )
 

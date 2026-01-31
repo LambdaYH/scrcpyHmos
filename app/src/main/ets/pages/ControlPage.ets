@@ -185,8 +185,8 @@ struct ControlPage {
     
     try {
       this.connectionStatus = 'Connecting to device...';
-      LoggerControlPage.info('ControlPage: Starting connection to device:', this.device.name);
-      LoggerControlPage.info('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
+      LoggerControlPage.debug('ControlPage: Starting connection to device:', this.device.name);
+      LoggerControlPage.debug('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
       
       // 显示授权提示
       this.connectionStatus = '连接中...如果是首次连接，请在Android设备上授权USB调试';
@@ -196,7 +196,7 @@ struct ControlPage {
         // 立即保存Client引用，以便退出页面时关闭
         this.client = client;
       });
-      LoggerControlPage.info('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
+      LoggerControlPage.debug('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
       
       if (this.client) {
         this.isConnected = true;
@@ -343,7 +343,7 @@ struct ControlPage {
     this.componentWidth = this.displayXComponentWidth;
     this.componentHeight = this.displayXComponentHeight;
     
-    LoggerControlPage.info(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
+    LoggerControlPage.debug(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
     
     // 重新校准悬浮按钮位置（如果有必要）
     if (this.checkFabPosition) {
@@ -426,7 +426,7 @@ struct ControlPage {
           // 获取容器容器实际尺寸(px)
           this.containerWidth = newArea.width as number;
           this.containerHeight = newArea.height as number;
-          LoggerControlPage.info(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
+          LoggerControlPage.debug(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
           
           // 重新计算视频显示尺寸
           this.calcVideoDisplaySize();
@@ -759,15 +759,22 @@ struct ControlPage {
       LoggerControlPage.error('Cannot init video decoder: client or surfaceId missing');
       return;
     }
-    
-    LoggerControlPage.info('Initializing video decoder with surfaceId:', this.surfaceId);
+
+    LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);
     this.client.initVideoDecoder(this.surfaceId).then(() => {
       // 从 Client 获取实际视频尺寸
       const videoSize = this.client?.getVideoSize();
       if (videoSize) {
         this.videoWidth = videoSize.width;
         this.videoHeight = videoSize.height;
-        LoggerControlPage.info(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        LoggerControlPage.debug(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
+        // 重新计算显示尺寸，确保比例正确
+        this.calcVideoDisplaySize();
+      }
+
+      // 初始化音频解码器（如果启用）
+      if (this.client?.getDevice()?.isAudio) {
+        this.initAudioDecoder();
       }
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init video decoder:', err.message);
@@ -777,5 +784,31 @@ struct ControlPage {
         LoggerControlPage.error('Show toast failed:', e);
       }
     });
+  }
+
+  // 初始化音频解码器
+  private initAudioDecoder(): void {
+    if (!this.client) {
+      LoggerControlPage.error('Cannot init audio decoder: client missing');
+      return;
+    }
+
+    // 使用设备配置的音频编码格式
+    const audioCodec = this.client.getDevice()?.audioCodec || 'opus';
+    LoggerControlPage.debug(`Initializing audio decoder with codec: ${audioCodec}...`);
+    this.client.initAudioDecoder(audioCodec, 48000, 2).then(() => {
+      LoggerControlPage.info('[ControlPage] Audio decoder initialized successfully');
+    }).catch((err: Error) => {
+      LoggerControlPage.error('Failed to init audio decoder:', err.message);
+      // 音频失败不应该影响视频功能，不显示错误提示
+    });
+  }
+
+  // 启用流模式（C++处理）
+  private enableStreamMode(enable: boolean = true): void {
+    if (this.client) {
+      this.client.enableStreamMode(enable);
+      LoggerControlPage.info(`[ControlPage] Stream mode ${enable ? 'enabled' : 'disabled'}`);
+    }
   }
 }

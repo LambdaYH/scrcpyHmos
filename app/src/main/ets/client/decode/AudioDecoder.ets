@@ -112,4 +112,78 @@ export class AudioDecoder {
   isReady(): boolean {
     return this.isStarted && this.decoderId !== 0;
   }
+
+  // ============== Stream Mode APIs (C++ processing) ==============
+
+  private streamProcessorId: number = 0;
+
+  /**
+   * Create and initialize stream processor (C++ mode)
+   * Must be called after init() and startAudioDecoder()
+   */
+  async createStreamProcessor(codecType: string, sampleRate: number, channelCount: number): Promise<number> {
+    try {
+      console.info(`[AudioDecoder] Creating stream processor...`);
+
+      // Create stream processor linked to this decoder
+      this.streamProcessorId = scrcpy_native.createAudioStreamProcessor(
+        this.decoderId, codecType, sampleRate, channelCount
+      );
+
+      if (this.streamProcessorId <= 0) {
+        throw new Error(`Failed to create stream processor: ${this.streamProcessorId}`);
+      }
+
+      console.info(`[AudioDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
+      return this.streamProcessorId;
+
+    } catch (err) {
+      const error = err as Error;
+      console.error(`[AudioDecoder] createStreamProcessor failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Start stream processor (C++ processing thread)
+   */
+  async startStreamProcessor(): Promise<void> {
+    if (this.streamProcessorId === 0) {
+      console.warn('[AudioDecoder] Stream processor not created');
+      return;
+    }
+
+    const ret: number = scrcpy_native.startAudioStreamProcessor(this.streamProcessorId);
+    if (ret !== 0) {
+      throw new Error(`Failed to start stream processor: ${ret}`);
+    }
+
+    console.info('[AudioDecoder] Stream processor started');
+  }
+
+  /**
+   * Push data to stream processor (ArkTS continuously calls this)
+   */
+  pushDataToStream(data: ArrayBuffer, pts: number): number {
+    if (this.streamProcessorId === 0) {
+      return -1;
+    }
+
+    return scrcpy_native.pushAudioStreamData(this.streamProcessorId, data, pts);
+  }
+
+  /**
+   * Release stream processor
+   */
+  async releaseStreamProcessor(): Promise<void> {
+    if (this.streamProcessorId !== 0) {
+      try {
+        scrcpy_native.releaseAudioStreamProcessor(this.streamProcessorId);
+        this.streamProcessorId = 0;
+        console.info('[AudioDecoder] Stream processor released');
+      } catch (err) {
+        console.error('[AudioDecoder] Release stream processor failed:', err);
+      }
+    }
+  }
 }

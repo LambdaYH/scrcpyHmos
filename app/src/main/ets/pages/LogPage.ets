@@ -21,7 +21,8 @@ struct LogPage {
         this.scroller.scrollEdge(Edge.Bottom);
       }, 100);
     } catch (e) {
-      LoggerIndex.error('Load logs failed:', e);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      LoggerIndex.error('Load logs failed:', errMsg);
       this.logContent = 'Failed to load logs.';
     }
   }

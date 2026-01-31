@@ -35,7 +35,6 @@ export class TcpChannel implements AdbChannel {
 
       this.tcpSocket = socket.constructTCPSocketInstance();
 
-      // 绑定message事件 - 接收所有数据到缓冲区
       this.tcpSocket.on('message', (value: socket.SocketMessageInfo) => {
         if (value.message) {
           this.onDataReceived(value.message);
@@ -44,6 +43,23 @@ export class TcpChannel implements AdbChannel {
 
       this.tcpSocket.on('connect', () => {
         console.info(`TcpChannel: TCP connected to ${address}:${port}`);
+        
+        // Enable TCP_NODELAY for low latency (critical for scrcpy touch events)
+        if (this.tcpSocket) {
+          try {
+            this.tcpSocket.setExtraOptions({
+              TCPNoDelay: true,
+              keepAlive: true // Also good to have
+            }).then(() => {
+              console.debug('TcpChannel: TCP_NODELAY enabled');
+            }).catch((err: Object) => {
+              console.warn('TcpChannel: Failed to set TCP_NODELAY (non-critical):', JSON.stringify(err));
+            });
+          } catch (err) {
+            console.warn('TcpChannel: Error setting extra options:', JSON.stringify(err));
+          }
+        }
+
         clearTimeout(timeoutId);
         this.isConnected = true;
         resolve();

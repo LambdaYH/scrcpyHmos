@@ -1,7 +1,7 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
-import { LoggerIndex, Logger } from '../helper/Logger';
+import { Logger, LoggerIndex } from '../helper/Logger';
 
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
@@ -610,8 +610,6 @@ struct Index {
     customStyle: true
   });
 
-  // ... (previous code)
-
   async connectDevice(device: Device) {
     if (this.isConnecting) return;
     
@@ -673,7 +671,7 @@ struct Index {
       if (this.connectingClient) {
         // 连接成功，立即跳转到控制页面
         // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
-        LoggerIndex.info('[Index] Connection successful, navigating to ControlPage');
+        LoggerIndex.debug('[Index] Connection successful, navigating to ControlPage');
         this.isConnecting = false;
         
         // 跳转到控制页面，传递已连接的 client
