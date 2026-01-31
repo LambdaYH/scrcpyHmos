@@ -42,7 +42,7 @@ export class Client {
   
   // 视频帧队列
   private frameQueue: VideoFrame[] = [];
-  private readonly MAX_QUEUE_SIZE = 2; // 允许的最大缓冲帧数
+  private readonly MAX_QUEUE_SIZE = 10; // 允许的最大缓冲帧数
 
   // Stream mode flags
   private useStreamMode: boolean = false;

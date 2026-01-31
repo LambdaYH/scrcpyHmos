@@ -5,9 +5,13 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <array>
 #include "multimedia/player_framework/native_avcodec_audiocodec.h"
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "ohaudio/native_audiorenderer.h"
+
+// Forward declaration for RingBuffer
+class RingBuffer;
 
 struct AudioDecoderContext {
     std::queue<uint32_t> inputBufferQueue;
@@ -30,6 +34,8 @@ public:
     int32_t Init(const char* codecType, int32_t sampleRate, int32_t channelCount);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
+    // Direct push from RingBuffer (optimized, avoids intermediate copy)
+    int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags = 0);
     int32_t Stop();
     int32_t Release();
 
@@ -61,9 +67,16 @@ private:
     std::string codecType_;
     AudioDecoderContext* context_;
 
-    // PCM缓冲区（用于RAW模式或解码后数据）
-    std::queue<std::vector<uint8_t>> pcmQueue_;
+    // PCM缓冲区（预分配池，替代动态vector分配）
+    static constexpr size_t PCM_BUFFER_SIZE = 32 * 1024;  // 32KB per buffer
+    static constexpr size_t PCM_POOL_SIZE = 16;  // 16 pre-allocated buffers
+    std::queue<std::array<uint8_t, PCM_BUFFER_SIZE>> pcmPool_;
+    std::queue<size_t> pcmPoolSizes_;  // Actual size for each buffer
+    std::queue<std::pair<size_t, size_t>> pcmPoolOffsets_;  // (offset, remaining)
     std::mutex pcmMutex_;
+    // Legacy queue for fallback
+    std::queue<std::vector<uint8_t>> pcmQueue_;
+    std::mutex pcmQueueMutex_;
 };
 
 #endif // AUDIO_DECODER_NATIVE_H

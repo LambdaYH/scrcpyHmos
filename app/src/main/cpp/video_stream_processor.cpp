@@ -206,34 +206,23 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
         return -2;
     }
 
-    // Allocate frame buffer
-    ParsedFrame frame;
-    frame.data = std::make_unique<uint8_t[]>(frameSize);
-    frame.size = frameSize;
-    frame.pts = 0;  // Audio uses decoder's internal clock
-    frame.flags = 0;
-
-    if (!frame.data) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to allocate audio frame buffer");
-        droppedFrameCount_++;
-        ringBuffer_->AdvanceRead(totalFrameSize);
-        return 0;
-    }
-
-    // Read frame data
+    // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
-    size_t read = ringBuffer_->Read(frame.data.get(), frameSize);
 
-    if (read < static_cast<size_t>(frameSize)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to read complete audio frame");
-        droppedFrameCount_++;
-        return 0;
-    }
+    // 直接从RingBuffer推送到解码器（优化：消除ParsedFrame分配和额外memcpy）
+    int32_t pushResult = PushToDecoderFromRingBuffer(ringBuffer_.get(), frameSize, 0, 0);
 
-    // Push to decoder
-    int32_t pushResult = PushToDecoder(frame);
     if (pushResult == 0) {
         processedFrameCount_++;
+    } else if (pushResult == -2) {
+        // 需要更多数据，回退
+        ringBuffer_->AdvanceRead(-static_cast<int64_t>(AUDIO_HEADER_SIZE));
+        return -2;
+    } else {
+        // 错误或buffer满
+        droppedFrameCount_++;
+        // 跳过这帧数据
+        ringBuffer_->AdvanceRead(frameSize);
     }
 
     return pushResult;
@@ -289,34 +278,23 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
         pts = pts & ~PACKET_FLAG_CONFIG;
     }
 
-    // Allocate frame buffer
-    ParsedFrame frame;
-    frame.data = std::make_unique<uint8_t[]>(frameSize);
-    frame.size = frameSize;
-    frame.pts = pts;
-    frame.flags = flags;
-
-    if (!frame.data) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to allocate frame buffer");
-        droppedFrameCount_++;
-        ringBuffer_->AdvanceRead(totalFrameSize);
-        return 0;
-    }
-
-    // Read frame data
+    // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(MIN_READ_SIZE);
-    size_t read = ringBuffer_->Read(frame.data.get(), frameSize);
 
-    if (read < static_cast<size_t>(frameSize)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to read complete frame");
-        droppedFrameCount_++;
-        return 0;
-    }
+    // 直接从RingBuffer推送到解码器（优化：消除ParsedFrame分配和额外memcpy）
+    int32_t pushResult = PushToDecoderFromRingBuffer(ringBuffer_.get(), frameSize, pts, flags);
 
-    // Push to decoder
-    int32_t pushResult = PushToDecoder(frame);
     if (pushResult == 0) {
         processedFrameCount_++;
+    } else if (pushResult == -2) {
+        // 需要更多数据（不应该发生），回退
+        ringBuffer_->AdvanceRead(-static_cast<int64_t>(MIN_READ_SIZE));
+        return -2;
+    } else {
+        // 错误或buffer满
+        droppedFrameCount_++;
+        // 跳过这帧数据
+        ringBuffer_->AdvanceRead(frameSize);
     }
 
     return pushResult;
@@ -333,5 +311,17 @@ int32_t VideoStreamProcessor::PushToDecoder(const ParsedFrame& frame) {
         AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
         return audioDecoder->PushData(frame.data.get(), static_cast<int32_t>(frame.size),
                                        frame.pts);
+    }
+}
+
+int32_t VideoStreamProcessor::PushToDecoderFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags) {
+    if (!decoder_ || !ringBuffer) return -1;
+
+    if (mediaType_ == MediaType::VIDEO) {
+        VideoDecoderNative* videoDecoder = static_cast<VideoDecoderNative*>(decoder_);
+        return videoDecoder->PushFromRingBuffer(ringBuffer, size, pts, flags);
+    } else {
+        AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
+        return audioDecoder->PushFromRingBuffer(ringBuffer, size, pts);
     }
 }

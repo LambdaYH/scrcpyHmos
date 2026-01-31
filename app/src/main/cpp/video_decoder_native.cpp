@@ -1,4 +1,5 @@
 #include "video_decoder_native.h"
+#include "video_stream_processor.h"  // Include for RingBuffer access
 #include <hilog/log.h>
 #include <queue>
 #include <mutex>
@@ -341,6 +342,93 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
 //        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames total (last size=%{public}d)", frameCount_, size);
 //    }
 
+    return 0;
+}
+
+int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags) {
+    if (!isStarted_ || decoder_ == nullptr || context_ == nullptr) {
+        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: decoder not ready");
+        return -1;
+    }
+
+    if (ringBuffer == nullptr || size <= 0) {
+        return -1;
+    }
+
+    // 从队列获取可用的input buffer index和buffer
+    uint32_t bufferIndex = 0;
+    OH_AVBuffer* buffer = nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(context_->queueMutex);
+        if (!context_->inputBufferQueue.empty() && !context_->inputBuffers.empty()) {
+            bufferIndex = context_->inputBufferQueue.front();
+            context_->inputBufferQueue.pop();
+            buffer = context_->inputBuffers.front();
+            context_->inputBuffers.pop();
+        }
+    }
+
+    if (buffer == nullptr) {
+        return -2;  // No available buffer
+    }
+
+    // 获取buffer的内存地址和容量
+    uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
+    int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
+
+    if (bufferSize < size) {
+        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: buffer too small");
+        // Put buffer back
+        {
+            std::lock_guard<std::mutex> lock(context_->queueMutex);
+            context_->inputBufferQueue.push(bufferIndex);
+            context_->inputBuffers.push(buffer);
+        }
+        return -1;
+    }
+
+    // 直接从RingBuffer读取到buffer（优化：减少一次memcpy）
+    size_t read = ringBuffer->Read(bufferAddr, size);
+
+    if (read < static_cast<size_t>(size)) {
+        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: incomplete read");
+        // Put buffer back
+        {
+            std::lock_guard<std::mutex> lock(context_->queueMutex);
+            context_->inputBufferQueue.push(bufferIndex);
+            context_->inputBuffers.push(buffer);
+        }
+        return -1;
+    }
+
+    // 设置buffer属性
+    OH_AVCodecBufferAttr attr;
+    attr.pts = pts;
+    attr.size = size;
+    attr.offset = 0;
+    attr.flags = flags;
+
+    OH_AVErrCode attrRet = OH_AVBuffer_SetBufferAttr(buffer, &attr);
+    if (attrRet != AV_ERR_OK) {
+        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: SetBufferAttr failed");
+        return -1;
+    }
+
+    // 提交buffer到解码器
+    int32_t ret = OH_VideoDecoder_PushInputBuffer(decoder_, bufferIndex);
+    if (ret != AV_ERR_OK) {
+        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: PushInputBuffer failed: %{public}d", ret);
+        // Put buffer back
+        {
+            std::lock_guard<std::mutex> lock(context_->queueMutex);
+            context_->inputBufferQueue.push(bufferIndex);
+            context_->inputBuffers.push(buffer);
+        }
+        return -1;
+    }
+
+    frameCount_++;
     return 0;
 }
 

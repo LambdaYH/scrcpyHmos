@@ -236,6 +236,9 @@ private:
     // Push frame to decoder
     int32_t PushToDecoder(const ParsedFrame& frame);
 
+    // Direct push from RingBuffer to decoder (optimized)
+    int32_t PushToDecoderFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags);
+
     MediaType mediaType_;
     void* decoder_;  // VideoDecoderNative* or AudioDecoderNative*
 
