@@ -141,12 +141,12 @@ export class Client {
           this.device.isAudio = false;
           return;
         }
-        LoggerClient.info(`[Client] Server audio codec: ${audioConfig.codecName}`);
+        LoggerClient.debug(`[Client] Server audio codec: ${audioConfig.codecName}`);
         actualCodec = audioConfig.codecName;
         this.audioCodec = actualCodec;
       } else {
         // No audio config yet, try to read it
-        LoggerClient.info('[Client] Reading audio codec header from server...');
+        LoggerClient.debug('[Client] Reading audio codec header from server...');
         const codecRead = await this.clientStream.readAudioCodecHeader();
         const newConfig = this.clientStream.getAudioConfig();
 
@@ -156,7 +156,7 @@ export class Client {
             this.device.isAudio = false;
             return;
           }
-          LoggerClient.info(`[Client] Server audio codec: ${newConfig.codecName}`);
+          LoggerClient.debug(`[Client] Server audio codec: ${newConfig.codecName}`);
           actualCodec = newConfig.codecName;
           this.audioCodec = actualCodec;
         } else {
@@ -168,7 +168,7 @@ export class Client {
         }
       }
 
-      LoggerClient.info(`[Client] Initializing audio decoder: ${actualCodec}, ${sampleRate}Hz, ${channelCount}ch`);
+      LoggerClient.debug(`[Client] Initializing audio decoder: ${actualCodec}, ${sampleRate}Hz, ${channelCount}ch`);
 
       this.audioDecoder = new AudioDecoder();
       await this.audioDecoder.init(actualCodec, sampleRate, channelCount);
@@ -194,7 +194,7 @@ export class Client {
   private startAudioLoop(): void {
     if (this.audioLoopRunning) return;
     if (!this.device.isAudio || !this.clientStream) {
-      LoggerClient.info('[Client] Audio disabled or not initialized, skipping audio loop');
+      LoggerClient.debug('[Client] Audio disabled or not initialized, skipping audio loop');
       return;
     }
 
@@ -209,7 +209,7 @@ export class Client {
     // Legacy mode: push to decoder directly
     const pushLoop = async () => {
       try {
-        LoggerClient.info('[Client] Audio push loop started (legacy mode)');
+        LoggerClient.debug('[Client] Audio push loop started (legacy mode)');
         while (!this.isClosed && this.audioLoopRunning && this.clientStream) {
           try {
             const frame = await this.clientStream.readFrameFromAudio();
@@ -219,7 +219,7 @@ export class Client {
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
             if (this.isClosed || errMsg.includes('closed')) {
-              LoggerClient.info('[Client] Audio loop terminated');
+              LoggerClient.debug('[Client] Audio loop terminated');
               break;
             }
             LoggerClient.error('[Client] Audio frame error:', errMsg);
@@ -229,7 +229,7 @@ export class Client {
         LoggerClient.error('[Client] Audio loop error:', err);
       } finally {
         this.audioLoopRunning = false;
-        LoggerClient.info('[Client] Audio loop stopped');
+        LoggerClient.debug('[Client] Audio loop stopped');
       }
     };
 
@@ -238,11 +238,11 @@ export class Client {
 
   // Stream mode for audio
   private startAudioStreamMode(): void {
-    LoggerClient.info('[AudioStreamMode] Starting audio stream mode...');
+    LoggerClient.debug('[AudioStreamMode] Starting audio stream mode...');
 
     const pushLoop = async () => {
       try {
-        LoggerClient.info('[AudioStreamMode] Audio push loop started');
+        LoggerClient.debug('[AudioStreamMode] Audio push loop started');
         while (!this.isClosed && this.audioLoopRunning && this.clientStream) {
           try {
             const frame = await this.clientStream.readFrameFromAudio();
@@ -256,7 +256,7 @@ export class Client {
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
             if (this.isClosed || errMsg.includes('closed')) {
-              LoggerClient.info('[AudioStreamMode] Audio loop terminated');
+              LoggerClient.debug('[AudioStreamMode] Audio loop terminated');
               break;
             }
             LoggerClient.error('[AudioStreamMode] Audio frame error:', errMsg);
@@ -266,7 +266,7 @@ export class Client {
         LoggerClient.error('[AudioStreamMode] Audio loop error:', err);
       } finally {
         this.audioLoopRunning = false;
-        LoggerClient.info('[AudioStreamMode] Audio loop stopped');
+        LoggerClient.debug('[AudioStreamMode] Audio loop stopped');
 
         // Release stream processor
         this.audioDecoder?.releaseStreamProcessor();
@@ -340,7 +340,7 @@ export class Client {
       // 2. Video config is already loaded during handshake
       const videoConfig = this.clientStream.getVideoConfig();
       if (videoConfig) {
-        LoggerClient.info(`Video config loaded: ${videoConfig.width}x${videoConfig.height}`);
+        LoggerClient.debug(`Video config loaded: ${videoConfig.width}x${videoConfig.height}`);
       } else {
         LoggerClient.warn('Video config not available after connect');
       }
@@ -440,20 +440,20 @@ export class Client {
       const csd0: ArrayBuffer = new ArrayBuffer(0);
       const csd1: ArrayBuffer | undefined = undefined;
 
-      LoggerClient.info(`Using handshake config: ${codecType.toUpperCase()}, ${width}x${height}`);
+      LoggerClient.debug(`Using handshake config: ${codecType.toUpperCase()}, ${width}x${height}`);
 
       // 初始化解码器
       this.videoDecoder = new VideoDecoder();
       await this.videoDecoder.init(codecType, surfaceId, width, height, csd0, csd1);
 
-      LoggerClient.info('Video decoder initialized, starting video loop...');
+      LoggerClient.debug('Video decoder initialized, starting video loop...');
 
       // 如果启用流模式，初始化C++流处理器
       if (this.useStreamMode && this.videoDecoder) {
-        LoggerClient.info('[Client] Initializing C++ stream processor...');
+        LoggerClient.debug('[Client] Initializing C++ stream processor...');
         try {
           await this.videoDecoder.createStreamProcessor(codecType);
-          LoggerClient.info('[Client] Stream processor created successfully');
+          LoggerClient.debug('[Client] Stream processor created successfully');
         } catch (streamErr) {
           LoggerClient.warn('[Client] Stream processor init failed, falling back to legacy mode:', streamErr);
           this.useStreamMode = false;
@@ -485,7 +485,7 @@ export class Client {
     const readLoop = async () => {
       let disconnectReason = '';
       try {
-        LoggerClient.info('Video loop started (legacy mode), waiting for frames...');
+        LoggerClient.debug('Video loop started (legacy mode), waiting for frames...');
         let frameCount = 0;
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
@@ -523,7 +523,7 @@ export class Client {
 
             // If closed intentionally, this error is expected
             if (this.isClosed || errMsg.includes('closed during read') || errMsg.includes('Socket closed')) {
-               LoggerClient.info('Video read loop terminated (connection closed)');
+               LoggerClient.debug('Video read loop terminated (connection closed)');
                break;
             }
 
@@ -541,7 +541,7 @@ export class Client {
         disconnectReason = '视频循环错误: ' + errMsg;
       } finally {
         this.videoLoopRunning = false;
-        LoggerClient.info('Video loop stopped');
+        LoggerClient.debug('Video loop stopped');
 
         // 如果不是正常关闭，触发断开回调
         if (disconnectReason && !this.isClosed) {
@@ -555,7 +555,7 @@ export class Client {
 
     // 2. 消费者：解码循环 (Restore Pipeline)
     const decodeLoop = async () => {
-      LoggerClient.info('Video decode loop started');
+      LoggerClient.debug('Video decode loop started');
       while (!this.isClosed && this.videoLoopRunning) {
         if (this.frameQueue.length > 0 && this.videoDecoder) {
           const frame = this.frameQueue.shift();
@@ -568,7 +568,7 @@ export class Client {
            await new Promise<void>((resolve) => setTimeout(resolve, 1));
         }
       }
-      LoggerClient.info('Video decode loop stopped');
+      LoggerClient.debug('Video decode loop stopped');
     };
 
     decodeLoop();
@@ -579,11 +579,11 @@ export class Client {
    * This eliminates the ArkTS-level queue and frame parsing overhead
    */
   private startStreamMode(): void {
-    LoggerClient.info('[StreamMode] Starting stream mode...');
+    LoggerClient.debug('[StreamMode] Starting stream mode...');
 
     // Start C++ stream processor first
     this.videoDecoder?.startStreamProcessor().then(() => {
-      LoggerClient.info('[StreamMode] C++ processor started');
+      LoggerClient.debug('[StreamMode] C++ processor started');
     }).catch((err: Error) => {
       LoggerClient.error('[StreamMode] Failed to start C++ processor:', err);
     });
@@ -593,7 +593,7 @@ export class Client {
       let frameCount = 0;
 
       try {
-        LoggerClient.info('[StreamMode] Push loop started');
+        LoggerClient.debug('[StreamMode] Push loop started');
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
             // Read frame from stream
@@ -615,7 +615,7 @@ export class Client {
                 // First frame callback
                 if (!this.firstFrameReceived && this.onFirstFrameCallback) {
                   this.firstFrameReceived = true;
-                  LoggerClient.info('[StreamMode] First frame received, triggering callback');
+                  LoggerClient.debug('[StreamMode] First frame received, triggering callback');
                   this.onFirstFrameCallback();
                 }
               } else if (pushResult === -2) {
@@ -631,7 +631,7 @@ export class Client {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
 
             if (this.isClosed || errMsg.includes('closed during read') || errMsg.includes('Socket closed')) {
-               LoggerClient.info('[StreamMode] Push loop terminated (connection closed)');
+               LoggerClient.debug('[StreamMode] Push loop terminated (connection closed)');
                break;
             }
 
@@ -646,7 +646,7 @@ export class Client {
         disconnectReason = '流模式循环错误: ' + errMsg;
       } finally {
         this.videoLoopRunning = false;
-        LoggerClient.info('[StreamMode] Push loop stopped, pushed %{public} frames', frameCount);
+        LoggerClient.debug('[StreamMode] Push loop stopped, pushed %{public} frames', frameCount);
 
         // Release stream processor
         this.videoDecoder?.releaseStreamProcessor();

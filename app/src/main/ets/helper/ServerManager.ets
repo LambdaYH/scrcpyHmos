@@ -34,12 +34,12 @@ export class ServerManager {
       LoggerServerManager.debug('Check server result:', result);
 
       if (result.includes('No such file') || result.includes('FILE_NOT_FOUND')) {
-        LoggerServerManager.info('Server.jar does NOT exist on device');
+        LoggerServerManager.debug('Server.jar does NOT exist on device');
         return false;
       }
 
       if (result.includes(ServerManager.SERVER_PATH) && result.includes('FILE_EXISTS')) {
-        LoggerServerManager.info('Server.jar exists on device');
+        LoggerServerManager.debug('Server.jar exists on device');
         return true;
       }
 
@@ -55,7 +55,7 @@ export class ServerManager {
   static async checkServerExistsViaStream(stream: BufferStream): Promise<boolean> {
     try {
       const cmd = `ls ${ServerManager.SERVER_PATH} && echo FILE_EXISTS || echo FILE_NOT_FOUND\n`;
-      LoggerServerManager.info('Checking server with command:', cmd);
+      LoggerServerManager.debug('Checking server with command:', cmd);
       await stream.write(buffer.from(cmd, 'utf-8').buffer);
 
       // 等待并读取输出
@@ -72,15 +72,15 @@ export class ServerManager {
             const result = await stream.readAllBytes();
             if (result.byteLength > 0) {
               output += decoder.decodeToString(new Uint8Array(result));
-              LoggerServerManager.info('Check server output:', output);
+              LoggerServerManager.debug('Check server output:', output);
 
               // 检查是否有结果
               if (output.includes('No such file')) {
-                LoggerServerManager.info('Server.jar does NOT exist on device');
+                LoggerServerManager.debug('Server.jar does NOT exist on device');
                 return false;
               }
               if (output.includes(ServerManager.SERVER_PATH) && output.includes('FILE_EXISTS')) {
-                LoggerServerManager.info('Server.jar exists on device');
+                LoggerServerManager.debug('Server.jar exists on device');
                 return true;
               }
             }
@@ -101,13 +101,13 @@ export class ServerManager {
   // 推送服务端jar - 使用Adb.pushFile方法
   static async pushServer(adb: Adb, serverData: ArrayBuffer): Promise<boolean> {
     try {
-      LoggerServerManager.info(`Pushing server.jar, size: ${serverData.byteLength} bytes`);
+      LoggerServerManager.debug(`Pushing server.jar, size: ${serverData.byteLength} bytes`);
 
       await adb.pushFile(serverData, ServerManager.SERVER_PATH, () => {
         // Callback
       });
 
-      LoggerServerManager.info('Server.jar pushed successfully, verifying...');
+      LoggerServerManager.debug('Server.jar pushed successfully, verifying...');
 
       // 验证文件是否真的存在
       await new Promise<void>(resolve => setTimeout(resolve, 500)); // 等待文件系统同步
@@ -118,7 +118,7 @@ export class ServerManager {
         throw new Error('File verification failed');
       }
 
-      LoggerServerManager.info('Server.jar verified on device');
+      LoggerServerManager.debug('Server.jar verified on device');
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -133,7 +133,7 @@ export class ServerManager {
   // 通过shell+base64推送文件（更可靠）
   static async pushServerViaShell(adb: Adb, serverData: ArrayBuffer): Promise<boolean> {
     try {
-      LoggerServerManager.info('Opening shell for file push via base64...');
+      LoggerServerManager.debug('Opening shell for file push via base64...');
       const shellStream = await adb.getShell();
 
       // 删除旧文件
@@ -143,7 +143,7 @@ export class ServerManager {
 
       // 将二进制数据转换为base64
       const base64Data = buffer.from(serverData).toString('base64');
-      LoggerServerManager.info(`Base64 encoded size: ${base64Data.length} chars`);
+      LoggerServerManager.debug(`Base64 encoded size: ${base64Data.length} chars`);
 
       // 分块发送base64数据（避免命令行长度限制）
       const chunkSize = 4000; // base64 字符，不是字节
@@ -165,7 +165,7 @@ export class ServerManager {
         }
       }
 
-      LoggerServerManager.info('Base64 data written, decoding...');
+      LoggerServerManager.debug('Base64 data written, decoding...');
       await new Promise<void>(resolve => setTimeout(resolve, 200));
 
       // 解码base64文件
@@ -189,7 +189,7 @@ export class ServerManager {
       await new Promise<void>(resolve => setTimeout(resolve, 300));
 
       shellStream.close();
-      LoggerServerManager.info('Server.jar pushed successfully via shell, verifying...');
+      LoggerServerManager.debug('Server.jar pushed successfully via shell, verifying...');
 
       // 等待文件系统同步后再次验证
       await new Promise<void>(resolve => setTimeout(resolve, 500));
@@ -200,7 +200,7 @@ export class ServerManager {
         return false;
       }
 
-      LoggerServerManager.info('Server.jar verified on device after shell push');
+      LoggerServerManager.debug('Server.jar verified on device after shell push');
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -214,7 +214,7 @@ export class ServerManager {
     try {
       const resMgr = context.resourceManager;
       const fileName = `scrcpy-server-v${ServerManager.SCRCPY_VERSION}`;
-      LoggerServerManager.info(`Loading server from rawfile: ${fileName}`);
+      LoggerServerManager.debug(`Loading server from rawfile: ${fileName}`);
       const rawFileData = await resMgr.getRawFileContent(fileName);
       return rawFileData.buffer;
     } catch (err) {

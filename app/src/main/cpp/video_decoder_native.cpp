@@ -53,9 +53,9 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         context->inputBufferQueue.push(index);
         context->inputBuffers.push(buffer);  // 保存buffer指针
         // Reduce log verbosity for input buffers, only log occasionally or on empty
-        if (context->inputBufferQueue.size() == 1) {
-             OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: Got first buffer! index=%{public}u", index);
-        }
+//        if (context->inputBufferQueue.size() == 1) {
+//             OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: Got first buffer! index=%{public}u", index);
+//        }
     } else {
         OH_LOG_ERROR(LOG_APP, "[Native] OnNeedInputBuffer: buffer is null");
     }
@@ -252,7 +252,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     }
 
     if (!hasBuffer) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] PushData: no available input buffer");
+        // OH_LOG_DEBUG(LOG_APP, "[Native] PushData: no available input buffer");
         return -2;  // 表示暂时没有可用buffer
     }
 
@@ -337,9 +337,9 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     frameCount_++;
 
     // 每50帧输出一次统计信息
-    if (frameCount_ % 50 == 0) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames total (last size=%{public}d)", frameCount_, size);
-    }
+//    if (frameCount_ % 50 == 0) {
+//        OH_LOG_DEBUG(LOG_APP, "[Native] Pushed %{public}u frames total (last size=%{public}d)", frameCount_, size);
+//    }
 
     return 0;
 }
