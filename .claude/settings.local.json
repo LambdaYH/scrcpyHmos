@@ -6,7 +6,9 @@
       "Bash(./hvigorw.bat assembleHap)",
       "Bash(hvigorw.bat assembleHap:*)",
       "Bash(ls:*)",
-      "Bash(cmd //c \"hvigorw.bat assembleHap --no-build-cache\")"
+      "Bash(cmd //c \"hvigorw.bat assembleHap --no-build-cache\")",
+      "Bash(tree:*)",
+      "Bash(dir:*)"
     ]
   }
 }

@@ -154,7 +154,6 @@ export class Adb {
 
   private async handleIn(): Promise<void> {
     try {
-      let wrteCount = 0;
       while (this.handleInRunning && !this.isClosed) {
         const message = await AdbMessage.parseAdbMessage(this.channel);
         
@@ -186,7 +185,6 @@ export class Adb {
             if (this.isClosed) break;
             
             bufferStream.pushSource(message.payload!);
-            wrteCount++;
             await this.writeToChannel(AdbProtocol.generateOkay(message.arg1, message.arg0));
             break;
           case AdbProtocol.CMD_CLSE:

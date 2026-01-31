@@ -1,7 +1,7 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { Client } from '../client/Client';
-import { LoggerIndex, Logger } from '../helper/Logger';
+import { Logger, LoggerIndex } from '../helper/Logger';
 
 import { common } from '@kit.AbilityKit';
 import { connection } from '@kit.NetworkKit';
@@ -609,8 +609,6 @@ struct Index {
     autoCancel: false, // Don't allow clicking outside to dismiss easily, wait for auth
     customStyle: true
   });
-
-  // ... (previous code)
 
   async connectDevice(device: Device) {
     if (this.isConnecting) return;

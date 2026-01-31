@@ -1,4 +1,5 @@
 import { ServerManager } from '../helper/ServerManager';
+import { LoggerDeviceDetail } from '../helper/Logger';
 import { common, Want } from '@kit.AbilityKit';
 
 @Entry
@@ -22,7 +23,7 @@ struct AboutPage {
       uri: url
     };
     context.startAbility(want).catch((err: Error) => {
-      console.error('Failed to open URL:', err);
+      LoggerDeviceDetail.error('Failed to open URL:', err);
     });
   }
 

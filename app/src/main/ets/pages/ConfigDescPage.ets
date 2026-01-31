@@ -1,4 +1,5 @@
 import { common, Want } from '@kit.AbilityKit';
+import { LoggerDeviceDetail } from '../helper/Logger';
 
 interface ConfigItem {
   title: ResourceStr;
@@ -17,7 +18,7 @@ struct ConfigDescPage {
       uri: url
     };
     context.startAbility(want).catch((err: Error) => {
-      console.error('Failed to open URL:', err);
+      LoggerDeviceDetail.error('Failed to open URL:', err);
     });
   }
 
