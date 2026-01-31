@@ -4,10 +4,11 @@
 #include "video_stream_processor.h"
 #include <hilog/log.h>
 #include <map>
+#include <unordered_map>
 
 // ============== Video Decoder ==============
 
-static std::map<int64_t, VideoDecoderNative*> g_videoDecoders;
+static std::unordered_map<int64_t, VideoDecoderNative*> g_videoDecoders;
 static int64_t g_nextVideoId = 1;
 
 // 创建视频解码器
@@ -91,11 +92,11 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
 
     napi_get_value_int64(env, args[0], &decoderId);
     napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
-    
-    // Check PTS type (Number or BigInt)
+
+    // Fast path: assume Number type (common case)
     napi_valuetype valueType;
     napi_typeof(env, args[2], &valueType);
-    
+
     if (valueType == napi_bigint) {
         bool lossless;
         napi_get_value_bigint_int64(env, args[2], &pts, &lossless);
@@ -110,7 +111,7 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
             napi_get_value_uint32(env, args[3], &flags);
         }
     }
-    
+
     // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld, flags=%{public}u", dataSize, (long)pts, flags);
 
     auto it = g_videoDecoders.find(decoderId);
@@ -149,7 +150,7 @@ static napi_value ReleaseVideoDecoder(napi_env env, napi_callback_info info) {
 
 // ============== Audio Decoder ==============
 
-static std::map<int64_t, AudioDecoderNative*> g_audioDecoders;
+static std::unordered_map<int64_t, AudioDecoderNative*> g_audioDecoders;
 static int64_t g_nextAudioId = 1;
 
 // 创建音频解码器
@@ -265,8 +266,8 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
 
 // ============== Video Stream Processor ==============
 
-static std::map<int64_t, VideoStreamProcessor*> g_videoStreamProcessors;
-static std::map<int64_t, VideoDecoderNative*> g_videoDecoderMap;  // Link decoder ID to native
+static std::unordered_map<int64_t, VideoStreamProcessor*> g_videoStreamProcessors;
+static std::unordered_map<int64_t, VideoDecoderNative*> g_videoDecoderMap;  // Link decoder ID to native
 static int64_t g_nextVideoProcessorId = 1;
 
 // 创建视频流处理器
@@ -409,8 +410,8 @@ static napi_value ReleaseVideoStreamProcessor(napi_env env, napi_callback_info i
 
 // ============== Audio Stream Processor ==============
 
-static std::map<int64_t, VideoStreamProcessor*> g_audioStreamProcessors;
-static std::map<int64_t, AudioDecoderNative*> g_audioDecoderMap;
+static std::unordered_map<int64_t, VideoStreamProcessor*> g_audioStreamProcessors;
+static std::unordered_map<int64_t, AudioDecoderNative*> g_audioDecoderMap;
 static int64_t g_nextAudioProcessorId = 1;
 
 // 创建音频流处理器

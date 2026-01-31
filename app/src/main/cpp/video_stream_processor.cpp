@@ -133,6 +133,8 @@ int32_t VideoStreamProcessor::PushData(const uint8_t* data, int32_t size, int64_
         return -2;  // Queue full
     }
 
+    // Notify processing thread that data is available
+    dataCV_.notify_one();
     return 0;
 }
 
@@ -142,6 +144,17 @@ void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
     OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread started");
 
     while (self->running_.load()) {
+        // Check if there's data available
+        size_t available = self->ringBuffer_->GetReadAvailable();
+        size_t minRequired = self->mediaType_ == MediaType::AUDIO ? 4 : VideoStreamProcessor::MIN_READ_SIZE;
+
+        if (available < minRequired) {
+            // Wait for data with timeout
+            std::unique_lock<std::mutex> lock(self->cvMutex_);
+            self->dataCV_.wait_for(lock, std::chrono::milliseconds(2));
+            continue;
+        }
+
         int32_t result = self->ParseAndPushFrame();
 
         if (result == -1) {
@@ -173,8 +186,7 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
     constexpr size_t AUDIO_HEADER_SIZE = 4;
 
     if (available < AUDIO_HEADER_SIZE) {
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // Peek the size
@@ -202,8 +214,7 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
     // Check if we have the complete frame
     size_t totalFrameSize = AUDIO_HEADER_SIZE + frameSize;
     if (available < totalFrameSize) {
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // 推进读取位置（跳过header）
@@ -230,8 +241,7 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
 
 int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
     if (available < MIN_READ_SIZE) {
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // Peek the header
@@ -266,8 +276,7 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
     // Check if we have the complete frame
     size_t totalFrameSize = MIN_READ_SIZE + frameSize;
     if (available < totalFrameSize) {
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // Check config flag (bit 63 of PTS)

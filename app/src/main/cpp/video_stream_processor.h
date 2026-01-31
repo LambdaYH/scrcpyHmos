@@ -25,7 +25,7 @@ public:
     RingBuffer(size_t capacity);
     ~RingBuffer();
 
-    // Write data to buffer (returns bytes written)
+    // Write data to buffer (returns bytes written) - exclusive lock
     inline size_t Write(const uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
@@ -50,7 +50,7 @@ public:
         return toWrite;
     }
 
-    // Read data from buffer (returns bytes read)
+    // Read data from buffer (returns bytes read) - lock (was shared)
     inline size_t Read(uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
@@ -74,7 +74,7 @@ public:
         return toRead;
     }
 
-    // Peek at data without consuming (returns bytes peeked)
+    // Peek at data without consuming (returns bytes peeked) - lock (was shared)
     inline size_t Peek(uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
@@ -94,7 +94,7 @@ public:
         return toPeek;
     }
 
-    // Advance read position (for consumed bytes)
+    // Advance read position (for consumed bytes) - exclusive lock
     inline void AdvanceRead(size_t size) {
         std::unique_lock<std::mutex> lock(mutex_);
         size_t available = GetReadAvailable_Locked();
@@ -103,26 +103,26 @@ public:
         if (readPos_ >= capacity_) readPos_ -= capacity_;
     }
 
-    // Get available space for writing
+    // Get available space for writing - lock (was shared)
     inline size_t GetWriteAvailable() const {
         std::unique_lock<std::mutex> lock(mutex_);
         return GetWriteAvailable_Locked();
     }
 
-    // Get available data for reading
+    // Get available data for reading - lock (was shared)
     inline size_t GetReadAvailable() const {
         std::unique_lock<std::mutex> lock(mutex_);
         return GetReadAvailable_Locked();
     }
 
-    // Clear buffer
+    // Clear buffer - exclusive lock
     inline void Clear() {
         std::unique_lock<std::mutex> lock(mutex_);
         readPos_ = 0;
         writePos_ = 0;
     }
 
-    // Check if buffer is empty
+    // Check if buffer is empty - lock (was shared)
     inline bool IsEmpty() const {
         std::unique_lock<std::mutex> lock(mutex_);
         return readPos_ == writePos_;
@@ -149,7 +149,7 @@ private:
     size_t capacity_;
     size_t readPos_;
     size_t writePos_;
-    mutable std::mutex mutex_;
+    mutable std::mutex mutex_;  // Changed from shared_mutex (HarmonyOS libc++ doesn't support it)
     std::condition_variable cv_;
 };
 
@@ -255,6 +255,10 @@ private:
     // Control flags
     std::atomic<bool> running_{false};
     std::atomic<bool> stopped_{false};
+
+    // Condition variable for data arrival
+    mutable std::mutex cvMutex_;
+    std::condition_variable dataCV_;
 
     // Statistics
     std::atomic<uint64_t> processedFrameCount_{0};
