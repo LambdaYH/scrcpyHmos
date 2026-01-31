@@ -10,7 +10,7 @@ import { common } from '@kit.AbilityKit';
 
 // 视频配置接口
 // 视频配置接口（使用ClientStream中的定义）
-import { VideoConfig, VideoFrame, AudioFrame } from './tools/ClientStream';
+import { VideoConfig, VideoFrame, AudioFrame, AudioConfig } from './tools/ClientStream';
 
 // 客户端管理器
 export class Client {
@@ -25,6 +25,8 @@ export class Client {
   private audioLoopRunning: boolean = false;
   // 预加载的视频配置
   private videoConfig?: VideoConfig;
+  // 音频配置（实际使用的编码格式）
+  private audioCodec?: string;
   // 断开连接回调
   private onDisconnectCallback?: (reason: string) => void;
   // 首帧回调 - 视频开始传输时触发
@@ -82,6 +84,16 @@ export class Client {
     this.audioStreamProcessorReady = ready;
   }
 
+  // 获取要使用的音频编码格式
+  // 优先使用服务器实际返回的编码格式，如果没有则使用设备配置
+  getAudioCodec(): string {
+    if (this.audioCodec) {
+      return this.audioCodec;
+    }
+    // Fallback to device config
+    return this.device.audioCodec || 'opus';
+  }
+
   // 初始化音频流处理器（流模式）
   async initAudioStreamProcessor(codecType: string, sampleRate: number, channelCount: number): Promise<boolean> {
     if (!this.useStreamMode) {
@@ -120,17 +132,57 @@ export class Client {
     }
 
     try {
-      LoggerClient.info(`[Client] Initializing audio decoder: ${codecType}, ${sampleRate}Hz, ${channelCount}ch`);
+      // Step 1: Read audio codec header from server to get actual codec
+      const audioConfig = this.clientStream.getAudioConfig();
+      let actualCodec = codecType;
+
+      if (audioConfig) {
+        if (audioConfig.codecName === 'disabled') {
+          LoggerClient.info('[Client] Audio disabled by server');
+          this.device.isAudio = false;
+          return;
+        }
+        LoggerClient.info(`[Client] Server audio codec: ${audioConfig.codecName}`);
+        actualCodec = audioConfig.codecName;
+        this.audioCodec = actualCodec;
+      } else {
+        // No audio config yet, try to read it
+        LoggerClient.info('[Client] Reading audio codec header from server...');
+        const codecRead = await this.clientStream.readAudioCodecHeader();
+        const newConfig = this.clientStream.getAudioConfig();
+
+        if (newConfig) {
+          if (newConfig.codecName === 'disabled') {
+            LoggerClient.info('[Client] Audio disabled by server');
+            this.device.isAudio = false;
+            return;
+          }
+          LoggerClient.info(`[Client] Server audio codec: ${newConfig.codecName}`);
+          actualCodec = newConfig.codecName;
+          this.audioCodec = actualCodec;
+        } else {
+          if (!codecRead) {
+            LoggerClient.warn('[Client] Failed to read audio codec, using device config');
+            actualCodec = this.device.audioCodec || 'opus';
+            this.audioCodec = actualCodec;
+          }
+        }
+      }
+
+      LoggerClient.info(`[Client] Initializing audio decoder: ${actualCodec}, ${sampleRate}Hz, ${channelCount}ch`);
 
       this.audioDecoder = new AudioDecoder();
-      await this.audioDecoder.init(codecType, sampleRate, channelCount);
+      await this.audioDecoder.init(actualCodec, sampleRate, channelCount);
 
       LoggerClient.info('[Client] Audio decoder initialized');
 
       // If stream mode is enabled, also create the stream processor
       if (this.useStreamMode) {
-        await this.initAudioStreamProcessor(codecType, sampleRate, channelCount);
+        await this.initAudioStreamProcessor(actualCodec, sampleRate, channelCount);
       }
+
+      // Start audio playback loop
+      this.startAudioLoop();
 
     } catch (err) {
       const error = err as Error;

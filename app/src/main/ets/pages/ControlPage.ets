@@ -793,8 +793,10 @@ struct ControlPage {
       return;
     }
 
-    LoggerControlPage.info('Initializing audio decoder...');
-    this.client.initAudioDecoder('opus', 48000, 2).then(() => {
+    // 使用设备配置的音频编码格式
+    const audioCodec = this.client.getDevice()?.audioCodec || 'opus';
+    LoggerControlPage.info(`Initializing audio decoder with codec: ${audioCodec}...`);
+    this.client.initAudioDecoder(audioCodec, 48000, 2).then(() => {
       LoggerControlPage.info('[ControlPage] Audio decoder initialized successfully');
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init audio decoder:', err.message);

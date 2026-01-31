@@ -78,8 +78,8 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
             OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_STRIDE, &context->widthStride);
             OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_SLICE_HEIGHT, &context->heightStride);
 
-            OH_LOG_INFO(LOG_APP, "[Native] First frame output format: %{public}dx%{public}d, stride=%{public}d, sliceHeight=%{public}d",
-                       context->outputWidth, context->outputHeight, context->widthStride, context->heightStride);
+//            OH_LOG_INFO(LOG_APP, "[Native] First frame output format: %{public}dx%{public}d, stride=%{public}d, sliceHeight=%{public}d",
+//                       context->outputWidth, context->outputHeight, context->widthStride, context->heightStride);
 
             OH_AVFormat_Destroy(format);
         }
@@ -94,8 +94,8 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     int64_t pts = (int64_t)attr.pts;
     
     // Log output buffer info
-    OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld, flags=0x%{public}x", 
-                 index, attr.size, (long long)pts, attr.flags);
+//    OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld, flags=0x%{public}x", 
+//                 index, attr.size, (long long)pts, attr.flags);
 
     // 渲染到Surface - 只调用RenderOutputBuffer，不要调用FreeOutputBuffer
     OH_AVErrCode renderRet = OH_VideoDecoder_RenderOutputBuffer(codec, index);
