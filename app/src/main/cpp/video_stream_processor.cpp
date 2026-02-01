@@ -3,6 +3,13 @@
 #include "audio_decoder_native.h"
 #include <hilog/log.h>
 #include <thread>
+#include <chrono>
+
+// Thread priority setting for HarmonyOS/Linux
+
+#include <pthread.h>
+#include <sys/resource.h>
+
 
 // Define static constexpr members (required for ODR-use)
 constexpr size_t VideoStreamProcessor::RING_BUFFER_SIZE;
@@ -59,14 +66,13 @@ int32_t VideoStreamProcessor::Start() {
         OH_LOG_WARN(LOG_APP, "[StreamProcessor] Already running");
         return 0;
     }
-
+    
     running_ = true;
     stopped_ = false;
 
     // Create and start processing thread
     processingThread_ = std::make_unique<std::thread>(ProcessingThread, this);
 
-    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Started");
     return 0;
 }
 
@@ -116,12 +122,16 @@ int32_t VideoStreamProcessor::Release() {
 
 int32_t VideoStreamProcessor::PushData(const uint8_t* data, int32_t size, int64_t pts, uint32_t flags) {
     if (!running_.load() || !ringBuffer_) {
+        OH_LOG_WARN(LOG_APP, "[StreamProcessor] PushData: not running or no ring buffer");
         return -1;
     }
 
     if (size <= 0) {
         return 0;
     }
+
+    // Store flags for ParseVideoFrame to use (ArkTS already parsed config flag)
+    pendingFlags_.store(flags, std::memory_order_release);
 
     // Write to ring buffer
     size_t written = ringBuffer_->Write(data, static_cast<size_t>(size));
@@ -141,17 +151,24 @@ int32_t VideoStreamProcessor::PushData(const uint8_t* data, int32_t size, int64_
 void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
     if (!self) return;
 
-    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread started");
+    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread started (audio=%{public}d)",
+                self->mediaType_ == MediaType::AUDIO);
+
+    // 音频模式：等待音频流开始（服务器发送音频需要时间）
+    size_t emptyFrameCount = 0;
+    constexpr size_t MAX_EMPTY_FRAMES = 10;
 
     while (self->running_.load()) {
-        // Check if there's data available
         size_t available = self->ringBuffer_->GetReadAvailable();
         size_t minRequired = self->mediaType_ == MediaType::AUDIO ? 4 : VideoStreamProcessor::MIN_READ_SIZE;
 
         if (available < minRequired) {
-            // Wait for data with timeout
             std::unique_lock<std::mutex> lock(self->cvMutex_);
-            self->dataCV_.wait_for(lock, std::chrono::milliseconds(2));
+            if (self->mediaType_ == MediaType::AUDIO) {
+                self->dataCV_.wait_for(lock, std::chrono::milliseconds(5));
+            } else {
+                self->dataCV_.wait_for(lock, std::chrono::milliseconds(2));
+            }
             continue;
         }
 
@@ -159,7 +176,14 @@ void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
 
         if (result == -1) {
             // Error, wait a bit before retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            emptyFrameCount++;
+            if (emptyFrameCount > MAX_EMPTY_FRAMES) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Too many invalid frames, slowing down");
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                emptyFrameCount = 0;
+            }
+        } else {
+            emptyFrameCount = 0;
         }
         // If result == 0 (success) or -2 (need more data), continue immediately
     }
@@ -203,10 +227,24 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
         frameSize = (frameSize << 8) | sizeBuf[i];
     }
 
-    // Validate frame size
+    // 只在非静音期打印警告（避免刷屏）
+    static int64_t lastWarnTime = 0;
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    // Validate frame size - 0 或过大的 size 是无效的
     if (frameSize <= 0 || frameSize > static_cast<int32_t>(MAX_FRAME_SIZE)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Invalid audio frame size: %{public}d", frameSize);
-        ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        // 如果 frameSize 为 0，可能是启动时的垃圾数据，跳过这 4 个字节
+        if (frameSize == 0) {
+            if (now - lastWarnTime > 10000) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Audio frame size is 0, possible startup delay or buffer underrun");
+                lastWarnTime = now;
+            }
+            ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        } else {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Invalid audio frame size: %{public}d", frameSize);
+            ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        }
         droppedFrameCount_++;
         return 0;
     }
@@ -279,13 +317,9 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
         return -2;  // Let ProcessingThread handle waiting
     }
 
-    // Check config flag (bit 63 of PTS)
-    static constexpr int64_t PACKET_FLAG_CONFIG = 1LL << 63;
-    uint32_t flags = 0;
-    if (pts & PACKET_FLAG_CONFIG) {
-        flags = 8;  // AVCODEC_BUFFER_FLAGS_CODEC_DATA
-        pts = pts & ~PACKET_FLAG_CONFIG;
-    }
+    // Use flags stored by PushData (ArkTS already parsed config flag from PTS)
+    // Note: ArkTS passes flags separately, so we don't need to check bit 63 of PTS
+    uint32_t flags = pendingFlags_.load(std::memory_order_acquire);
 
     // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(MIN_READ_SIZE);

@@ -45,7 +45,7 @@ export class Client {
   private readonly MAX_QUEUE_SIZE = 10; // 允许的最大缓冲帧数
 
   // Stream mode flags
-  private useStreamMode: boolean = false;
+  private useStreamMode: boolean = true;
   private audioStreamProcessorReady: boolean = false;
   
   // 获取视频尺寸 (用于触摸坐标计算)

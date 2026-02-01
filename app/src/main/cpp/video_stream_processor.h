@@ -234,6 +234,9 @@ private:
     // For video: codec type
     std::string codecType_;
 
+    // Pending flags from ArkTS (set in PushData, used in ParseVideoFrame)
+    std::atomic<uint32_t> pendingFlags_{0};
+
     // Constants
     static constexpr size_t RING_BUFFER_SIZE = 2 * 1024 * 1024;  // 2MB
     static constexpr size_t MAX_FRAME_SIZE = 20 * 1024 * 1024;   // 20MB max frame

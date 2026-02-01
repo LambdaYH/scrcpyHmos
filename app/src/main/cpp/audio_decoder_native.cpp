@@ -2,6 +2,7 @@
 #include "video_stream_processor.h"  // Include for RingBuffer access
 #include <hilog/log.h>
 #include <cstring>
+#include <algorithm>  // for std::min
 #include <ohaudio/native_audiostreambuilder.h>
 
 #undef LOG_TAG
@@ -53,24 +54,26 @@ void AudioDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     if (attr.size > 0) {
         uint8_t* data = OH_AVBuffer_GetAddr(buffer);
 
-        // 使用预分配的buffer池（避免每帧vector分配）
+        // 使用预分配的buffer池（优化：单一队列，同步更简单）
         std::lock_guard<std::mutex> lock(context->decoder->pcmMutex_);
 
-        // 如果池中有可用的buffer，使用它
-        if (context->decoder->pcmPool_.size() < AudioDecoderNative::PCM_POOL_SIZE) {
-            std::array<uint8_t, PCM_BUFFER_SIZE> pcmBuffer{};
-            size_t copySize = std::min(static_cast<size_t>(attr.size), AudioDecoderNative::PCM_BUFFER_SIZE);
-            memcpy(pcmBuffer.data(), data, copySize);
-            context->decoder->pcmPool_.push(std::move(pcmBuffer));
-            context->decoder->pcmPoolSizes_.push(copySize);
-            context->decoder->pcmPoolOffsets_.push({0, copySize});
+        if (context->decoder->pcmPool_.size() < PCM_POOL_SIZE) {
+            PcmFrame frame;
+            size_t copySize = std::min(static_cast<size_t>(attr.size), sizeof(frame.data));
+            std::memcpy(frame.data.data(), data, copySize);
+            frame.size = copySize;
+            frame.offset = 0;
+            context->decoder->pcmPool_.push(std::move(frame));
         } else {
-            // 池满了，丢弃这帧（或者可以扩展池大小）
-            OH_LOG_WARN(LOG_APP, "[AudioNative] PCM pool full, dropping frame");
+            // 池满了，丢弃这帧（覆盖最旧的帧）
+            context->decoder->pcmPool_.pop();
+            PcmFrame frame;
+            size_t copySize = std::min(static_cast<size_t>(attr.size), sizeof(frame.data));
+            std::memcpy(frame.data.data(), data, copySize);
+            frame.size = copySize;
+            frame.offset = 0;
+            context->decoder->pcmPool_.push(std::move(frame));
         }
-
-        // OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNewOutputBuffer: size=%{public}d, pts=%{public}lld",
-        //             attr.size, (long long)attr.pts);
     }
 
     // 释放输出buffer
@@ -88,32 +91,27 @@ int32_t AudioDecoderNative::OnAudioRendererWriteData(OH_AudioRenderer* renderer,
     int32_t written = 0;
     uint8_t* outBuffer = static_cast<uint8_t*>(buffer);
 
-    // 使用预分配的buffer池
+    // 使用单一结构体队列（优化：简化同步）
     while (written < length && !self->pcmPool_.empty()) {
-        std::array<uint8_t, PCM_BUFFER_SIZE>& front = self->pcmPool_.front();
-        size_t frontSize = self->pcmPoolSizes_.front();
-        auto& offsetPair = self->pcmPoolOffsets_.front();
+        PcmFrame& frame = self->pcmPool_.front();
 
-        size_t offset = offsetPair.first;
-        size_t remaining = offsetPair.second;
+        size_t offset = frame.offset;
+        size_t remaining = frame.remaining();
 
         int32_t toCopy = std::min(static_cast<int32_t>(remaining), length - written);
-        memcpy(outBuffer + written, front.data() + offset, toCopy);
+        std::memcpy(outBuffer + written, frame.data.data() + offset, toCopy);
         written += toCopy;
 
-        offsetPair.first += toCopy;
-        offsetPair.second -= toCopy;
+        frame.offset += toCopy;
 
-        if (offsetPair.second == 0) {
+        if (frame.remaining() == 0) {
             self->pcmPool_.pop();
-            self->pcmPoolSizes_.pop();
-            self->pcmPoolOffsets_.pop();
         }
     }
 
     // 如果没有足够数据，填充静音
     if (written < length) {
-        memset(outBuffer + written, 0, length - written);
+        std::memset(outBuffer + written, 0, length - written);
     }
 
     return length;
@@ -287,17 +285,17 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         return -1;
     }
 
-    // RAW模式直接放入PCM队列（使用buffer池）
+    // RAW模式直接放入PCM队列（优化：单一队列）
     if (isRaw_) {
         std::lock_guard<std::mutex> lock(pcmMutex_);
 
         if (pcmPool_.size() < PCM_POOL_SIZE) {
-            std::array<uint8_t, PCM_BUFFER_SIZE> pcmBuffer{};
-            size_t copySize = std::min(static_cast<size_t>(size), PCM_BUFFER_SIZE);
-            memcpy(pcmBuffer.data(), data, copySize);
-            pcmPool_.push(std::move(pcmBuffer));
-            pcmPoolSizes_.push(copySize);
-            pcmPoolOffsets_.push({0, copySize});
+            PcmFrame frame;
+            size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame.data));
+            std::memcpy(frame.data.data(), data, copySize);
+            frame.size = copySize;
+            frame.offset = 0;
+            pcmPool_.push(std::move(frame));
         }
         frameCount_++;
         return 0;
@@ -366,17 +364,17 @@ int32_t AudioDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         return -1;
     }
 
-    // RAW模式直接放入PCM队列（使用buffer池）
+    // RAW模式直接放入PCM队列（优化：单一队列）
     if (isRaw_) {
         std::lock_guard<std::mutex> lock(pcmMutex_);
 
         if (pcmPool_.size() < PCM_POOL_SIZE) {
-            std::array<uint8_t, PCM_BUFFER_SIZE> pcmBuffer{};
-            size_t copySize = std::min(static_cast<size_t>(size), PCM_BUFFER_SIZE);
-            size_t read = ringBuffer->Read(pcmBuffer.data(), copySize);
-            pcmPool_.push(std::move(pcmBuffer));
-            pcmPoolSizes_.push(read);
-            pcmPoolOffsets_.push({0, read});
+            PcmFrame frame;
+            size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame.data));
+            size_t read = ringBuffer->Read(frame.data.data(), copySize);
+            frame.size = read;
+            frame.offset = 0;
+            pcmPool_.push(std::move(frame));
         }
         frameCount_++;
         return 0;
@@ -502,13 +500,11 @@ int32_t AudioDecoderNative::Release() {
         context_ = nullptr;
     }
 
-    // 清空buffer池
+    // 清空buffer池（优化：单一队列只需清空一个）
     {
         std::lock_guard<std::mutex> lock(pcmMutex_);
         while (!pcmPool_.empty()) {
             pcmPool_.pop();
-            pcmPoolSizes_.pop();
-            pcmPoolOffsets_.pop();
         }
     }
 

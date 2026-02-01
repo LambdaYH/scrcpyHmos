@@ -204,6 +204,9 @@ struct ControlPage {
         this.connectionStatus = 'Connected';
         this.clientReady = true;
         LoggerControlPage.info('ControlPage: Device connected successfully');
+
+        // 启用流模式（C++处理器）
+        this.enableStreamMode(true);
         
         // 设置断开连接回调 - 自动返回上一页
         this.client.setOnDisconnect((reason: string) => {

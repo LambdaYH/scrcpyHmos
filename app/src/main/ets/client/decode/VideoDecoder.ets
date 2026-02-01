@@ -196,7 +196,6 @@ export class VideoDecoder {
       console.warn('[VideoDecoder] Stream processor not created');
       return;
     }
-
     const ret: number = scrcpy_native.startVideoStreamProcessor(this.streamProcessorId);
     if (ret !== 0) {
       throw new Error(`Failed to start stream processor: ${ret}`);
@@ -207,15 +206,34 @@ export class VideoDecoder {
 
   /**
    * Push data to stream processor (ArkTS continuously calls this)
-   * This is a lightweight call - just writes to ring buffer
+   * Prepends 12-byte header [PTS(8)][size(4)] since ArkTS parses the protocol header
+   * The C++ processor expects: [8 bytes PTS][4 bytes size][N bytes video data]
    */
   pushDataToStream(data: ArrayBuffer, pts: number, flags: number = 0): number {
     if (this.streamProcessorId === 0) {
       return -1;
     }
 
-    // Direct call to native - no async, minimal overhead
-    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, data, pts, flags);
+    // Construct header + data format for C++ processor
+    // C++ ParseVideoFrame expects: [8 bytes PTS][4 bytes size][N bytes data]
+    const size = data.byteLength;
+    const header = new ArrayBuffer(12);
+    const headerView = new DataView(header);
+
+    // PTS: 8 bytes big-endian
+    headerView.setBigInt64(0, BigInt(Math.floor(pts)), false);
+
+    // Size: 4 bytes big-endian
+    headerView.setInt32(8, size, false);
+
+    // Combine header + data
+    const combined = new ArrayBuffer(12 + size);
+    const combinedView = new Uint8Array(combined);
+    const dataView = new Uint8Array(data);
+    combinedView.set(new Uint8Array(header), 0);
+    combinedView.set(dataView, 12);
+
+    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, combined, pts, flags);
   }
 
   /**

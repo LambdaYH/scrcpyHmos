@@ -21,6 +21,14 @@ struct AudioDecoderContext {
     bool waitForFirstBuffer;
 };
 
+// PCM Frame structure - 合并三个独立队列为一个
+struct PcmFrame {
+    std::array<uint8_t, 32 * 1024> data{};  // 32KB buffer
+    size_t size = 0;                         // Actual data size
+    size_t offset = 0;                       // Current read offset
+    size_t remaining() const { return size - offset; }
+};
+
 class AudioDecoderNative {
 public:
     AudioDecoderNative();
@@ -60,12 +68,9 @@ private:
     std::string codecType_;
     AudioDecoderContext* context_;
 
-    // PCM缓冲区（预分配池，替代动态vector分配）
-    static constexpr size_t PCM_BUFFER_SIZE = 32 * 1024;  // 32KB per buffer
-    static constexpr size_t PCM_POOL_SIZE = 32;  // 32 pre-allocated buffers (512KB total)
-    std::queue<std::array<uint8_t, PCM_BUFFER_SIZE>> pcmPool_;
-    std::queue<size_t> pcmPoolSizes_;  // Actual size for each buffer
-    std::queue<std::pair<size_t, size_t>> pcmPoolOffsets_;  // (offset, remaining)
+    // PCM缓冲区 - 使用单一结构体队列（优化：替代三个独立队列）
+    static constexpr size_t PCM_POOL_SIZE = 32;  // 32 pre-allocated frames
+    std::queue<PcmFrame> pcmPool_;
     std::mutex pcmMutex_;
 };
 

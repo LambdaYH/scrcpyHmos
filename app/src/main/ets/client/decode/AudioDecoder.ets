@@ -163,13 +163,29 @@ export class AudioDecoder {
 
   /**
    * Push data to stream processor (ArkTS continuously calls this)
+   * For audio: prepends 4-byte size header since ArkTS parses the protocol header
+   * The C++ processor expects: [4 bytes size][N bytes audio data]
    */
   pushDataToStream(data: ArrayBuffer, pts: number): number {
     if (this.streamProcessorId === 0) {
       return -1;
     }
 
-    return scrcpy_native.pushAudioStreamData(this.streamProcessorId, data, pts);
+    // Construct header + data format for C++ processor
+    // C++ ParseAudioFrame expects: [4 bytes size][N bytes data]
+    const size = data.byteLength;
+    const header = new ArrayBuffer(4);
+    const headerView = new DataView(header);
+    headerView.setInt32(0, size, false);  // Big-endian
+
+    // Combine header + data
+    const combined = new ArrayBuffer(4 + size);
+    const combinedView = new Uint8Array(combined);
+    const dataView = new Uint8Array(data);
+    combinedView.set(new Uint8Array(header), 0);
+    combinedView.set(dataView, 4);
+
+    return scrcpy_native.pushAudioStreamData(this.streamProcessorId, combined, pts);
   }
 
   /**
