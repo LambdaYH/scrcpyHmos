@@ -42,6 +42,11 @@ export class BufferNew {
         throw new Error('BufferNew error: closed during read');
       }
 
+      // 优化：零拷贝场景 - 当队列只有一个buffer且正好等于剩余需要的长度时直接返回
+      if (this.dataQueue.length === 1 && this.dataQueue[0].byteLength === bytesToRead) {
+        return this.dataQueue.shift()!;
+      }
+
       const tmpData = this.dataQueue[0];
       const tmpArray = new Uint8Array(tmpData);
       const remaining = tmpArray.length;
@@ -55,7 +60,7 @@ export class BufferNew {
       } else {
         // 只需要部分数据
         result.set(tmpArray.subarray(0, bytesToRead), resultOffset);
-        // 保留剩余数据 - 注意：subarray.buffer返回原始buffer，需要用slice创建新的ArrayBuffer
+        // 保留剩余数据
         this.dataQueue[0] = tmpData.slice(bytesToRead);
         bytesToRead = 0;
       }

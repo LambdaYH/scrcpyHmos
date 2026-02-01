@@ -29,63 +29,68 @@ public:
     inline size_t Write(const uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
-        std::unique_lock<std::mutex> lock(mutex_);
-        size_t available = GetWriteAvailable_Locked();
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        size_t rpos = readPos_.load(std::memory_order_relaxed);
+        size_t available = (wpos >= rpos) ? (capacity_ - wpos + rpos - 1) : (rpos - wpos - 1);
 
         if (available == 0) return 0;
 
         size_t toWrite = std::min(size, available);
-        size_t firstPart = std::min(toWrite, capacity_ - writePos_);
-        memcpy(buffer_ + writePos_, data, firstPart);
+        size_t firstPart = std::min(toWrite, capacity_ - wpos);
+        memcpy(buffer_ + wpos, data, firstPart);
 
         if (firstPart < toWrite) {
             memcpy(buffer_, data + firstPart, toWrite - firstPart);
-            writePos_ = toWrite - firstPart;
+            wpos = toWrite - firstPart;
         } else {
-            writePos_ += firstPart;
-            if (writePos_ >= capacity_) writePos_ = 0;
+            wpos += firstPart;
+            if (wpos >= capacity_) wpos = 0;
         }
 
+        writePos_.store(wpos, std::memory_order_release);
         cv_.notify_one();
         return toWrite;
     }
 
-    // Read data from buffer (returns bytes read) - lock (was shared)
+    // Read data from buffer (returns bytes read) - lock-free for single reader
     inline size_t Read(uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
-        std::unique_lock<std::mutex> lock(mutex_);
-        size_t available = GetReadAvailable_Locked();
+        size_t rpos = readPos_.load(std::memory_order_relaxed);
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        size_t available = (wpos >= rpos) ? (wpos - rpos) : (capacity_ - rpos + wpos);
 
         if (available == 0) return 0;
 
         size_t toRead = std::min(size, available);
-        size_t firstPart = std::min(toRead, capacity_ - readPos_);
-        memcpy(data, buffer_ + readPos_, firstPart);
+        size_t firstPart = std::min(toRead, capacity_ - rpos);
+        memcpy(data, buffer_ + rpos, firstPart);
 
         if (firstPart < toRead) {
             memcpy(data + firstPart, buffer_, toRead - firstPart);
-            readPos_ = toRead - firstPart;
+            rpos = toRead - firstPart;
         } else {
-            readPos_ += firstPart;
-            if (readPos_ >= capacity_) readPos_ = 0;
+            rpos += firstPart;
+            if (rpos >= capacity_) rpos = 0;
         }
 
+        readPos_.store(rpos, std::memory_order_release);
         return toRead;
     }
 
-    // Peek at data without consuming (returns bytes peeked) - lock (was shared)
+    // Peek at data without consuming (returns bytes peeked) - lock-free
     inline size_t Peek(uint8_t* data, size_t size) {
         if (size == 0 || buffer_ == nullptr) return 0;
 
-        std::unique_lock<std::mutex> lock(mutex_);
-        size_t available = GetReadAvailable_Locked();
+        size_t rpos = readPos_.load(std::memory_order_relaxed);
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        size_t available = (wpos >= rpos) ? (wpos - rpos) : (capacity_ - rpos + wpos);
 
         if (available == 0) return 0;
 
         size_t toPeek = std::min(size, available);
-        size_t firstPart = std::min(toPeek, capacity_ - readPos_);
-        memcpy(data, buffer_ + readPos_, firstPart);
+        size_t firstPart = std::min(toPeek, capacity_ - rpos);
+        memcpy(data, buffer_ + rpos, firstPart);
 
         if (firstPart < toPeek) {
             memcpy(data + firstPart, buffer_, toPeek - firstPart);
@@ -94,38 +99,44 @@ public:
         return toPeek;
     }
 
-    // Advance read position (for consumed bytes) - exclusive lock
+    // Advance read position (for consumed bytes) - lock-free
     inline void AdvanceRead(size_t size) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        size_t available = GetReadAvailable_Locked();
+        size_t rpos = readPos_.load(std::memory_order_relaxed);
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        size_t available = (wpos >= rpos) ? (wpos - rpos) : (capacity_ - rpos + wpos);
         size_t toAdvance = std::min(size, available);
-        readPos_ += toAdvance;
-        if (readPos_ >= capacity_) readPos_ -= capacity_;
+
+        rpos += toAdvance;
+        if (rpos >= capacity_) rpos -= capacity_;
+        readPos_.store(rpos, std::memory_order_release);
     }
 
-    // Get available space for writing - lock (was shared)
+    // Get available space for writing - lock-free
     inline size_t GetWriteAvailable() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return GetWriteAvailable_Locked();
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        size_t rpos = readPos_.load(std::memory_order_acquire);
+        return (wpos >= rpos) ? (capacity_ - wpos + rpos - 1) : (rpos - wpos - 1);
     }
 
-    // Get available data for reading - lock (was shared)
+    // Get available data for reading - lock-free
     inline size_t GetReadAvailable() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return GetReadAvailable_Locked();
+        size_t rpos = readPos_.load(std::memory_order_acquire);
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        return (wpos >= rpos) ? (wpos - rpos) : (capacity_ - rpos + wpos);
     }
 
     // Clear buffer - exclusive lock
     inline void Clear() {
         std::unique_lock<std::mutex> lock(mutex_);
-        readPos_ = 0;
-        writePos_ = 0;
+        readPos_.store(0, std::memory_order_release);
+        writePos_.store(0, std::memory_order_release);
     }
 
-    // Check if buffer is empty - lock (was shared)
+    // Check if buffer is empty - lock-free
     inline bool IsEmpty() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return readPos_ == writePos_;
+        size_t rpos = readPos_.load(std::memory_order_acquire);
+        size_t wpos = writePos_.load(std::memory_order_acquire);
+        return rpos == wpos;
     }
 
 private:
@@ -147,9 +158,9 @@ private:
 
     uint8_t* buffer_;
     size_t capacity_;
-    size_t readPos_;
-    size_t writePos_;
-    mutable std::mutex mutex_;  // Changed from shared_mutex (HarmonyOS libc++ doesn't support it)
+    std::atomic<size_t> readPos_;   // 优化：使用原子变量支持无锁读取
+    std::atomic<size_t> writePos_;  // 优化：使用原子变量支持无锁读取
+    mutable std::mutex mutex_;
     std::condition_variable cv_;
 };
 

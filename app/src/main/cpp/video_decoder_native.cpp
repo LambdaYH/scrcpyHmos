@@ -239,35 +239,23 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         return -1;
     }
 
-    // 从队列获取可用的input buffer index
+    // 从队列同时获取可用的input buffer index和buffer（优化：合并为单次加锁）
     uint32_t bufferIndex = 0;
-    bool hasBuffer = false;
+    OH_AVBuffer* buffer = nullptr;
 
     {
         std::lock_guard<std::mutex> lock(context_->queueMutex);
-        if (!context_->inputBufferQueue.empty()) {
+        if (!context_->inputBufferQueue.empty() && !context_->inputBuffers.empty()) {
             bufferIndex = context_->inputBufferQueue.front();
             context_->inputBufferQueue.pop();
-            hasBuffer = true;
-        }
-    }
-
-    if (!hasBuffer) {
-        // OH_LOG_DEBUG(LOG_APP, "[Native] PushData: no available input buffer");
-        return -2;  // 表示暂时没有可用buffer
-    }
-
-    // 从队列获取buffer
-    OH_AVBuffer* buffer = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(context_->queueMutex);
-        if (!context_->inputBuffers.empty()) {
             buffer = context_->inputBuffers.front();
             context_->inputBuffers.pop();
-        } else {
-            OH_LOG_ERROR(LOG_APP, "[Native] PushData: no buffer available");
-            return -1;
         }
+    }
+
+    if (buffer == nullptr) {
+        // OH_LOG_DEBUG(LOG_APP, "[Native] PushData: no available input buffer");
+        return -2;  // 表示暂时没有可用buffer
     }
 
     if (buffer == nullptr) {

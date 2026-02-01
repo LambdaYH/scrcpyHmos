@@ -69,7 +69,7 @@ private:
 
     // PCM缓冲区（预分配池，替代动态vector分配）
     static constexpr size_t PCM_BUFFER_SIZE = 32 * 1024;  // 32KB per buffer
-    static constexpr size_t PCM_POOL_SIZE = 16;  // 16 pre-allocated buffers
+    static constexpr size_t PCM_POOL_SIZE = 32;  // 32 pre-allocated buffers (512KB total)
     std::queue<std::array<uint8_t, PCM_BUFFER_SIZE>> pcmPool_;
     std::queue<size_t> pcmPoolSizes_;  // Actual size for each buffer
     std::queue<std::pair<size_t, size_t>> pcmPoolOffsets_;  // (offset, remaining)
