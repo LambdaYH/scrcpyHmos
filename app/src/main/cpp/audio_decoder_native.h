@@ -16,11 +16,7 @@ class RingBuffer;
 struct AudioDecoderContext {
     std::queue<uint32_t> inputBufferQueue;
     std::queue<OH_AVBuffer*> inputBuffers;
-    std::queue<OH_AVBuffer*> outputBuffers;
-    std::queue<uint32_t> outputBufferIndices;
     std::mutex inputMutex;
-    std::mutex outputMutex;
-    std::condition_variable outputCond;
     class AudioDecoderNative* decoder;
     bool waitForFirstBuffer;
 };

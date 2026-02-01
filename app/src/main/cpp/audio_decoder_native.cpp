@@ -2,7 +2,6 @@
 #include "video_stream_processor.h"  // Include for RingBuffer access
 #include <hilog/log.h>
 #include <cstring>
-#include <thread>
 #include <ohaudio/native_audiostreambuilder.h>
 
 #undef LOG_TAG
@@ -31,12 +30,10 @@ void AudioDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
 
 void AudioDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     AudioDecoderContext* context = static_cast<AudioDecoderContext*>(userData);
-    std::lock_guard<std::mutex> lock(context->inputMutex);
     if (buffer != nullptr) {
         context->inputBufferQueue.push(index);
         context->inputBuffers.push(buffer);
     }
-    context->waitForFirstBuffer = false;
     context->waitForFirstBuffer = false;
     // OH_LOG_DEBUG(LOG_APP, "[AudioNative] OnNeedInputBuffer: index=%{public}u, queueSize=%{public}zu",
     //             index, context->inputBufferQueue.size());
