@@ -111,13 +111,6 @@ public:
         readPos_.store(rpos, std::memory_order_release);
     }
 
-    // Get available space for writing - lock-free
-    inline size_t GetWriteAvailable() const {
-        size_t wpos = writePos_.load(std::memory_order_acquire);
-        size_t rpos = readPos_.load(std::memory_order_acquire);
-        return (wpos >= rpos) ? (capacity_ - wpos + rpos - 1) : (rpos - wpos - 1);
-    }
-
     // Get available data for reading - lock-free
     inline size_t GetReadAvailable() const {
         size_t rpos = readPos_.load(std::memory_order_acquire);
@@ -125,37 +118,7 @@ public:
         return (wpos >= rpos) ? (wpos - rpos) : (capacity_ - rpos + wpos);
     }
 
-    // Clear buffer - exclusive lock
-    inline void Clear() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        readPos_.store(0, std::memory_order_release);
-        writePos_.store(0, std::memory_order_release);
-    }
-
-    // Check if buffer is empty - lock-free
-    inline bool IsEmpty() const {
-        size_t rpos = readPos_.load(std::memory_order_acquire);
-        size_t wpos = writePos_.load(std::memory_order_acquire);
-        return rpos == wpos;
-    }
-
 private:
-    inline size_t GetWriteAvailable_Locked() const {
-        if (writePos_ >= readPos_) {
-            return capacity_ - writePos_ + readPos_ - 1;
-        } else {
-            return readPos_ - writePos_ - 1;
-        }
-    }
-
-    inline size_t GetReadAvailable_Locked() const {
-        if (writePos_ >= readPos_) {
-            return writePos_ - readPos_;
-        } else {
-            return capacity_ - readPos_ + writePos_;
-        }
-    }
-
     uint8_t* buffer_;
     size_t capacity_;
     std::atomic<size_t> readPos_;   // 优化：使用原子变量支持无锁读取
@@ -222,13 +185,6 @@ public:
     // Get stats
     uint64_t GetProcessedFrameCount() const { return processedFrameCount_.load(); }
     uint64_t GetDroppedFrameCount() const { return droppedFrameCount_.load(); }
-
-    // Get current buffer usage percentage
-    float GetBufferUsage() const {
-        if (!ringBuffer_) return 0.0f;
-        size_t total = ringBuffer_->GetReadAvailable() + ringBuffer_->GetWriteAvailable();
-        return total > 0 ? (static_cast<float>(ringBuffer_->GetReadAvailable()) / total) * 100.0f : 0.0f;
-    }
 
 private:
     static void ProcessingThread(VideoStreamProcessor* self);

@@ -505,13 +505,9 @@ int32_t AudioDecoderNative::Release() {
         context_ = nullptr;
     }
 
-    // 清空PCM队列和buffer池
+    // 清空buffer池
     {
         std::lock_guard<std::mutex> lock(pcmMutex_);
-        while (!pcmQueue_.empty()) {
-            pcmQueue_.pop();
-        }
-        // 清空buffer池
         while (!pcmPool_.empty()) {
             pcmPool_.pop();
             pcmPoolSizes_.pop();
@@ -521,8 +517,4 @@ int32_t AudioDecoderNative::Release() {
 
     OH_LOG_INFO(LOG_APP, "[AudioNative] Released, total frames: %{public}u", frameCount_);
     return 0;
-}
-
-void AudioDecoderNative::ProcessOutputBuffers() {
-    // 输出buffer已在回调中处理
 }

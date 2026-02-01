@@ -39,9 +39,6 @@ public:
     int32_t Stop();
     int32_t Release();
 
-    // 获取解码后的PCM数据并播放
-    void ProcessOutputBuffers();
-
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);
     static void OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format, void* userData);
@@ -74,9 +71,6 @@ private:
     std::queue<size_t> pcmPoolSizes_;  // Actual size for each buffer
     std::queue<std::pair<size_t, size_t>> pcmPoolOffsets_;  // (offset, remaining)
     std::mutex pcmMutex_;
-    // Legacy queue for fallback
-    std::queue<std::vector<uint8_t>> pcmQueue_;
-    std::mutex pcmQueueMutex_;
 };
 
 #endif // AUDIO_DECODER_NATIVE_H
