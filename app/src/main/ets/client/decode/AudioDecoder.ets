@@ -11,7 +11,6 @@ export class AudioDecoder {
 
   async init(codecType: string, sampleRate: number = 48000, channelCount: number = 2): Promise<void> {
 
-
     try {
       // 释放之前的解码器实例（防止资源泄漏）
       if (AudioDecoder.currentInstance && AudioDecoder.currentInstance !== this) {
@@ -45,54 +44,13 @@ export class AudioDecoder {
       }
 
       this.isStarted = true;
-      console.info(`[AudioDecoder] ✅ Native audio decoder started successfully!`);
+      console.info(`[AudioDecoder] Native audio decoder started successfully!`);
 
     } catch (err) {
       const error = err as Error;
       console.error(`[AudioDecoder] Init failed: ${error.message}`);
       const newError = new Error(`AudioDecoder init failed: ${error.message}`);
       throw newError;
-    }
-  }
-
-  async decode(data: ArrayBuffer, pts: number): Promise<void> {
-    if (!this.isStarted || this.decoderId === 0) {
-      console.warn('[AudioDecoder] Not ready, frame dropped');
-      return;
-    }
-
-    try {
-      // 推送数据到Native解码器，带重试机制
-      const maxRetries = 5;
-      let retryCount = 0;
-      let result: number = -2;
-
-      while (retryCount < maxRetries) {
-        result = scrcpy_native.pushAudioData(this.decoderId, data, pts);
-
-        if (result === 0) {
-          // 成功
-          break;
-        } else if (result === -2) {
-          // 没有可用输入缓冲区，等待后重试
-          retryCount++;
-          if (retryCount < maxRetries) {
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 5));
-          }
-        } else {
-          // 其他错误，不重试
-          console.error(`[AudioDecoder] pushData failed with error: ${result}`);
-          break;
-        }
-      }
-
-      if (result === 0) {
-        this.frameCount++;
-      } else if (result === -2) {
-        console.warn(`[AudioDecoder] Frame dropped after ${maxRetries} retries`);
-      }
-    } catch (err) {
-      console.error('[AudioDecoder] Decode error:', err);
     }
   }
 

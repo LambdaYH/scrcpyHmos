@@ -111,6 +111,10 @@ int32_t VideoStreamProcessor::Release() {
         }
     }
 
+    // Clear config buffer (for H.264/H.265 packet merger)
+    configBuffer_.reset();
+    configBufferSize_ = 0;
+
     ringBuffer_.reset();
     decoder_ = nullptr;
     processedFrameCount_ = 0;
@@ -321,17 +325,90 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
     // Note: ArkTS passes flags separately, so we don't need to check bit 63 of PTS
     uint32_t flags = pendingFlags_.load(std::memory_order_acquire);
 
+    // Check if this is a config packet (VPS/SPS/PPS for H.265, SPS/PPS for H.264)
+    bool isConfig = (flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA) != 0;
+
+    // Log first few config frames for debugging H.265
+    static int configFrameCount = 0;
+    if (isConfig) {
+        configFrameCount++;
+        if (configFrameCount <= 3) {
+            OH_LOG_INFO(LOG_APP, "[StreamProcessor] Config frame #%{public}d, size=%{public}d",
+                       configFrameCount, frameSize);
+        }
+    }
+
     // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(MIN_READ_SIZE);
 
-    // 直接从RingBuffer推送到解码器（优化：消除ParsedFrame分配和额外memcpy）
+    // Handle config packet merger for H.264/H.265
+    // According to scrcpy's packet_merger: config packets must be prepended to the next media packet
+    if (isConfig) {
+        // Store config data for merging with next frame
+        configBuffer_ = std::make_unique<uint8_t[]>(frameSize);
+        size_t read = ringBuffer_->Read(configBuffer_.get(), frameSize);
+        if (read < static_cast<size_t>(frameSize)) {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Incomplete config data read");
+            configBuffer_.reset();
+            droppedFrameCount_++;
+            return 0;
+        }
+        configBufferSize_ = frameSize;
+        OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] Stored config data, size=%{public}zu", configBufferSize_);
+        return 0;  // Config stored, will be merged with next frame
+    }
+
+    // Check if we have stored config data to merge
+    if (configBuffer_) {
+        // Merge config with current frame
+        OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] Merging config (%{public}zu bytes) with frame (%{public}d bytes)",
+                   configBufferSize_, frameSize);
+
+        // Read frame data first
+        std::unique_ptr<uint8_t[]> frameData = std::make_unique<uint8_t[]>(frameSize);
+        size_t read = ringBuffer_->Read(frameData.get(), frameSize);
+        if (read < static_cast<size_t>(frameSize)) {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Incomplete frame read during merge");
+            droppedFrameCount_++;
+            return 0;
+        }
+
+        // Create merged buffer: [config][frame]
+        size_t mergedSize = configBufferSize_ + frameSize;
+        std::unique_ptr<uint8_t[]> mergedData = std::make_unique<uint8_t[]>(mergedSize);
+        std::memcpy(mergedData.get(), configBuffer_.get(), configBufferSize_);
+        std::memcpy(mergedData.get() + configBufferSize_, frameData.get(), frameSize);
+
+        // Clear stored config
+        configBuffer_.reset();
+        configBufferSize_ = 0;
+
+        // Create ParsedFrame and push merged data to decoder
+        ParsedFrame mergedFrame;
+        mergedFrame.data = std::move(mergedData);
+        mergedFrame.size = mergedSize;
+        mergedFrame.pts = pts;
+        mergedFrame.flags = flags;
+
+        int32_t pushResult = PushToDecoder(mergedFrame);
+
+        if (pushResult == 0) {
+            processedFrameCount_++;
+        } else if (pushResult != -2) {
+            droppedFrameCount_++;
+        }
+
+        return pushResult;
+    }
+
+    // No config to merge, push frame directly
     int32_t pushResult = PushToDecoderFromRingBuffer(ringBuffer_.get(), frameSize, pts, flags);
 
     if (pushResult == 0) {
         processedFrameCount_++;
     } else if (pushResult == -2) {
         // 需要更多数据（不应该发生），回退
-        ringBuffer_->AdvanceRead(-static_cast<int64_t>(MIN_READ_SIZE));
+        ringBuffer_->AdvanceRead(-static_cast<int64_t>(frameSize));
         return -2;
     } else {
         // 错误或buffer满

@@ -546,92 +546,18 @@ static napi_value ReleaseAudioStreamProcessor(napi_env env, napi_callback_info i
     return result;
 }
 
-// 旧版创建解码器（保持向后兼容）
-static napi_value CreateDecoder(napi_env env, napi_callback_info info) {
-    return CreateVideoDecoder(env, info);
-}
-
-// 旧版初始化解码器（兼容useH265布尔值）
-static napi_value InitDecoder(napi_env env, napi_callback_info info) {
-    size_t argc = 5;
-    napi_value args[5];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    // 检查第二个参数类型
-    napi_valuetype argType;
-    napi_typeof(env, args[1], &argType);
-
-    int64_t decoderId;
-    char surfaceId[128];
-    size_t surfaceIdLen;
-    int32_t width, height;
-
-    napi_get_value_int64(env, args[0], &decoderId);
-
-    const char* codecType = "h264";
-
-    if (argType == napi_boolean) {
-        // 旧版API：bool useH265
-        bool useH265;
-        napi_get_value_bool(env, args[1], &useH265);
-        codecType = useH265 ? "h265" : "h264";
-        napi_get_value_string_utf8(env, args[2], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-        napi_get_value_int32(env, args[3], &width);
-        napi_get_value_int32(env, args[4], &height);
-    } else {
-        // 新版API：string codecType
-        char codecTypeBuf[32];
-        size_t codecTypeLen;
-        napi_get_value_string_utf8(env, args[1], codecTypeBuf, sizeof(codecTypeBuf), &codecTypeLen);
-        codecType = codecTypeBuf;
-        napi_get_value_string_utf8(env, args[2], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-        napi_get_value_int32(env, args[3], &width);
-        napi_get_value_int32(env, args[4], &height);
-    }
-
-    auto it = g_videoDecoders.find(decoderId);
-    if (it != g_videoDecoders.end()) {
-        int32_t ret = it->second->Init(codecType, surfaceId, width, height);
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
-    }
-
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
-}
-
-static napi_value StartDecoder(napi_env env, napi_callback_info info) {
-    return StartVideoDecoder(env, info);
-}
-
-static napi_value PushData(napi_env env, napi_callback_info info) {
-    return PushVideoData(env, info);
-}
-
-static napi_value ReleaseDecoder(napi_env env, napi_callback_info info) {
-    return ReleaseVideoDecoder(env, info);
-}
-
 // ============== Module Registration ==============
 
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
-        // 旧版API（兼容）
-        {"createDecoder", nullptr, CreateDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"initDecoder", nullptr, InitDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"startDecoder", nullptr, StartDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"pushData", nullptr, PushData, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"releaseDecoder", nullptr, ReleaseDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 新版视频API
+        // 视频API
         {"createVideoDecoder", nullptr, CreateVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initVideoDecoder", nullptr, InitVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"startVideoDecoder", nullptr, StartVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"pushVideoData", nullptr, PushVideoData, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseVideoDecoder", nullptr, ReleaseVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 新版音频API
+        // 音频API
         {"createAudioDecoder", nullptr, CreateAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initAudioDecoder", nullptr, InitAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"startAudioDecoder", nullptr, StartAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},

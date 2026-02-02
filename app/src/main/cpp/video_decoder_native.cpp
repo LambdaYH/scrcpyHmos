@@ -285,7 +285,13 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     attr.flags = flags;
 
     if (flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA) {
-        OH_LOG_DEBUG(LOG_APP, "[Native] Frame %{public}u marked as CSD data (size=%{public}d)", frameCount_, size);
+        OH_LOG_INFO(LOG_APP, "[Native] CSD data received, size=%{public}d, flags=0x%{public}x, totalFrames=%{public}u",
+                   size, flags, frameCount_);
+        // Log first few bytes to help debug H.265 VPS/SPS
+        if (size >= 4) {
+            OH_LOG_INFO(LOG_APP, "[Native] CSD first 4 bytes: 0x%02X 0x%02X 0x%02X 0x%02X",
+                       data[0], data[1], data[2], data[3]);
+        }
     }
 
     OH_AVErrCode attrRet = OH_AVBuffer_SetBufferAttr(buffer, &attr);
@@ -366,7 +372,8 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
     int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
 
     if (bufferSize < size) {
-        OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: buffer too small");
+        OH_LOG_WARN(LOG_APP, "[Native] PushFromRingBuffer: buffer too small (%{public}d < %{public}d), frame may be dropped",
+                   bufferSize, size);
         // Put buffer back
         {
             std::lock_guard<std::mutex> lock(context_->queueMutex);

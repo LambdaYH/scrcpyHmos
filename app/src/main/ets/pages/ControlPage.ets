@@ -205,9 +205,6 @@ struct ControlPage {
         this.clientReady = true;
         LoggerControlPage.info('ControlPage: Device connected successfully');
 
-        // 启用流模式（C++处理器）
-        this.enableStreamMode(true);
-        
         // 设置断开连接回调 - 自动返回上一页
         this.client.setOnDisconnect((reason: string) => {
           LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
@@ -805,13 +802,5 @@ struct ControlPage {
       LoggerControlPage.error('Failed to init audio decoder:', err.message);
       // 音频失败不应该影响视频功能，不显示错误提示
     });
-  }
-
-  // 启用流模式（C++处理）
-  private enableStreamMode(enable: boolean = true): void {
-    if (this.client) {
-      this.client.enableStreamMode(enable);
-      LoggerControlPage.info(`[ControlPage] Stream mode ${enable ? 'enabled' : 'disabled'}`);
-    }
   }
 }

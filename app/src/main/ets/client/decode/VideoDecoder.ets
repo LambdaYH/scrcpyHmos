@@ -13,14 +13,8 @@ export class VideoDecoder {
   // Flags
   static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA = 8;
 
-  // 支持两种调用方式：新的codecType字符串 或 旧的useH265布尔值
-  async init(codecTypeOrUseH265: string | boolean, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
-    // 兼容旧API
-    if (typeof codecTypeOrUseH265 === 'boolean') {
-      this.codecType = codecTypeOrUseH265 ? 'h265' : 'h264';
-    } else {
-      this.codecType = codecTypeOrUseH265;
-    }
+  async init(codecType: string, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
+    this.codecType = codecType;
 
     try {
       // 释放之前的解码器实例（防止资源泄漏）
@@ -98,44 +92,18 @@ export class VideoDecoder {
       return;
     }
 
-    try {
-      // 推送数据到Native解码器，带重试机制
-      // KeyFrame or CSD: Max 5 retries (aggressive)
-      // Others: 5 retries (always retry for smoothness)
-      const maxRetries = 5; 
-      
-      let retryCount = 0;
-      let result: number = -2;
-
-      while (retryCount <= maxRetries) {
-        // Native expects: id, data, pts, flags
-        result = scrcpy_native.pushVideoData(this.decoderId, data, pts, flags);
-
-        if (result === 0) {
-          // 成功
-          break;
-        } else if (result === -2) {
-          // 没有可用输入缓冲区
-          if (retryCount < maxRetries) {
-            retryCount++;
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2)); // Reduced wait time to 2ms
-          } else {
-             break;
-          }
-        } else {
-          // 其他错误，不重试
-          console.error(`[VideoDecoder] pushData failed with error: ${result}`);
-          break;
-        }
-      }
-
+    // 使用 stream processor 推送数据（CSD 数据推送）
+    if (this.streamProcessorId !== 0) {
+      const result: number = this.pushDataToStream(data, pts, flags);
       if (result === 0) {
         this.frameCount++;
       } else if (result === -2) {
-          // console.warn(`[VideoDecoder] Frame dropped (full) pts=${pts}`);
+        // Buffer full, frame dropped
+      } else {
+        console.error(`[VideoDecoder] pushDataToStream failed: ${result}`);
       }
-    } catch (err) {
-      console.error('[VideoDecoder] Decode error:', err);
+    } else {
+      console.warn('[VideoDecoder] Stream processor not ready, frame dropped');
     }
   }
 
