@@ -488,6 +488,10 @@ async readAudioCodecHeader(): Promise<boolean> {
        flags = 8; // AVCODEC_BUFFER_FLAGS_CODEC_DATA
     }
 
+    // DEBUG: Log raw PTS for diagnosis
+    // 调试日志：诊断第一帧 PTS 问题
+    LoggerClientStream.debug(`[ClientStream] Raw PTS: 0x${pts.toString(16)}, cleanPTS: ${Number(cleanPts)}`);
+
     // 2. Read Size (4 bytes)
     const frameSize = await this.readIntFromVideo();
     // console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
@@ -500,10 +504,18 @@ async readAudioCodecHeader(): Promise<boolean> {
     // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
     const frameData = await this.readBytesFromVideo(frameSize);
     // console.debug(`[ClientStream] Frame data read complete`);
-    
-    // Convert BigInt PTS to number for now (microseconds usually fit in safe integer)
-    // If Scrcpy sends nanoseconds or similar that exceeds 2^53, precise low bits might be lost, but VideoDecoder usually handles microseconds.
-    const frame: VideoFrame = { data: frameData, pts: Number(cleanPts), flags: flags };
+
+    // Convert BigInt PTS to number
+    // Note: cleanPts can be > 2^53 when bit 63 was set (config frames), causing Number() overflow
+    // If Number() overflows, the result is negative, so we need to recover the unsigned value
+    const UINT64_MAX_PLUS_1 = 18446744073709551616n;
+    let ptsNumber = Number(cleanPts);
+    if (ptsNumber < 0) {
+      // Recover the unsigned 64-bit value: unsigned = 2^64 + signed
+      ptsNumber = Number(UINT64_MAX_PLUS_1 + cleanPts);
+    }
+
+    const frame: VideoFrame = { data: frameData, pts: ptsNumber, flags: flags };
     return frame;
   }
 

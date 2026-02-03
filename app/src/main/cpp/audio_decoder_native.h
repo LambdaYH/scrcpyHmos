@@ -42,6 +42,7 @@ public:
     int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags = 0);
     int32_t Stop();
     int32_t Release();
+    bool HasAvailableBuffer() const;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);

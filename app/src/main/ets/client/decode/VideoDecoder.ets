@@ -1,5 +1,12 @@
 import scrcpy_native from 'libscrcpy_native.so';
 
+// Interface for pending frame data
+interface PendingFrameData {
+  data: ArrayBuffer;
+  pts: number;
+  flags: number;
+}
+
 // 视频解码器 - 使用Native C++ VideoDecoder
 export class VideoDecoder {
   // 静态实例追踪 - 确保只有一个解码器实例
@@ -10,8 +17,11 @@ export class VideoDecoder {
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
+  // Pending data queue - stores CSD/frame data until stream processor is ready
+  private pendingDataQueue: Array<PendingFrameData> = [];
+
   // Flags
-  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA = 8;
+  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA: number = 8;
 
   async init(codecType: string, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
     this.codecType = codecType;
@@ -103,8 +113,46 @@ export class VideoDecoder {
         console.error(`[VideoDecoder] pushDataToStream failed: ${result}`);
       }
     } else {
-      console.warn('[VideoDecoder] Stream processor not ready, frame dropped');
+      // Queue the data for later processing when stream processor is ready
+      // This ensures CSD data is not lost during initialization
+      const frameData: PendingFrameData = { data: data, pts: pts, flags: flags };
+      this.pendingDataQueue.push(frameData);
+      console.info(`[VideoDecoder] Stream processor not ready, queued CSD/frame data (queue size: ${this.pendingDataQueue.length})`);
     }
+  }
+
+  /**
+   * Flush queued data to stream processor
+   * Called after stream processor is created and started
+   */
+  async flushPendingData(): Promise<void> {
+    if (this.pendingDataQueue.length === 0) {
+      return;
+    }
+
+    console.info(`[VideoDecoder] Flushing ${this.pendingDataQueue.length} queued frames to stream processor`);
+
+    for (const item of this.pendingDataQueue) {
+      const result = this.pushDataToStream(item.data, item.pts, item.flags);
+      if (result === 0) {
+        this.frameCount++;
+      } else if (result === -2) {
+        // Buffer full - wait a bit and retry
+        await new Promise<void>((resolve) => setTimeout(resolve, 1));
+        const retryResult = this.pushDataToStream(item.data, item.pts, item.flags);
+        if (retryResult === 0) {
+          this.frameCount++;
+        } else {
+          console.error(`[VideoDecoder] Failed to push queued frame after retry: ${retryResult}`);
+        }
+      } else {
+        console.error(`[VideoDecoder] Failed to push queued frame: ${result}`);
+      }
+    }
+
+    // Clear the queue
+    this.pendingDataQueue = [];
+    console.info('[VideoDecoder] Pending data flushed');
   }
 
   async flush(): Promise<void> {
@@ -125,6 +173,9 @@ export class VideoDecoder {
         console.error('[VideoDecoder] Release failed:', err);
       }
     }
+
+    // Clear pending data queue
+    this.pendingDataQueue = [];
   }
 
   // ============== Stream Mode APIs (C++ processing) ==============
@@ -147,6 +198,10 @@ export class VideoDecoder {
       }
 
       console.info(`[VideoDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
+
+      // Flush any pending CSD/frame data that was queued during init
+      await this.flushPendingData();
+
       return this.streamProcessorId;
 
     } catch (err) {

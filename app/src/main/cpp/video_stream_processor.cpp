@@ -4,6 +4,7 @@
 #include <hilog/log.h>
 #include <thread>
 #include <chrono>
+#include <time.h>  // for nanosleep
 
 // Thread priority setting for HarmonyOS/Linux
 
@@ -161,6 +162,9 @@ void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
     // 音频模式：等待音频流开始（服务器发送音频需要时间）
     size_t emptyFrameCount = 0;
     constexpr size_t MAX_EMPTY_FRAMES = 10;
+    size_t noBufferCount = 0;  // 追踪无可用缓冲区的情况
+    size_t waitingForDecoderCount = 0;  // 等待解码器缓冲区的次数
+    constexpr size_t MAX_WAIT_FOR_DECODER = 500;  // 最多等待解码器缓冲区500次（约5秒）
 
     while (self->running_.load()) {
         size_t available = self->ringBuffer_->GetReadAvailable();
@@ -176,6 +180,22 @@ void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
             continue;
         }
 
+        // 检查解码器是否有可用的输入缓冲区
+        // 如果没有缓冲区，先等待一段时间让解码器准备好
+        if (!self->HasAvailableBuffer()) {
+            waitingForDecoderCount++;
+            if (waitingForDecoderCount > MAX_WAIT_FOR_DECODER) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Decoder buffers not available after %{public}zu attempts, continuing to wait...",
+                           waitingForDecoderCount);
+                waitingForDecoderCount = 0;  // 重置计数器，避免重复警告
+            }
+            // 使用nanosleep替代sleep_for
+            struct timespec ts = {0, 10000000};  // 10ms
+            nanosleep(&ts, nullptr);
+            continue;
+        }
+        waitingForDecoderCount = 0;  // 重置计数器
+
         int32_t result = self->ParseAndPushFrame();
 
         if (result == -1) {
@@ -183,13 +203,24 @@ void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
             emptyFrameCount++;
             if (emptyFrameCount > MAX_EMPTY_FRAMES) {
                 OH_LOG_WARN(LOG_APP, "[StreamProcessor] Too many invalid frames, slowing down");
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                struct timespec ts = {0, 10000000};  // 10ms
+                nanosleep(&ts, nullptr);
                 emptyFrameCount = 0;
             }
+        } else if (result == -2) {
+            // No available buffer, wait and retry
+            noBufferCount++;
+            if (noBufferCount > 100) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] No available buffer for %{public}zu times, waiting...", noBufferCount);
+                noBufferCount = 0;
+            }
+            struct timespec ts = {0, 1000000};  // 1ms
+            nanosleep(&ts, nullptr);
         } else {
             emptyFrameCount = 0;
+            noBufferCount = 0;
         }
-        // If result == 0 (success) or -2 (need more data), continue immediately
+        // If result == 0 (success), continue immediately
     }
 
     OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread exited");
@@ -315,6 +346,10 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
         return 0;
     }
 
+    // DEBUG: Log PTS for diagnosis
+    OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] C++ PTS: %{public}lld (0x%{public}llx), frameSize: %{public}d",
+                 (long long)pts, (unsigned long long)pts, frameSize);
+
     // Check if we have the complete frame
     size_t totalFrameSize = MIN_READ_SIZE + frameSize;
     if (available < totalFrameSize) {
@@ -330,6 +365,8 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
 
     // Log first few config frames for debugging H.265
     static int configFrameCount = 0;
+    OH_LOG_INFO(LOG_APP, "[StreamProcessor] isConfig %{public}d",
+                       isConfig ? 1 : 0);
     if (isConfig) {
         configFrameCount++;
         if (configFrameCount <= 3) {
@@ -443,5 +480,17 @@ int32_t VideoStreamProcessor::PushToDecoderFromRingBuffer(RingBuffer* ringBuffer
     } else {
         AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
         return audioDecoder->PushFromRingBuffer(ringBuffer, size, pts);
+    }
+}
+
+bool VideoStreamProcessor::HasAvailableBuffer() const {
+    if (!decoder_) return false;
+
+    if (mediaType_ == MediaType::VIDEO) {
+        VideoDecoderNative* videoDecoder = static_cast<VideoDecoderNative*>(decoder_);
+        return videoDecoder->HasAvailableBuffer();
+    } else {
+        AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
+        return audioDecoder->HasAvailableBuffer();
     }
 }

@@ -186,6 +186,9 @@ public:
     uint64_t GetProcessedFrameCount() const { return processedFrameCount_.load(); }
     uint64_t GetDroppedFrameCount() const { return droppedFrameCount_.load(); }
 
+    // Check if decoder has available input buffers
+    bool HasAvailableBuffer() const;
+
 private:
     static void ProcessingThread(VideoStreamProcessor* self);
 

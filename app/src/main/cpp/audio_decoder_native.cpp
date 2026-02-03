@@ -3,6 +3,7 @@
 #include <hilog/log.h>
 #include <cstring>
 #include <algorithm>  // for std::min
+#include <time.h>     // for nanosleep
 #include <ohaudio/native_audiostreambuilder.h>
 
 #undef LOG_TAG
@@ -272,6 +273,28 @@ int32_t AudioDecoderNative::Start() {
             OH_LOG_ERROR(LOG_APP, "[AudioNative] Start decoder failed: %{public}d", ret);
             return ret;
         }
+
+        // 等待初始输入缓冲区可用（最多等待2秒）
+        OH_LOG_INFO(LOG_APP, "[AudioNative] Waiting for initial input buffers...");
+        int waitCount = 0;
+        constexpr int MAX_WAIT_COUNT = 200;  // 200 * 10ms = 2000ms
+        while (waitCount < MAX_WAIT_COUNT) {
+            {
+                std::lock_guard<std::mutex> lock(context_->inputMutex);
+                if (!context_->inputBufferQueue.empty()) {
+                    OH_LOG_INFO(LOG_APP, "[AudioNative] Initial input buffer available after %{public}dx10ms", waitCount);
+                    break;
+                }
+            }
+            // 使用nanosleep替代sleep_for
+            struct timespec ts = {0, 10000000};  // 10ms
+            nanosleep(&ts, nullptr);
+            waitCount++;
+        }
+        if (waitCount >= MAX_WAIT_COUNT) {
+            OH_LOG_WARN(LOG_APP, "[AudioNative] Timeout waiting for initial input buffers (queue still empty after %{public}ms)",
+                       waitCount * 10);
+        }
     }
 
     isStarted_ = true;
@@ -510,4 +533,11 @@ int32_t AudioDecoderNative::Release() {
 
     OH_LOG_INFO(LOG_APP, "[AudioNative] Released, total frames: %{public}u", frameCount_);
     return 0;
+}
+
+bool AudioDecoderNative::HasAvailableBuffer() const {
+    if (context_ == nullptr) return false;
+
+    std::lock_guard<std::mutex> lock(context_->inputMutex);
+    return !context_->inputBufferQueue.empty();
 }

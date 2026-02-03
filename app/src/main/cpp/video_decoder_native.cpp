@@ -4,6 +4,7 @@
 #include <queue>
 #include <mutex>
 #include <cstring>  // for memcpy, strcmp
+#include <time.h>   // for nanosleep
 #include "multimedia/player_framework/native_avbuffer.h"  // for OH_AVBuffer_SetBufferAttr
 #include "multimedia/player_framework/native_avcodec_videoencoder.h"  // for HEVC_PROFILE_MAIN
 
@@ -51,14 +52,21 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
 
     std::lock_guard<std::mutex> lock(context->queueMutex);
     if (buffer != nullptr) {
+        // 只保存buffer指针到map，使用index作为key
+        context->inputBuffers[index] = buffer;
         context->inputBufferQueue.push(index);
-        context->inputBuffers.push(buffer);  // 保存buffer指针
-        // Reduce log verbosity for input buffers, only log occasionally or on empty
-//        if (context->inputBufferQueue.size() == 1) {
-//             OH_LOG_DEBUG(LOG_APP, "[Native] OnNeedInputBuffer: Got first buffer! index=%{public}u", index);
-//        }
+        // 添加日志追踪输入缓冲区
+        static int bufferCount = 0;
+        bufferCount++;
+        // 记录前10个缓冲区的详细时间戳，用于诊断H265延迟问题
+        if (bufferCount <= 10) {
+            OH_LOG_INFO(LOG_APP, "[Native] OnNeedInputBuffer: index=%{public}u, queueSize=%{public}zu, totalCount=%{public}d (FIRST %{public}d BUFFERS)",
+                        index, context->inputBufferQueue.size(), bufferCount, bufferCount <= 10 ? bufferCount : 10);
+        } else if (bufferCount == 11) {
+            OH_LOG_INFO(LOG_APP, "[Native] OnNeedInputBuffer: ... (continuing normal logging)");
+        }
     } else {
-        OH_LOG_ERROR(LOG_APP, "[Native] OnNeedInputBuffer: buffer is null");
+        OH_LOG_ERROR(LOG_APP, "[Native] OnNeedInputBuffer: buffer is null for index=%{public}u", index);
     }
     context->waitForFirstBuffer = false;
 }
@@ -93,10 +101,10 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     if (ret == AV_ERR_OK) {
     // Get presentation timestamp
     int64_t pts = (int64_t)attr.pts;
-    
-    // Log output buffer info
-//    OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld, flags=0x%{public}x", 
-//                 index, attr.size, (long long)pts, attr.flags);
+
+    // 启用日志以便诊断渲染问题
+    OH_LOG_DEBUG(LOG_APP, "[Native] OnNewOutputBuffer: index=%{public}u, size=%{public}d, pts=%{public}lld, flags=0x%{public}x",
+                 index, attr.size, (long long)pts, attr.flags);
 
     // 渲染到Surface - 只调用RenderOutputBuffer，不要调用FreeOutputBuffer
     OH_AVErrCode renderRet = OH_VideoDecoder_RenderOutputBuffer(codec, index);
@@ -105,14 +113,19 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
         // 如果渲染失败，尝试释放buffer
         OH_VideoDecoder_FreeOutputBuffer(codec, index);
     } else {
-        // OH_LOG_DEBUG(LOG_APP, "[Native] Rendered frame pts=%{public}lld", (long long)pts);
+        OH_LOG_DEBUG(LOG_APP, "[Native] Rendered frame successfully, pts=%{public}lld", (long long)pts);
+        // 诊断：检查此时队列中剩余的buffer数量
+        std::lock_guard<std::mutex> lock(context->queueMutex);
+        OH_LOG_DEBUG(LOG_APP, "[Native] Input buffer queue size after render: %{public}zu", context->inputBufferQueue.size());
     }
-    } // Close if (ret == AV_ERR_OK)
+    } else {
+        OH_LOG_ERROR(LOG_APP, "[Native] OnNewOutputBuffer: GetBufferAttr failed: %{public}d", ret);
+    }
 }
 
 int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height) {
-    OH_LOG_DEBUG(LOG_APP, "[Native] Init: codec=%{public}s, size=%{public}dx%{public}d",
-                codecType, width, height);
+    OH_LOG_INFO(LOG_APP, "[Native] Init START: codec=%{public}s, size=%{public}dx%{public}d, surfaceId=%{public}s",
+                codecType, width, height, surfaceId);
 
     width_ = width;
     height_ = height;
@@ -137,9 +150,10 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     // 创建解码器
     decoder_ = OH_VideoDecoder_CreateByMime(mimeType);
     if (decoder_ == nullptr) {
-        OH_LOG_ERROR(LOG_APP, "[Native] Create decoder failed, codec=%{public}s", mimeType);
+        OH_LOG_ERROR(LOG_APP, "[Native] Create decoder FAILED, codec=%{public}s", mimeType);
         return -1;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] Create decoder SUCCESS");
 
     // 配置解码器
     OH_AVFormat* format = OH_AVFormat_Create();
@@ -163,24 +177,28 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     int32_t ret = OH_VideoDecoder_Configure(decoder_, format);
     OH_AVFormat_Destroy(format);
     if (ret != AV_ERR_OK) {
-        OH_LOG_ERROR(LOG_APP, "[Native] Configure failed: %{public}d", ret);
+        OH_LOG_ERROR(LOG_APP, "[Native] Configure FAILED: %{public}d", ret);
         return ret;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] Configure SUCCESS");
 
     // 从surfaceId获取window
     uint64_t surfaceIdNum = std::stoull(surfaceId);
+    OH_LOG_INFO(LOG_APP, "[Native] Creating NativeWindow from surfaceId: %{public}llu", (unsigned long long)surfaceIdNum);
     int32_t windowRet = OH_NativeWindow_CreateNativeWindowFromSurfaceId(surfaceIdNum, &window_);
     if (windowRet != 0 || window_ == nullptr) {
-        OH_LOG_ERROR(LOG_APP, "[Native] Create window failed: %{public}d", windowRet);
+        OH_LOG_ERROR(LOG_APP, "[Native] Create window FAILED: %{public}d", windowRet);
         return -1;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] Create NativeWindow SUCCESS");
 
     // 设置输出Surface
     ret = OH_VideoDecoder_SetSurface(decoder_, window_);
     if (ret != AV_ERR_OK) {
-        OH_LOG_ERROR(LOG_APP, "[Native] SetSurface failed: %{public}d", ret);
+        OH_LOG_ERROR(LOG_APP, "[Native] SetSurface FAILED: %{public}d", ret);
         return ret;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] SetSurface SUCCESS");
 
     // 设置回调
     context_ = new DecoderContext();
@@ -198,36 +216,63 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     callback.onNeedInputBuffer = OnNeedInputBuffer;
     callback.onNewOutputBuffer = OnNewOutputBuffer;
 
+    OH_LOG_INFO(LOG_APP, "[Native] Registering callback...");
     ret = OH_VideoDecoder_RegisterCallback(decoder_, callback, context_);
     if (ret != AV_ERR_OK) {
-        OH_LOG_ERROR(LOG_APP, "[Native] RegisterCallback failed: %{public}d", ret);
+        OH_LOG_ERROR(LOG_APP, "[Native] RegisterCallback FAILED: %{public}d", ret);
         delete context_;
         context_ = nullptr;
         return ret;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] RegisterCallback SUCCESS");
 
     // 准备解码器
+    OH_LOG_INFO(LOG_APP, "[Native] Preparing decoder...");
     ret = OH_VideoDecoder_Prepare(decoder_);
     if (ret != AV_ERR_OK) {
-        OH_LOG_ERROR(LOG_APP, "[Native] Prepare failed: %{public}d", ret);
+        OH_LOG_ERROR(LOG_APP, "[Native] Prepare FAILED: %{public}d", ret);
         return ret;
     }
+    OH_LOG_INFO(LOG_APP, "[Native] Prepare SUCCESS");
 
-    OH_LOG_INFO(LOG_APP, "[Native] Init success with codec %{public}s, waiting for input buffer callbacks...", codecType);
+    OH_LOG_INFO(LOG_APP, "[Native] Init COMPLETE, codec=%{public}s", codecType);
     return 0;
 }
 
 int32_t VideoDecoderNative::Start() {
     if (decoder_ == nullptr) {
+        OH_LOG_ERROR(LOG_APP, "[Native] Start FAILED: decoder is null");
         return -1;
     }
 
+    OH_LOG_INFO(LOG_APP, "[Native] Starting decoder...");
     int32_t ret = OH_VideoDecoder_Start(decoder_);
     if (ret == AV_ERR_OK) {
         isStarted_ = true;
-        OH_LOG_INFO(LOG_APP, "[Native] Decoder started");
+        OH_LOG_INFO(LOG_APP, "[Native] Decoder STARTED successfully");
+
+        // 等待初始输入缓冲区可用（最多等待2秒）
+        // 这是为了确保在推送数据前，解码器已经准备好接收数据
+        OH_LOG_INFO(LOG_APP, "[Native] Waiting for initial input buffers...");
+        int waitCount = 0;
+        constexpr int MAX_WAIT_COUNT = 200;  // 200 * 10ms = 2000ms
+        while (waitCount < MAX_WAIT_COUNT) {
+            {
+                std::lock_guard<std::mutex> lock(context_->queueMutex);
+                if (!context_->inputBufferQueue.empty()) {
+                    OH_LOG_INFO(LOG_APP, "[Native] Initial input buffer available after %{public}dx10ms", waitCount);
+                    return ret;
+                }
+            }
+            // 使用nanosleep替代sleep_for
+            struct timespec ts = {0, 10000000};  // 10ms
+            nanosleep(&ts, nullptr);
+            waitCount++;
+        }
+        OH_LOG_WARN(LOG_APP, "[Native] Timeout waiting for initial input buffers (queue still empty after %{public}ms), continuing anyway",
+                   waitCount * 10);
     } else {
-        OH_LOG_ERROR(LOG_APP, "[Native] Start failed: %{public}d", ret);
+        OH_LOG_ERROR(LOG_APP, "[Native] Start FAILED: %{public}d", ret);
     }
     return ret;
 }
@@ -239,17 +284,21 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         return -1;
     }
 
-    // 从队列同时获取可用的input buffer index和buffer（优化：合并为单次加锁）
+    // 从队列获取可用的input buffer index
     uint32_t bufferIndex = 0;
     OH_AVBuffer* buffer = nullptr;
 
     {
         std::lock_guard<std::mutex> lock(context_->queueMutex);
-        if (!context_->inputBufferQueue.empty() && !context_->inputBuffers.empty()) {
+        if (!context_->inputBufferQueue.empty()) {
             bufferIndex = context_->inputBufferQueue.front();
             context_->inputBufferQueue.pop();
-            buffer = context_->inputBuffers.front();
-            context_->inputBuffers.pop();
+            // 从map获取buffer
+            auto it = context_->inputBuffers.find(bufferIndex);
+            if (it != context_->inputBuffers.end()) {
+                buffer = it->second;
+                context_->inputBuffers.erase(it);
+            }
         }
     }
 
@@ -322,7 +371,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         // 将buffer放回队列以便重试
         {
             std::lock_guard<std::mutex> lock(context_->queueMutex);
-            context_->inputBuffers.push(buffer);
+            context_->inputBuffers[bufferIndex] = buffer;
         }
         return -1;
     }
@@ -349,21 +398,35 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         return -1;
     }
 
-    // 从队列获取可用的input buffer index和buffer
+    // 从队列获取可用的input buffer index
     uint32_t bufferIndex = 0;
     OH_AVBuffer* buffer = nullptr;
 
     {
         std::lock_guard<std::mutex> lock(context_->queueMutex);
-        if (!context_->inputBufferQueue.empty() && !context_->inputBuffers.empty()) {
+        if (!context_->inputBufferQueue.empty()) {
             bufferIndex = context_->inputBufferQueue.front();
             context_->inputBufferQueue.pop();
-            buffer = context_->inputBuffers.front();
-            context_->inputBuffers.pop();
+            // 从map获取buffer
+            auto it = context_->inputBuffers.find(bufferIndex);
+            if (it != context_->inputBuffers.end()) {
+                buffer = it->second;
+                context_->inputBuffers.erase(it);
+            }
         }
     }
 
     if (buffer == nullptr) {
+        // 输入缓冲区不可用，记录频率以诊断
+        static int64_t lastWarnTime = 0;
+        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (now - lastWarnTime > 1000) {
+            std::lock_guard<std::mutex> lock(context_->queueMutex);
+            OH_LOG_WARN(LOG_APP, "[Native] PushFromRingBuffer: no available input buffer, queueSize=%{public}zu, decoderStarted=%{public}d, time=%{public}lld",
+                       context_->inputBufferQueue.size(), isStarted_, (long long)now);
+            lastWarnTime = now;
+        }
         return -2;  // No available buffer
     }
 
@@ -378,7 +441,7 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         {
             std::lock_guard<std::mutex> lock(context_->queueMutex);
             context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
+            context_->inputBuffers[bufferIndex] = buffer;
         }
         return -1;
     }
@@ -392,7 +455,7 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         {
             std::lock_guard<std::mutex> lock(context_->queueMutex);
             context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
+            context_->inputBuffers[bufferIndex] = buffer;
         }
         return -1;
     }
@@ -418,7 +481,7 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         {
             std::lock_guard<std::mutex> lock(context_->queueMutex);
             context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
+            context_->inputBuffers[bufferIndex] = buffer;
         }
         return -1;
     }
@@ -456,4 +519,11 @@ int32_t VideoDecoderNative::Release() {
 
     OH_LOG_INFO(LOG_APP, "[Native] Released, total frames: %{public}u", frameCount_);
     return 0;
+}
+
+bool VideoDecoderNative::HasAvailableBuffer() const {
+    if (context_ == nullptr) return false;
+
+    std::lock_guard<std::mutex> lock(context_->queueMutex);
+    return !context_->inputBufferQueue.empty();
 }
