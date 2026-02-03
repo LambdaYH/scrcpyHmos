@@ -61,10 +61,6 @@ export class PreferencesHelper {
 
     // 视频参数
     target.videoCodec = source.videoCodec ?? 'h264';
-    // 兼容旧数据：如果有 useH265 但没有 videoCodec
-    if (!source.videoCodec && (source as Record<string, ESObject>)['useH265'] === true) {
-      target.videoCodec = 'h265';
-    }
     target.maxSize = source.maxSize ?? 1920;
     target.maxFps = source.maxFps ?? 60;
     target.maxVideoBit = source.maxVideoBit ?? 8000000;
@@ -89,10 +85,10 @@ export class PreferencesHelper {
 
     // 运行时操作
     // 兼容旧数据：keepAwake -> stayAwake
-    target.stayAwake = source.stayAwake ?? (source as Record<string, ESObject>)['keepAwake'] ?? true;
+    target.stayAwake = source.stayAwake ?? true;
     target.showTouches = source.showTouches ?? false;
     // 兼容旧数据：listenClipOnRunning -> clipboardAutosync
-    target.clipboardAutosync = source.clipboardAutosync ?? (source as Record<string, ESObject>)['listenClipOnRunning'] ?? true;
+    target.clipboardAutosync = source.clipboardAutosync ?? true;
     target.changeResolutionOnRunning = source.changeResolutionOnRunning ?? false;
 
     // 断开时操作

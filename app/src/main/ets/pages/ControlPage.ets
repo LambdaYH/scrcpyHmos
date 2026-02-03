@@ -56,12 +56,26 @@ struct ControlPage {
           // 客户端已连接，从缓存获取
           this.initFromExistingClient();
         } else {
-          // 旧的流程 - 在本页面连接 (兼容性保留)
-          this.connectDevice();
+          try {
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+          } catch (e) {
+            LoggerControlPage.error('Show toast failed:', e);
+          }
+          setTimeout(() => {
+            this.exitPage();
+          }, 1000);
         }
       }
     } catch (e) {
       LoggerControlPage.error('Failed to get router params:', e);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+      } catch (e) {
+        LoggerControlPage.error('Show toast failed:', e);
+      }
+      setTimeout(() => {
+        this.exitPage();
+      }, 1000);
     }
     
     // 设置全屏并隐藏导航条
@@ -159,8 +173,8 @@ struct ControlPage {
       // 启动自动隐藏定时器
       this.startAutoHideTimer();
     } else {
-      LoggerControlPage.error('ControlPage: Client not found in cache, falling back to connect');
-      this.connectDevice();
+      LoggerControlPage.error('ControlPage: Client not found in cache, exit');
+      this.exitPage();
     }
   }
 
@@ -176,91 +190,7 @@ struct ControlPage {
       LoggerControlPage.error('Set fullscreen failed:', err);
     }
   }
-  
-  async connectDevice() {
-    if (!this.device) {
-      LoggerControlPage.error('ControlPage: No device available');
-      return;
-    }
-    
-    try {
-      this.connectionStatus = 'Connecting to device...';
-      LoggerControlPage.debug('ControlPage: Starting connection to device:', this.device.name);
-      LoggerControlPage.debug('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
-      
-      // 显示授权提示
-      this.connectionStatus = '连接中...如果是首次连接，请在Android设备上授权USB调试';
 
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      this.client = await Client.startDevice(this.device, ctx, this.getUIContext(), undefined, (client: Client) => {
-        // 立即保存Client引用，以便退出页面时关闭
-        this.client = client;
-      });
-      LoggerControlPage.debug('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
-      
-      if (this.client) {
-        this.isConnected = true;
-        this.showLoading = false;
-        this.connectionStatus = 'Connected';
-        this.clientReady = true;
-        LoggerControlPage.info('ControlPage: Device connected successfully');
-
-        // 设置断开连接回调 - 自动返回上一页
-        this.client.setOnDisconnect((reason: string) => {
-          LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
-          try {
-            this.getUIContext().getPromptAction().showToast({ message: reason });
-          } catch (e) {
-            LoggerControlPage.error('Show toast failed:', e);
-          }
-          // 延迟返回，让用户看到提示
-          setTimeout(() => {
-            this.exitPage();
-          }, 1000);
-        });
-        
-        // 如果surface已经就绪，立即初始化视频解码器
-        if (this.surfaceReady && this.surfaceId) {
-          this.initVideoDecoder();
-        }
-        
-        // 启动自动隐藏定时器
-        this.startAutoHideTimer();
-      } else {
-        this.showLoading = false;
-        this.connectionStatus = 'Connection failed';
-        LoggerControlPage.error('ControlPage: Client.startDevice returned null');
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: '连接失败。请检查设备是否开启ADB，并在设备上授权USB调试。' });
-        } catch (e) {
-          LoggerControlPage.error('Show toast failed:', e);
-        }
-        LoggerControlPage.error('Failed to start client - check if device is reachable and ADB is enabled');
-      }
-    } catch (err) {
-      this.showLoading = false;
-      this.connectionStatus = 'Connection error';
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('ControlPage: Connect device exception:', errMsg);
-      
-      // 根据错误类型显示不同的提示
-      let toastMsg = '连接错误';
-      if (errMsg.includes('timeout')) {
-        try {
-          toastMsg = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.connect_timeout_toast').id) || 'Connection timeout';
-        } catch (e) {
-          toastMsg = 'Connection timeout';
-        }
-      }
-      
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: toastMsg });
-      } catch (e) {
-        LoggerControlPage.error('Show toast failed:', e);
-      }
-    }
-  }
-  
   // 启动自动隐藏定时器
   startAutoHideTimer() {
     this.clearAutoHideTimer();
@@ -760,6 +690,11 @@ struct ControlPage {
       return;
     }
 
+    // 初始化音频解码器 (如果启用)
+    if (this.client?.getDevice()?.isAudio) {
+      this.initAudioDecoder();
+    }
+
     LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);
     this.client.initVideoDecoder(this.surfaceId).then(() => {
       // 从 Client 获取实际视频尺寸
@@ -771,15 +706,12 @@ struct ControlPage {
         // 重新计算显示尺寸，确保比例正确
         this.calcVideoDisplaySize();
       }
-
-      // 初始化音频解码器（如果启用）
-      if (this.client?.getDevice()?.isAudio) {
-        this.initAudioDecoder();
-      }
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init video decoder:', err.message);
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
+        const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const prefix = ctx.resourceManager.getStringSync($r('app.string.video_decoder_init_failed').id);
+        this.getUIContext().getPromptAction().showToast({ message: prefix + err.message });
       } catch (e) {
         LoggerControlPage.error('Show toast failed:', e);
       }
@@ -800,7 +732,13 @@ struct ControlPage {
       LoggerControlPage.info('[ControlPage] Audio decoder initialized successfully');
     }).catch((err: Error) => {
       LoggerControlPage.error('Failed to init audio decoder:', err.message);
-      // 音频失败不应该影响视频功能，不显示错误提示
+      try {
+        const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const prefix = ctx.resourceManager.getStringSync($r('app.string.audio_decoder_init_failed').id);
+        this.getUIContext().getPromptAction().showToast({ message: prefix + err.message });
+      } catch (e) {
+        LoggerControlPage.error('Show toast failed:', e);
+      }
     });
   }
 }

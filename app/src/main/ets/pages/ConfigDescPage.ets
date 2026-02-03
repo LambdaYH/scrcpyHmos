@@ -24,7 +24,6 @@ struct ConfigDescPage {
 
   build() {
     Column() {
-      // Header
       Row() {
         Button({ type: ButtonType.Circle, stateEffect: true }) {
           SymbolGlyph($r('sys.symbol.arrow_left'))

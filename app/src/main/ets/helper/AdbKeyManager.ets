@@ -26,7 +26,7 @@ class KeyGenerationInfo {
   }
 }
 
-// ADB密钥管理 - 支持多设备，使用文件系统保存
+// ADB密钥管理
 export class AdbKeyManager {
   private static instance: AdbKeyManager;
   private preferences?: preferences.Preferences;

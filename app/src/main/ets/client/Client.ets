@@ -9,7 +9,7 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 
 // 视频配置接口（使用ClientStream中的定义）
-import { VideoConfig, VideoFrame, AudioFrame, AudioConfig } from './tools/ClientStream';
+import { VideoConfig, VideoFrame } from './tools/ClientStream';
 
 // 客户端管理器
 export class Client {

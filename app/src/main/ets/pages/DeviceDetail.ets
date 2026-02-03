@@ -32,34 +32,28 @@ struct DeviceDetail {
         this.device = params['device'] as Device;
         this.isEditMode = true;
       } else {
-        // 生成UUID
-        this.device.uuid = util.generateRandomUUID(true);
-        // 生成时间戳 YYYYMMDDHHmm
-        const now = new Date();
-        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-        
-        try {
-          const baseName = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
-          this.device.name = `${baseName} ${timestamp}`;
-        } catch (e) {
-          this.device.name = `New Device ${timestamp}`;
-        }
+        this.initDefaultDevice();
       }
     } catch (e) {
       LoggerDeviceDetail.error('Failed to get router params:', e);
       // 默认为新设备
-      this.device.uuid = util.generateRandomUUID(true);
-      
-      // 生成时间戳 YYYYMMDDHHmm
-      const now = new Date();
-      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-      
-      try {
-        const baseName = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
-        this.device.name = `${baseName} ${timestamp}`;
-      } catch (e) {
-        this.device.name = `New Device ${timestamp}`;
-      }
+      this.initDefaultDevice();
+    }
+  }
+
+  private initDefaultDevice(): void {
+    // 生成UUID
+    this.device.uuid = util.generateRandomUUID(true);
+
+    // 生成时间戳 YYYYMMDDHHmm
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+    try {
+      const baseName = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.new_device').id);
+      this.device.name = `${baseName} ${timestamp}`;
+    } catch (e) {
+      this.device.name = `New Device ${timestamp}`;
     }
   }
 
