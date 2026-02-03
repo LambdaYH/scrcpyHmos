@@ -106,13 +106,13 @@ export class TcpChannel implements AdbChannel {
     if (this.isClosed) {
       return;
     }
-    
-    // 将接收到的数据添加到缓冲区
-    const newData = new Uint8Array(data);
-    const temp = new Uint8Array(this.receiveBuffer.length + newData.length);
-    temp.set(this.receiveBuffer, 0);
-    temp.set(newData, this.receiveBuffer.length);
-    this.receiveBuffer = temp;
+
+    // 将接收到的数据添加到缓冲区（优化：减少内存分配）
+    const newDataLength = data.byteLength;
+    const newReceiveBuffer = new Uint8Array(this.receiveBuffer.length + newDataLength);
+    newReceiveBuffer.set(this.receiveBuffer, 0);
+    newReceiveBuffer.set(new Uint8Array(data), this.receiveBuffer.length);
+    this.receiveBuffer = newReceiveBuffer;
 
     // console.info('TcpChannel: Received data, buffer size:', this.receiveBuffer.length);
 
@@ -125,14 +125,20 @@ export class TcpChannel implements AdbChannel {
       const request = this.pendingReads[0];
 
       if (this.receiveBuffer.length >= request.length) {
-        // 有足够的数据，提取并返回
-        const result = this.receiveBuffer.slice(0, request.length);
-        const buffer = new ArrayBuffer(result.length);
-        const view = new Uint8Array(buffer);
-        view.set(result);
+        // 有足够的数据，提取并返回（优化：直接使用 slice 返回）
+        const result: Uint8Array = this.receiveBuffer.slice(0, request.length);
+        // 创建新的 ArrayBuffer（避免直接使用 .buffer 属性）
+        const buffer: ArrayBuffer = new ArrayBuffer(request.length);
+        const bufferView: Uint8Array = new Uint8Array(buffer);
+        bufferView.set(result);
 
-        // 从缓冲区移除已读数据
-        this.receiveBuffer = this.receiveBuffer.slice(request.length);
+        // 从缓冲区移除已读数据（使用 copyWithin 原地移动数据，避免新分配）
+        if (this.receiveBuffer.length > request.length) {
+          this.receiveBuffer.copyWithin(0, request.length, this.receiveBuffer.length);
+          this.receiveBuffer = this.receiveBuffer.slice(0, this.receiveBuffer.length - request.length);
+        } else {
+          this.receiveBuffer = new Uint8Array(0);
+        }
 
         // 移除并完成请求
         this.pendingReads.shift();

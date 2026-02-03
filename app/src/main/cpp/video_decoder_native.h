@@ -6,11 +6,15 @@
 #include <mutex>
 #include <map>
 #include "multimedia/player_framework/native_avcodec_videodecoder.h"
+#include "multimedia/player_framework/native_avbuffer.h"
 #include "native_window/external_window.h"
+
+// Forward declaration for RingBuffer
+class RingBuffer;
 
 struct DecoderContext {
     std::queue<uint32_t> inputBufferQueue;
-    std::queue<OH_AVBuffer*> inputBuffers;  // 保存buffer指针队列
+    std::map<uint32_t, OH_AVBuffer*> inputBuffers;  // 使用map通过index保存buffer指针
     std::mutex queueMutex;
     class VideoDecoderNative* decoder;
     bool waitForFirstBuffer;  // 标记是否在等待第一个buffer
@@ -32,8 +36,11 @@ public:
     int32_t Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags);
+    // Direct push from RingBuffer (optimized, avoids intermediate copy)
+    int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags);
     int32_t Stop();
     int32_t Release();
+    bool HasAvailableBuffer() const;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);

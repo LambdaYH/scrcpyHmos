@@ -569,6 +569,18 @@
             "value": "剪贴板为空"
         },
         {
+            "name": "init_control_page_error",
+            "value": "初始化控制界面失败"
+        },
+        {
+            "name": "video_decoder_init_failed",
+            "value": "视频解码器初始化失败: "
+        },
+        {
+            "name": "audio_decoder_init_failed",
+            "value": "音频解码器初始化失败: "
+        },
+        {
             "name": "clipboard_synced",
             "value": "已同步到设备"
         },

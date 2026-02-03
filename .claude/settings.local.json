@@ -8,7 +8,12 @@
       "Bash(ls:*)",
       "Bash(cmd //c \"hvigorw.bat assembleHap --no-build-cache\")",
       "Bash(tree:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "WebFetch(domain:developer.huawei.com)",
+      "Bash(powershell:*)",
+      "Bash(cmd:*)",
+      "WebSearch",
+      "Bash(python:*)"
     ]
   }
 }

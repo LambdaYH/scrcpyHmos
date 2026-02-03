@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { LoggerHelpPage } from '../helper/Logger';
 
 @Entry
 @Component
@@ -96,6 +96,8 @@ struct HelpPage {
           .onClick(() => {
              this.getUIContext().getRouter().pushUrl({
                url: 'pages/ConfigDescPage'
+             }).catch((e: Error) => {
+               LoggerHelpPage.error("跳转至配置详情失败", e)
              })
           })
           .margin({ bottom: 12, top: 0 })

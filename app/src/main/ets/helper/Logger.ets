@@ -261,6 +261,7 @@ export class Logger {
 // 预定义的 Logger 实例，方便各模块使用
 export const LoggerIndex = new Logger('Index');
 export const LoggerControlPage = new Logger('ControlPage');
+export const LoggerHelpPage = new Logger('HelpPage');
 export const LoggerDeviceDetail = new Logger('DeviceDetail');
 export const LoggerAdbManage = new Logger('AdbManage');
 export const LoggerPublicTools = new Logger('PublicTools');

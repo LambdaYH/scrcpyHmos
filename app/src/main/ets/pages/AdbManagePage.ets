@@ -51,10 +51,10 @@ struct AdbManagePage {
       }
       .width('100%')
       .height(56 + 38)
-      .padding({ left: 12, right: 24, top: 38 }) // Padding: Left 12, Right 24
+      .padding({ left: 12, right: 24, top: 38 })
       
       Column() {
-        Image($r('app.media.icon_startwindow')) // Use a generic key or link icon if available, or keep existing
+        Image($r('app.media.icon_startwindow'))
           .width(80)
           .height(80)
           .margin({ top: 48, bottom: 24 })
@@ -159,7 +159,7 @@ struct AdbManagePage {
       LoggerAdbManage.error('Import custom key failed:', error);
       
       let friendMsg: Resource = $r('app.string.adb_key_import_fail_format');
-      // 简单的错误映射
+
       if (error.message.includes('empty')) {
         friendMsg = $r('app.string.adb_key_import_fail_empty');
       } else if (error.message.includes('Base64')) {
@@ -215,7 +215,7 @@ struct CustomKeyDialog {
         .fontWeight(FontWeight.Bold)
         .margin({ bottom: 16 })
       
-      Text($r('app.string.private_key')) // Already localized? No, was hardcoded in new strings
+      Text($r('app.string.private_key'))
         .fontSize(12)
         .alignSelf(ItemAlign.Start)
         .fontColor('#666666')

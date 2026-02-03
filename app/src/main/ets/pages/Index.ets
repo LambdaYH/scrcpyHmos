@@ -74,13 +74,13 @@ struct Index {
       // Tab 1: Home
       Column() {
         SymbolGlyph($r('sys.symbol.house'))
-          .fontSize(24) // Standard 24vp
+          .fontSize(24)
           .fontColor([this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary')])
         Text($r('app.string.tab_devices'))
-          .fontSize(10) // Standard 10fp
+          .fontSize(10)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.currentIndex === 0 ? $r('app.color.btn_primary') : $r('app.color.text_tertiary'))
-          .margin({ top: 4 }) // Standard 4vp spacing
+          .margin({ top: 4 })
       }
       .layoutWeight(1)
       .height('100%')
@@ -167,11 +167,11 @@ struct Index {
       })
     }
     .width('100%')
-    .height(56 + 12) // 56vp content + bottom padding (approx)
-    .padding({ bottom: 12 }) // Safe area padding
+    .height(56 + 12)
+    .padding({ bottom: 12 })
     .backgroundColor(Color.Transparent)
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK) // Glassmorphism
-    .border({ width: { top: 0.5 }, color: '#1A000000' }) // Subtle top border
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+    .border({ width: { top: 0.5 }, color: '#1A000000' })
   }
 
   build() {
@@ -559,8 +559,6 @@ struct Index {
         .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
       }
       .layoutWeight(1)
-
-
 
     }
     .width('100%')

@@ -86,7 +86,7 @@ export class ServerManager {
             }
           }
         } catch (readErr) {
-          // 继续尝试
+          LoggerServerManager.error('检查服务端是否存在失败', readErr);
         }
       }
 
@@ -245,79 +245,83 @@ export class ServerManager {
   // 构建scrcpy启动参数
   static buildServerArgs(device: Device): string {
     const args: string[] = [];
+    // 记录已添加的参数键，用于过滤 extraParams 中的重复项
+    const reservedKeys = new Set<string>();
+
+    // 辅助函数：添加参数并记录键名
+    const addArg = (key: string, value: string | number | boolean): void => {
+      reservedKeys.add(key);
+      args.push(`${key}=${value}`);
+    };
 
     // 必需参数
-    args.push(`scid=${ServerManager.generateScid()}`);
+    addArg('scid', ServerManager.generateScid());
 
     // 视频参数
-    // video=true is default, remove
-    // args.push(`video=true`);
-    args.push(`video_codec=${device.videoCodec}`);
+    addArg('video_codec', device.videoCodec);
     // max_size 为 0 时不传递，使用原始分辨率
     if (device.maxSize) {
-      args.push(`max_size=${device.maxSize}`);
+      addArg('max_size', device.maxSize);
     }
     // max_fps 为 0 时不传递，使用原始帧率
     if (device.maxFps) {
-      args.push(`max_fps=${device.maxFps}`);
+      addArg('max_fps', device.maxFps);
     }
     // video_bit_rate 为 0 时不传递，使用服务端默认值
     if (device.maxVideoBit) {
-      args.push(`video_bit_rate=${device.maxVideoBit}`);
+      addArg('video_bit_rate', device.maxVideoBit);
     }
     if (device.crop) {
-      args.push(`crop=${device.crop}`);
+      addArg('crop', device.crop);
     }
     if (device.displayId !== 0) {
-      args.push(`display_id=${device.displayId}`);
+      addArg('display_id', device.displayId);
     }
 
     // 音频参数
     // audio=true is default, remove. Only send if false.
     if (!device.isAudio) {
-      args.push(`audio=false`);
+      addArg('audio', false);
     } else {
-      args.push(`audio_codec=${device.audioCodec}`);
+      addArg('audio_codec', device.audioCodec);
       // audio_bit_rate 为 0 时不传递，使用服务端默认值
       if (device.maxAudioBit) {
-        args.push(`audio_bit_rate=${device.maxAudioBit}`);
+        addArg('audio_bit_rate', device.maxAudioBit);
       }
     }
 
     // 控制和行为参数
-    args.push(`control=true`);
+    addArg('control', true);
     
     // Explicitly enable tunnel_forward to force "forward" mode (server listens)
     // This allows our client (adb.localSocketForward) to connect to the listening socket.
-    args.push(`tunnel_forward=true`);
+    addArg('tunnel_forward', true);
     
-    args.push(`show_touches=${device.showTouches}`);
-    args.push(`stay_awake=${device.stayAwake}`);
-    args.push(`power_off_on_close=${device.powerOffScreenOnClose}`);
-    args.push(`clipboard_autosync=${device.clipboardAutosync}`);
-    args.push(`downsize_on_error=${device.downsizeOnError}`);
+    addArg('show_touches', device.showTouches);
+    addArg('stay_awake', device.stayAwake);
+    addArg('power_off_on_close', device.powerOffScreenOnClose);
+    addArg('clipboard_autosync', device.clipboardAutosync);
+    addArg('downsize_on_error', device.downsizeOnError);
     
-    args.push(`cleanup=true`);
+    addArg('cleanup', true);
 
     if (device.logLevel !== 'info') {
-        args.push(`log_level=${device.logLevel}`);
+      addArg('log_level', device.logLevel);
     }
     
-    // 元数据参数（用于客户端解析）
-    // 官方客户端不传递以下Meta参数，使用默认值(true)。
-    // 但为了解决某些设备的握手超时问题，我们需要显式禁用send_dummy_byte。
-    // args.push(`send_device_meta=true`);
-    // args.push(`send_frame_meta=true`);
-    // args.push(`send_codec_meta=true`);
-    
-    // args.push(`send_dummy_byte=false`);
-    
     // 额外参数（用户自定义）
+    // 自动过滤掉已存在的参数键，避免冲突
     if (device.extraParams && device.extraParams.length > 0) {
       for (const param of device.extraParams) {
         if (param.key && param.key.trim()) {
           // 自动将中划线转换为下划线（与官方scrcpy CLI行为一致）
           const key = param.key.trim().replace(/-/g, '_');
+          
+          // 如果参数键已存在于 reservedKeys 中，则跳过
+          if (reservedKeys.has(key)) {
+            continue;
+          }
+          
           args.push(`${key}=${param.value || ''}`);
         }
       }

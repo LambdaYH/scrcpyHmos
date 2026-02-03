@@ -1,5 +1,12 @@
 import scrcpy_native from 'libscrcpy_native.so';
 
+// Interface for pending frame data
+interface PendingFrameData {
+  data: ArrayBuffer;
+  pts: number;
+  flags: number;
+}
+
 // 视频解码器 - 使用Native C++ VideoDecoder
 export class VideoDecoder {
   // 静态实例追踪 - 确保只有一个解码器实例
@@ -10,17 +17,14 @@ export class VideoDecoder {
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
-  // Flags
-  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA = 8;
+  // Pending data queue - stores CSD/frame data until stream processor is ready
+  private pendingDataQueue: Array<PendingFrameData> = [];
 
-  // 支持两种调用方式：新的codecType字符串 或 旧的useH265布尔值
-  async init(codecTypeOrUseH265: string | boolean, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
-    // 兼容旧API
-    if (typeof codecTypeOrUseH265 === 'boolean') {
-      this.codecType = codecTypeOrUseH265 ? 'h265' : 'h264';
-    } else {
-      this.codecType = codecTypeOrUseH265;
-    }
+  // Flags
+  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA: number = 8;
+
+  async init(codecType: string, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
+    this.codecType = codecType;
 
     try {
       // 释放之前的解码器实例（防止资源泄漏）
@@ -98,45 +102,57 @@ export class VideoDecoder {
       return;
     }
 
-    try {
-      // 推送数据到Native解码器，带重试机制
-      // KeyFrame or CSD: Max 5 retries (aggressive)
-      // Others: 5 retries (always retry for smoothness)
-      const maxRetries = 5; 
-      
-      let retryCount = 0;
-      let result: number = -2;
-
-      while (retryCount <= maxRetries) {
-        // Native expects: id, data, pts, flags
-        result = scrcpy_native.pushVideoData(this.decoderId, data, pts, flags);
-
-        if (result === 0) {
-          // 成功
-          break;
-        } else if (result === -2) {
-          // 没有可用输入缓冲区
-          if (retryCount < maxRetries) {
-            retryCount++;
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2)); // Reduced wait time to 2ms
-          } else {
-             break;
-          }
-        } else {
-          // 其他错误，不重试
-          console.error(`[VideoDecoder] pushData failed with error: ${result}`);
-          break;
-        }
-      }
-
+    // 使用 stream processor 推送数据（CSD 数据推送）
+    if (this.streamProcessorId !== 0) {
+      const result: number = this.pushDataToStream(data, pts, flags);
       if (result === 0) {
         this.frameCount++;
       } else if (result === -2) {
-          // console.warn(`[VideoDecoder] Frame dropped (full) pts=${pts}`);
+        // Buffer full, frame dropped
+      } else {
+        console.error(`[VideoDecoder] pushDataToStream failed: ${result}`);
       }
-    } catch (err) {
-      console.error('[VideoDecoder] Decode error:', err);
+    } else {
+      // Queue the data for later processing when stream processor is ready
+      // This ensures CSD data is not lost during initialization
+      const frameData: PendingFrameData = { data: data, pts: pts, flags: flags };
+      this.pendingDataQueue.push(frameData);
+      console.info(`[VideoDecoder] Stream processor not ready, queued CSD/frame data (queue size: ${this.pendingDataQueue.length})`);
     }
+  }
+
+  /**
+   * Flush queued data to stream processor
+   * Called after stream processor is created and started
+   */
+  async flushPendingData(): Promise<void> {
+    if (this.pendingDataQueue.length === 0) {
+      return;
+    }
+
+    console.info(`[VideoDecoder] Flushing ${this.pendingDataQueue.length} queued frames to stream processor`);
+
+    for (const item of this.pendingDataQueue) {
+      const result = this.pushDataToStream(item.data, item.pts, item.flags);
+      if (result === 0) {
+        this.frameCount++;
+      } else if (result === -2) {
+        // Buffer full - wait a bit and retry
+        await new Promise<void>((resolve) => setTimeout(resolve, 1));
+        const retryResult = this.pushDataToStream(item.data, item.pts, item.flags);
+        if (retryResult === 0) {
+          this.frameCount++;
+        } else {
+          console.error(`[VideoDecoder] Failed to push queued frame after retry: ${retryResult}`);
+        }
+      } else {
+        console.error(`[VideoDecoder] Failed to push queued frame: ${result}`);
+      }
+    }
+
+    // Clear the queue
+    this.pendingDataQueue = [];
+    console.info('[VideoDecoder] Pending data flushed');
   }
 
   async flush(): Promise<void> {
@@ -157,6 +173,9 @@ export class VideoDecoder {
         console.error('[VideoDecoder] Release failed:', err);
       }
     }
+
+    // Clear pending data queue
+    this.pendingDataQueue = [];
   }
 
   // ============== Stream Mode APIs (C++ processing) ==============
@@ -179,6 +198,10 @@ export class VideoDecoder {
       }
 
       console.info(`[VideoDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
+
+      // Flush any pending CSD/frame data that was queued during init
+      await this.flushPendingData();
+
       return this.streamProcessorId;
 
     } catch (err) {
@@ -196,7 +219,6 @@ export class VideoDecoder {
       console.warn('[VideoDecoder] Stream processor not created');
       return;
     }
-
     const ret: number = scrcpy_native.startVideoStreamProcessor(this.streamProcessorId);
     if (ret !== 0) {
       throw new Error(`Failed to start stream processor: ${ret}`);
@@ -207,15 +229,34 @@ export class VideoDecoder {
 
   /**
    * Push data to stream processor (ArkTS continuously calls this)
-   * This is a lightweight call - just writes to ring buffer
+   * Prepends 12-byte header [PTS(8)][size(4)] since ArkTS parses the protocol header
+   * The C++ processor expects: [8 bytes PTS][4 bytes size][N bytes video data]
    */
   pushDataToStream(data: ArrayBuffer, pts: number, flags: number = 0): number {
     if (this.streamProcessorId === 0) {
       return -1;
     }
 
-    // Direct call to native - no async, minimal overhead
-    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, data, pts, flags);
+    // Construct header + data format for C++ processor
+    // C++ ParseVideoFrame expects: [8 bytes PTS][4 bytes size][N bytes data]
+    const size = data.byteLength;
+    const header = new ArrayBuffer(12);
+    const headerView = new DataView(header);
+
+    // PTS: 8 bytes big-endian
+    headerView.setBigInt64(0, BigInt(Math.floor(pts)), false);
+
+    // Size: 4 bytes big-endian
+    headerView.setInt32(8, size, false);
+
+    // Combine header + data
+    const combined = new ArrayBuffer(12 + size);
+    const combinedView = new Uint8Array(combined);
+    const dataView = new Uint8Array(data);
+    combinedView.set(new Uint8Array(header), 0);
+    combinedView.set(dataView, 12);
+
+    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, combined, pts, flags);
   }
 
   /**

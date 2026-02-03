@@ -3,6 +3,14 @@
 #include "audio_decoder_native.h"
 #include <hilog/log.h>
 #include <thread>
+#include <chrono>
+#include <time.h>  // for nanosleep
+
+// Thread priority setting for HarmonyOS/Linux
+
+#include <pthread.h>
+#include <sys/resource.h>
+
 
 // Define static constexpr members (required for ODR-use)
 constexpr size_t VideoStreamProcessor::RING_BUFFER_SIZE;
@@ -59,14 +67,13 @@ int32_t VideoStreamProcessor::Start() {
         OH_LOG_WARN(LOG_APP, "[StreamProcessor] Already running");
         return 0;
     }
-
+    
     running_ = true;
     stopped_ = false;
 
     // Create and start processing thread
     processingThread_ = std::make_unique<std::thread>(ProcessingThread, this);
 
-    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Started");
     return 0;
 }
 
@@ -105,6 +112,10 @@ int32_t VideoStreamProcessor::Release() {
         }
     }
 
+    // Clear config buffer (for H.264/H.265 packet merger)
+    configBuffer_.reset();
+    configBufferSize_ = 0;
+
     ringBuffer_.reset();
     decoder_ = nullptr;
     processedFrameCount_ = 0;
@@ -116,12 +127,16 @@ int32_t VideoStreamProcessor::Release() {
 
 int32_t VideoStreamProcessor::PushData(const uint8_t* data, int32_t size, int64_t pts, uint32_t flags) {
     if (!running_.load() || !ringBuffer_) {
+        OH_LOG_WARN(LOG_APP, "[StreamProcessor] PushData: not running or no ring buffer");
         return -1;
     }
 
     if (size <= 0) {
         return 0;
     }
+
+    // Store flags for ParseVideoFrame to use (ArkTS already parsed config flag)
+    pendingFlags_.store(flags, std::memory_order_release);
 
     // Write to ring buffer
     size_t written = ringBuffer_->Write(data, static_cast<size_t>(size));
@@ -133,22 +148,79 @@ int32_t VideoStreamProcessor::PushData(const uint8_t* data, int32_t size, int64_
         return -2;  // Queue full
     }
 
+    // Notify processing thread that data is available
+    dataCV_.notify_one();
     return 0;
 }
 
 void VideoStreamProcessor::ProcessingThread(VideoStreamProcessor* self) {
     if (!self) return;
 
-    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread started");
+    OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread started (audio=%{public}d)",
+                self->mediaType_ == MediaType::AUDIO);
+
+    // 音频模式：等待音频流开始（服务器发送音频需要时间）
+    size_t emptyFrameCount = 0;
+    constexpr size_t MAX_EMPTY_FRAMES = 10;
+    size_t noBufferCount = 0;  // 追踪无可用缓冲区的情况
+    size_t waitingForDecoderCount = 0;  // 等待解码器缓冲区的次数
+    constexpr size_t MAX_WAIT_FOR_DECODER = 500;  // 最多等待解码器缓冲区500次（约5秒）
 
     while (self->running_.load()) {
+        size_t available = self->ringBuffer_->GetReadAvailable();
+        size_t minRequired = self->mediaType_ == MediaType::AUDIO ? 4 : VideoStreamProcessor::MIN_READ_SIZE;
+
+        if (available < minRequired) {
+            std::unique_lock<std::mutex> lock(self->cvMutex_);
+            if (self->mediaType_ == MediaType::AUDIO) {
+                self->dataCV_.wait_for(lock, std::chrono::milliseconds(5));
+            } else {
+                self->dataCV_.wait_for(lock, std::chrono::milliseconds(2));
+            }
+            continue;
+        }
+
+        // 检查解码器是否有可用的输入缓冲区
+        // 如果没有缓冲区，先等待一段时间让解码器准备好
+        if (!self->HasAvailableBuffer()) {
+            waitingForDecoderCount++;
+            if (waitingForDecoderCount > MAX_WAIT_FOR_DECODER) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Decoder buffers not available after %{public}zu attempts, continuing to wait...",
+                           waitingForDecoderCount);
+                waitingForDecoderCount = 0;  // 重置计数器，避免重复警告
+            }
+            // 使用nanosleep替代sleep_for
+            struct timespec ts = {0, 10000000};  // 10ms
+            nanosleep(&ts, nullptr);
+            continue;
+        }
+        waitingForDecoderCount = 0;  // 重置计数器
+
         int32_t result = self->ParseAndPushFrame();
 
         if (result == -1) {
             // Error, wait a bit before retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            emptyFrameCount++;
+            if (emptyFrameCount > MAX_EMPTY_FRAMES) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Too many invalid frames, slowing down");
+                struct timespec ts = {0, 10000000};  // 10ms
+                nanosleep(&ts, nullptr);
+                emptyFrameCount = 0;
+            }
+        } else if (result == -2) {
+            // No available buffer, wait and retry
+            noBufferCount++;
+            if (noBufferCount > 100) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] No available buffer for %{public}zu times, waiting...", noBufferCount);
+                noBufferCount = 0;
+            }
+            struct timespec ts = {0, 1000000};  // 1ms
+            nanosleep(&ts, nullptr);
+        } else {
+            emptyFrameCount = 0;
+            noBufferCount = 0;
         }
-        // If result == 0 (success) or -2 (need more data), continue immediately
+        // If result == 0 (success), continue immediately
     }
 
     OH_LOG_INFO(LOG_APP, "[StreamProcessor] Processing thread exited");
@@ -173,8 +245,7 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
     constexpr size_t AUDIO_HEADER_SIZE = 4;
 
     if (available < AUDIO_HEADER_SIZE) {
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // Peek the size
@@ -191,10 +262,24 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
         frameSize = (frameSize << 8) | sizeBuf[i];
     }
 
-    // Validate frame size
+    // 只在非静音期打印警告（避免刷屏）
+    static int64_t lastWarnTime = 0;
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    // Validate frame size - 0 或过大的 size 是无效的
     if (frameSize <= 0 || frameSize > static_cast<int32_t>(MAX_FRAME_SIZE)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Invalid audio frame size: %{public}d", frameSize);
-        ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        // 如果 frameSize 为 0，可能是启动时的垃圾数据，跳过这 4 个字节
+        if (frameSize == 0) {
+            if (now - lastWarnTime > 10000) {
+                OH_LOG_WARN(LOG_APP, "[StreamProcessor] Audio frame size is 0, possible startup delay or buffer underrun");
+                lastWarnTime = now;
+            }
+            ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        } else {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Invalid audio frame size: %{public}d", frameSize);
+            ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
+        }
         droppedFrameCount_++;
         return 0;
     }
@@ -202,38 +287,26 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
     // Check if we have the complete frame
     size_t totalFrameSize = AUDIO_HEADER_SIZE + frameSize;
     if (available < totalFrameSize) {
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
-    // Allocate frame buffer
-    ParsedFrame frame;
-    frame.data = std::make_unique<uint8_t[]>(frameSize);
-    frame.size = frameSize;
-    frame.pts = 0;  // Audio uses decoder's internal clock
-    frame.flags = 0;
-
-    if (!frame.data) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to allocate audio frame buffer");
-        droppedFrameCount_++;
-        ringBuffer_->AdvanceRead(totalFrameSize);
-        return 0;
-    }
-
-    // Read frame data
+    // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(AUDIO_HEADER_SIZE);
-    size_t read = ringBuffer_->Read(frame.data.get(), frameSize);
 
-    if (read < static_cast<size_t>(frameSize)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to read complete audio frame");
-        droppedFrameCount_++;
-        return 0;
-    }
+    // 直接从RingBuffer推送到解码器（优化：消除ParsedFrame分配和额外memcpy）
+    int32_t pushResult = PushToDecoderFromRingBuffer(ringBuffer_.get(), frameSize, 0, 0);
 
-    // Push to decoder
-    int32_t pushResult = PushToDecoder(frame);
     if (pushResult == 0) {
         processedFrameCount_++;
+    } else if (pushResult == -2) {
+        // 需要更多数据，回退
+        ringBuffer_->AdvanceRead(-static_cast<int64_t>(AUDIO_HEADER_SIZE));
+        return -2;
+    } else {
+        // 错误或buffer满
+        droppedFrameCount_++;
+        // 跳过这帧数据
+        ringBuffer_->AdvanceRead(frameSize);
     }
 
     return pushResult;
@@ -241,8 +314,7 @@ int32_t VideoStreamProcessor::ParseAudioFrame(size_t available) {
 
 int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
     if (available < MIN_READ_SIZE) {
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
     // Peek the header
@@ -274,49 +346,112 @@ int32_t VideoStreamProcessor::ParseVideoFrame(size_t available) {
         return 0;
     }
 
+    // DEBUG: Log PTS for diagnosis
+    OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] C++ PTS: %{public}lld (0x%{public}llx), frameSize: %{public}d",
+                 (long long)pts, (unsigned long long)pts, frameSize);
+
     // Check if we have the complete frame
     size_t totalFrameSize = MIN_READ_SIZE + frameSize;
     if (available < totalFrameSize) {
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-        return -2;
+        return -2;  // Let ProcessingThread handle waiting
     }
 
-    // Check config flag (bit 63 of PTS)
-    static constexpr int64_t PACKET_FLAG_CONFIG = 1LL << 63;
-    uint32_t flags = 0;
-    if (pts & PACKET_FLAG_CONFIG) {
-        flags = 8;  // AVCODEC_BUFFER_FLAGS_CODEC_DATA
-        pts = pts & ~PACKET_FLAG_CONFIG;
+    // Use flags stored by PushData (ArkTS already parsed config flag from PTS)
+    // Note: ArkTS passes flags separately, so we don't need to check bit 63 of PTS
+    uint32_t flags = pendingFlags_.load(std::memory_order_acquire);
+
+    // Check if this is a config packet (VPS/SPS/PPS for H.265, SPS/PPS for H.264)
+    bool isConfig = (flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA) != 0;
+
+    // Log first few config frames for debugging H.265
+    static int configFrameCount = 0;
+    OH_LOG_INFO(LOG_APP, "[StreamProcessor] isConfig %{public}d",
+                       isConfig ? 1 : 0);
+    if (isConfig) {
+        configFrameCount++;
+        if (configFrameCount <= 3) {
+            OH_LOG_INFO(LOG_APP, "[StreamProcessor] Config frame #%{public}d, size=%{public}d",
+                       configFrameCount, frameSize);
+        }
     }
 
-    // Allocate frame buffer
-    ParsedFrame frame;
-    frame.data = std::make_unique<uint8_t[]>(frameSize);
-    frame.size = frameSize;
-    frame.pts = pts;
-    frame.flags = flags;
-
-    if (!frame.data) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to allocate frame buffer");
-        droppedFrameCount_++;
-        ringBuffer_->AdvanceRead(totalFrameSize);
-        return 0;
-    }
-
-    // Read frame data
+    // 推进读取位置（跳过header）
     ringBuffer_->AdvanceRead(MIN_READ_SIZE);
-    size_t read = ringBuffer_->Read(frame.data.get(), frameSize);
 
-    if (read < static_cast<size_t>(frameSize)) {
-        OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Failed to read complete frame");
-        droppedFrameCount_++;
-        return 0;
+    // Handle config packet merger for H.264/H.265
+    // According to scrcpy's packet_merger: config packets must be prepended to the next media packet
+    if (isConfig) {
+        // Store config data for merging with next frame
+        configBuffer_ = std::make_unique<uint8_t[]>(frameSize);
+        size_t read = ringBuffer_->Read(configBuffer_.get(), frameSize);
+        if (read < static_cast<size_t>(frameSize)) {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Incomplete config data read");
+            configBuffer_.reset();
+            droppedFrameCount_++;
+            return 0;
+        }
+        configBufferSize_ = frameSize;
+        OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] Stored config data, size=%{public}zu", configBufferSize_);
+        return 0;  // Config stored, will be merged with next frame
     }
 
-    // Push to decoder
-    int32_t pushResult = PushToDecoder(frame);
+    // Check if we have stored config data to merge
+    if (configBuffer_) {
+        // Merge config with current frame
+        OH_LOG_DEBUG(LOG_APP, "[StreamProcessor] Merging config (%{public}zu bytes) with frame (%{public}d bytes)",
+                   configBufferSize_, frameSize);
+
+        // Read frame data first
+        std::unique_ptr<uint8_t[]> frameData = std::make_unique<uint8_t[]>(frameSize);
+        size_t read = ringBuffer_->Read(frameData.get(), frameSize);
+        if (read < static_cast<size_t>(frameSize)) {
+            OH_LOG_ERROR(LOG_APP, "[StreamProcessor] Incomplete frame read during merge");
+            droppedFrameCount_++;
+            return 0;
+        }
+
+        // Create merged buffer: [config][frame]
+        size_t mergedSize = configBufferSize_ + frameSize;
+        std::unique_ptr<uint8_t[]> mergedData = std::make_unique<uint8_t[]>(mergedSize);
+        std::memcpy(mergedData.get(), configBuffer_.get(), configBufferSize_);
+        std::memcpy(mergedData.get() + configBufferSize_, frameData.get(), frameSize);
+
+        // Clear stored config
+        configBuffer_.reset();
+        configBufferSize_ = 0;
+
+        // Create ParsedFrame and push merged data to decoder
+        ParsedFrame mergedFrame;
+        mergedFrame.data = std::move(mergedData);
+        mergedFrame.size = mergedSize;
+        mergedFrame.pts = pts;
+        mergedFrame.flags = flags;
+
+        int32_t pushResult = PushToDecoder(mergedFrame);
+
+        if (pushResult == 0) {
+            processedFrameCount_++;
+        } else if (pushResult != -2) {
+            droppedFrameCount_++;
+        }
+
+        return pushResult;
+    }
+
+    // No config to merge, push frame directly
+    int32_t pushResult = PushToDecoderFromRingBuffer(ringBuffer_.get(), frameSize, pts, flags);
+
     if (pushResult == 0) {
         processedFrameCount_++;
+    } else if (pushResult == -2) {
+        // 需要更多数据（不应该发生），回退
+        ringBuffer_->AdvanceRead(-static_cast<int64_t>(frameSize));
+        return -2;
+    } else {
+        // 错误或buffer满
+        droppedFrameCount_++;
+        // 跳过这帧数据
+        ringBuffer_->AdvanceRead(frameSize);
     }
 
     return pushResult;
@@ -333,5 +468,29 @@ int32_t VideoStreamProcessor::PushToDecoder(const ParsedFrame& frame) {
         AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
         return audioDecoder->PushData(frame.data.get(), static_cast<int32_t>(frame.size),
                                        frame.pts);
+    }
+}
+
+int32_t VideoStreamProcessor::PushToDecoderFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags) {
+    if (!decoder_ || !ringBuffer) return -1;
+
+    if (mediaType_ == MediaType::VIDEO) {
+        VideoDecoderNative* videoDecoder = static_cast<VideoDecoderNative*>(decoder_);
+        return videoDecoder->PushFromRingBuffer(ringBuffer, size, pts, flags);
+    } else {
+        AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
+        return audioDecoder->PushFromRingBuffer(ringBuffer, size, pts);
+    }
+}
+
+bool VideoStreamProcessor::HasAvailableBuffer() const {
+    if (!decoder_) return false;
+
+    if (mediaType_ == MediaType::VIDEO) {
+        VideoDecoderNative* videoDecoder = static_cast<VideoDecoderNative*>(decoder_);
+        return videoDecoder->HasAvailableBuffer();
+    } else {
+        AudioDecoderNative* audioDecoder = static_cast<AudioDecoderNative*>(decoder_);
+        return audioDecoder->HasAvailableBuffer();
     }
 }

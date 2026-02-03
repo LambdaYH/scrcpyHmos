@@ -5,20 +5,28 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <array>
 #include "multimedia/player_framework/native_avcodec_audiocodec.h"
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "ohaudio/native_audiorenderer.h"
 
+// Forward declaration for RingBuffer
+class RingBuffer;
+
 struct AudioDecoderContext {
     std::queue<uint32_t> inputBufferQueue;
     std::queue<OH_AVBuffer*> inputBuffers;
-    std::queue<OH_AVBuffer*> outputBuffers;
-    std::queue<uint32_t> outputBufferIndices;
     std::mutex inputMutex;
-    std::mutex outputMutex;
-    std::condition_variable outputCond;
     class AudioDecoderNative* decoder;
     bool waitForFirstBuffer;
+};
+
+// PCM Frame structure - 合并三个独立队列为一个
+struct PcmFrame {
+    std::array<uint8_t, 32 * 1024> data{};  // 32KB buffer
+    size_t size = 0;                         // Actual data size
+    size_t offset = 0;                       // Current read offset
+    size_t remaining() const { return size - offset; }
 };
 
 class AudioDecoderNative {
@@ -30,11 +38,11 @@ public:
     int32_t Init(const char* codecType, int32_t sampleRate, int32_t channelCount);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
+    // Direct push from RingBuffer (optimized, avoids intermediate copy)
+    int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags = 0);
     int32_t Stop();
     int32_t Release();
-
-    // 获取解码后的PCM数据并播放
-    void ProcessOutputBuffers();
+    bool HasAvailableBuffer() const;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);
@@ -61,8 +69,9 @@ private:
     std::string codecType_;
     AudioDecoderContext* context_;
 
-    // PCM缓冲区（用于RAW模式或解码后数据）
-    std::queue<std::vector<uint8_t>> pcmQueue_;
+    // PCM缓冲区 - 使用单一结构体队列（优化：替代三个独立队列）
+    static constexpr size_t PCM_POOL_SIZE = 32;  // 32 pre-allocated frames
+    std::queue<PcmFrame> pcmPool_;
     std::mutex pcmMutex_;
 };
 

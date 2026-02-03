@@ -529,6 +529,18 @@
             "value": "Client"
         },
         {
+            "name": "init_control_page_error",
+            "value": "Failed to initialize the control interface."
+        },
+        {
+            "name": "video_decoder_init_failed",
+            "value": "Failed to init video decoder: "
+        },
+        {
+            "name": "audio_decoder_init_failed",
+            "value": "Failed to init audio decoder: "
+        },
+        {
             "name": "about_src_code",
             "value": "Source Code"
         },

@@ -15,11 +15,15 @@ scrcpy mobile is a HarmonyOS remote control application for Android devices, ins
 ### Building the Application
 
 ```bash
-# Build HAP (HarmonyOS Application Package) in DevEco Studio
-# Use the GUI: Build > Build Hap(s)/APP(s)
+# Build HAP (HarmonyOS Application Package) in DevEco Studio GUI
+# Use: Build > Build Hap(s)/APP(s)
 
-# Or use hvigor command line (if configured)
-hvigorw assembleHap
+# Windows command line (using DevEco Studio's hvigor)
+cd D:\dev\scrcpyHmos
+powershell -Command "& 'C:\Program Files\Huawei\DevEco Studio\tools\node\node.exe' 'C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.js' --mode module -p product=default -p buildMode=release assembleHap --analyze=normal --parallel --incremental --daemon"
+
+# Or with buildMode=debug for debugging
+powershell -Command "& 'C:\Program Files\Huawei\DevEco Studio\tools\node\node.exe' 'C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.js' --mode module -p product=default -p buildMode=debug assembleHap"
 ```
 
 ### Building Android Server
