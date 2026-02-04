@@ -393,11 +393,14 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: decoder not ready");
         return -1;
     }
+    
+    
 
     if (ringBuffer == nullptr || size <= 0) {
+        OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: decoder not ready");
         return -1;
     }
-
+    
     // 从队列获取可用的input buffer index
     uint32_t bufferIndex = 0;
     OH_AVBuffer* buffer = nullptr;
@@ -416,6 +419,8 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         }
     }
 
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 1");
+    
     if (buffer == nullptr) {
         // 输入缓冲区不可用，记录频率以诊断
         static int64_t lastWarnTime = 0;
@@ -429,6 +434,7 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
         }
         return -2;  // No available buffer
     }
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 2");
 
     // 获取buffer的内存地址和容量
     uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
@@ -443,8 +449,10 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
             context_->inputBufferQueue.push(bufferIndex);
             context_->inputBuffers[bufferIndex] = buffer;
         }
+        OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: buffer too small");
         return -1;
     }
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 3");
 
     // 直接从RingBuffer读取到buffer（优化：减少一次memcpy）
     size_t read = ringBuffer->Read(bufferAddr, size);
@@ -457,8 +465,11 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
             context_->inputBufferQueue.push(bufferIndex);
             context_->inputBuffers[bufferIndex] = buffer;
         }
+        
+        OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: incomplete read");
         return -1;
     }
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 4");
 
     // 设置buffer属性
     OH_AVCodecBufferAttr attr;
@@ -470,8 +481,10 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
     OH_AVErrCode attrRet = OH_AVBuffer_SetBufferAttr(buffer, &attr);
     if (attrRet != AV_ERR_OK) {
         OH_LOG_ERROR(LOG_APP, "[Native] PushFromRingBuffer: SetBufferAttr failed");
+        OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: SetBufferAttr failed");
         return -1;
     }
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 5");
 
     // 提交buffer到解码器
     int32_t ret = OH_VideoDecoder_PushInputBuffer(decoder_, bufferIndex);
@@ -483,8 +496,10 @@ int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t s
             context_->inputBufferQueue.push(bufferIndex);
             context_->inputBuffers[bufferIndex] = buffer;
         }
+        OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: PushInputBuffer failed");
         return -1;
     }
+    OH_LOG_WARN(LOG_APP, "[测试标志Native] PushFromRingBuffer: 6");
 
     frameCount_++;
     return 0;

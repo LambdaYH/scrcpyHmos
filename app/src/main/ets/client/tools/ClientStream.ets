@@ -481,9 +481,8 @@ export class ClientStream {
       flags = 8; // AVCODEC_BUFFER_FLAGS_CODEC_DATA
     }
 
-    // DEBUG: Log raw PTS for diagnosis
-    // 调试日志：诊断第一帧 PTS 问题
-    LoggerClientStream.debug(`[ClientStream] Raw PTS: 0x${pts.toString(16)}, cleanPTS: ${Number(cleanPts)}`);
+    // DEBUG: Log raw PTS for diagnosis (已禁用，避免每帧日志影响性能)
+    // LoggerClientStream.debug(`[ClientStream] Raw PTS: 0x${pts.toString(16)}, cleanPTS: ${Number(cleanPts)}`);
 
     // 2. Read Size (4 bytes)
     const frameSize = await this.readIntFromVideo();

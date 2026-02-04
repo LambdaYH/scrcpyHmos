@@ -167,7 +167,7 @@ struct ControlPage {
       
       // 如果surface已经就绪，立即初始化视频解码器
       if (this.surfaceReady && this.surfaceId) {
-        this.initVideoDecoder();
+        this.initVideoAndAudioDecoder();
       }
       
       // 启动自动隐藏定时器
@@ -175,6 +175,14 @@ struct ControlPage {
     } else {
       LoggerControlPage.error('ControlPage: Client not found in cache, exit');
       this.exitPage();
+    }
+  }
+
+  async initVideoAndAudioDecoder() {
+    this.initVideoDecoder();
+    // 初始化音频解码器 (如果启用)
+    if (this.client?.getDevice()?.isAudio) {
+      this.initAudioDecoder();
     }
   }
 
@@ -320,7 +328,7 @@ struct ControlPage {
               
               // 如果client已经就绪,立即初始化视频解码器
               if (this.clientReady && this.client) {
-                this.initVideoDecoder();
+                this.initVideoAndAudioDecoder();
               }
             })
             .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
@@ -688,11 +696,6 @@ struct ControlPage {
     if (!this.client || !this.surfaceId) {
       LoggerControlPage.error('Cannot init video decoder: client or surfaceId missing');
       return;
-    }
-
-    // 初始化音频解码器 (如果启用)
-    if (this.client?.getDevice()?.isAudio) {
-      this.initAudioDecoder();
     }
 
     LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);

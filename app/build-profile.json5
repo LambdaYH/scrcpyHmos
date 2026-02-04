@@ -21,6 +21,11 @@
       "copyCodeResource": {
         "enable": false
       }
+    },
+    "sourceOption": {
+      "workers": [
+        './src/main/ets/workers/VideoWorker.ets'
+      ]
     }
   },
   "buildOptionSet": [

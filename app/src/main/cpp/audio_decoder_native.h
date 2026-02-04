@@ -4,7 +4,6 @@
 #include <string>
 #include <queue>
 #include <mutex>
-#include <condition_variable>
 #include <array>
 #include "multimedia/player_framework/native_avcodec_audiocodec.h"
 #include "multimedia/player_framework/native_avbuffer.h"

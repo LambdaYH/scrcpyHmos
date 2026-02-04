@@ -7,7 +7,6 @@ export class AudioDecoder {
 
   private decoderId: number = 0;
   private isStarted: boolean = false;
-  private frameCount: number = 0;
 
   async init(codecType: string, sampleRate: number = 48000, channelCount: number = 2): Promise<void> {
 
@@ -60,15 +59,11 @@ export class AudioDecoder {
         this.isStarted = false;
         scrcpy_native.releaseAudioDecoder(this.decoderId);
         this.decoderId = 0;
-        console.info(`[AudioDecoder] Released | Total frames decoded: ${this.frameCount}`);
+        console.info('[AudioDecoder] Released');
       } catch (err) {
         console.error('[AudioDecoder] Release failed:', err);
       }
     }
-  }
-
-  isReady(): boolean {
-    return this.isStarted && this.decoderId !== 0;
   }
 
   // ============== Stream Mode APIs (C++ processing) ==============

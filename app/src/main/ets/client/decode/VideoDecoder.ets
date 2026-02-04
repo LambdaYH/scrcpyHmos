@@ -17,13 +17,13 @@ export class VideoDecoder {
   private isStarted: boolean = false;
   private frameCount: number = 0;
 
-  // Pending data queue - stores CSD/frame data until stream processor is ready
+  // Pending data queue - stores frame data until stream processor is ready
   private pendingDataQueue: Array<PendingFrameData> = [];
 
   // Flags
   static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA: number = 8;
 
-  async init(codecType: string, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
+  async init(codecType: string, surfaceId: string, width: number, height: number): Promise<void> {
     this.codecType = codecType;
 
     try {
@@ -38,11 +38,6 @@ export class VideoDecoder {
       console.info(`[VideoDecoder] Codec: ${this.codecType.toUpperCase()}`);
       console.info(`[VideoDecoder] Resolution: ${width}x${height}`);
       console.info(`[VideoDecoder] SurfaceId: ${surfaceId}`);
-      console.info(`[VideoDecoder] CSD-0 (SPS/VPS) size: ${csd0.byteLength} bytes`);
-
-      if (csd1) {
-        console.info(`[VideoDecoder] CSD-1 (PPS) size: ${csd1.byteLength} bytes`);
-      }
 
       // 创建Native解码器
       this.decoderId = scrcpy_native.createVideoDecoder();
@@ -66,27 +61,7 @@ export class VideoDecoder {
       this.isStarted = true;
       console.info(`[VideoDecoder] Native decoder started successfully!`);
 
-      // 等待一小段时间确保解码器准备好
-      await new Promise<void>((resolve: () => void) => setTimeout(resolve, 100));
-
-      // 推送CSD数据（Codec Specific Data）
-      // H264: SPS/PPS
-      // H265: VPS/SPS/PPS
-      // Pass AVCODEC_BUFFER_FLAGS_CODEC_DATA (8)
-      if (csd0 && csd0.byteLength > 0) {
-        console.info(`[VideoDecoder] Pushing CSD-0 (size: ${csd0.byteLength} bytes)`);
-        await this.decode(csd0, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
-        // 等待CSD-0被处理
-        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
-      }
-      if (csd1 && csd1.byteLength > 0) {
-        console.info(`[VideoDecoder] Pushing CSD-1 (PPS) (size: ${csd1.byteLength} bytes)`);
-        await this.decode(csd1, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
-        // 等待CSD-1被处理
-        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
-      }
-
-      console.info(`[VideoDecoder] CSD data pushed, ready for frame data`);
+      // scrcpy 2.x+ 协议中，CSD 数据作为普通视频帧发送，无需预加载
 
     } catch (err) {
       const error = err as Error;
@@ -181,6 +156,13 @@ export class VideoDecoder {
   // ============== Stream Mode APIs (C++ processing) ==============
 
   private streamProcessorId: number = 0;
+
+  /**
+   * Get stream processor ID (for Worker integration)
+   */
+  getStreamProcessorId(): number {
+    return this.streamProcessorId;
+  }
 
   /**
    * Create and initialize stream processor (C++ mode)
