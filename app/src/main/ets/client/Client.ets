@@ -4,7 +4,6 @@ import { VideoDecoder } from './decode/VideoDecoder';
 import { AudioDecoder } from './decode/AudioDecoder';
 import { ControlPacket, Action, TouchAction, KeyCode } from './tools/ControlPacket';
 import { LoggerClient } from '../helper/Logger';
-import { VideoWorkerManager } from '../workers/VideoWorkerManager';
 import pasteboard from '@ohos.pasteboard';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
@@ -32,9 +31,6 @@ export class Client {
   // 首帧回调 - 视频开始传输时触发
   private onFirstFrameCallback?: () => void;
   private firstFrameReceived: boolean = false;
-
-  // 视频处理 Worker（用于后台线程处理）
-  private videoWorkerManager?: VideoWorkerManager;
 
   // 触控事件优化
   private isWritingMove: boolean = false;
@@ -160,12 +156,12 @@ export class Client {
 
     const pushLoop = async () => {
       try {
-        LoggerClient.debug('[AudioStreamMode] Audio push loop started');
+        LoggerClient.debug('[Client] Audio push loop started');
         while (!this.isClosed && this.audioLoopRunning && this.clientStream) {
           try {
             const frame = await this.clientStream.readFrameFromAudio();
             if (frame.data.byteLength > 0 && this.audioDecoder) {
-              const pushResult = this.audioDecoder.pushDataToStream(frame.data, frame.pts);
+              const pushResult = this.audioDecoder.pushFrame(frame.data, frame.pts);
               if (pushResult < 0) {
                 // Wait if buffer full
                 await new Promise<void>((resolve) => setTimeout(resolve, 1));
@@ -174,20 +170,17 @@ export class Client {
           } catch (frameErr) {
             const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
             if (this.isClosed || errMsg.includes('closed')) {
-              LoggerClient.debug('[AudioStreamMode] Audio loop terminated');
+              LoggerClient.debug('[Client] Audio loop terminated');
               break;
             }
-            LoggerClient.error('[AudioStreamMode] Audio frame error:', errMsg);
+            LoggerClient.error('[Client] Audio frame error:', errMsg);
           }
         }
       } catch (err) {
-        LoggerClient.error('[AudioStreamMode] Audio loop error:', err);
+        LoggerClient.error('[Client] Audio loop error:', err);
       } finally {
         this.audioLoopRunning = false;
-        LoggerClient.debug('[AudioStreamMode] Audio loop stopped');
-
-        // Release stream processor
-        this.audioDecoder?.releaseStreamProcessor();
+        LoggerClient.debug('[Client] Audio loop stopped');
       }
     };
 
@@ -358,13 +351,8 @@ export class Client {
 
       LoggerClient.debug('Video decoder initialized, starting video loop...');
 
-      // Initialize C++ stream processor
-      LoggerClient.debug('[Client] Initializing C++ stream processor...');
-      await this.videoDecoder.createStreamProcessor(codecType);
-      LoggerClient.debug('[Client] Stream processor created successfully');
-
-      // 启动视频处理（使用 Worker 在后台线程处理）
-      await this.startVideoLoopWithWorker();
+      // 直接启动视频循环（EasyControl 风格，无 stream processor）
+      this.startVideoLoop();
 
     } catch (err) {
       const error = err as Error;
@@ -374,217 +362,77 @@ export class Client {
   }
   
   /**
-   * Start video processing using Worker for background thread processing
-   * This moves frame pushing off the main thread to reduce UI lag
+   * 视频循环 - 参考 EasyControl 高性能实现
+   * 直接 while 循环读取 + push，无 Worker/stream processor 开销
    */
-  private async startVideoLoopWithWorker(): Promise<void> {
+  private startVideoLoop(): void {
     if (this.videoLoopRunning) return;
-
     if (!this.videoDecoder || !this.clientStream) {
-      LoggerClient.error('[StreamMode] Decoder or stream not initialized');
+      LoggerClient.error('[Client] Decoder or stream not initialized');
       return;
     }
 
     this.videoLoopRunning = true;
 
-    try {
-      LoggerClient.info('[StreamMode] Initializing Worker for video processing...');
-
-      // Get the stream processor ID
-      const streamProcessorId = this.videoDecoder.getStreamProcessorId();
-
-      if (streamProcessorId <= 0) {
-        // Fallback to original loop if no stream processor
-        LoggerClient.warn('[StreamMode] No stream processor ID, using fallback');
-        this.startVideoLoopFallback();
-        return;
-      }
-
-      // Create worker manager
-      this.videoWorkerManager = new VideoWorkerManager();
-
-      // Initialize worker
-      await this.videoWorkerManager.init(
-        this.videoDecoder,
-        streamProcessorId
-      );
-
-      // Set callbacks
-      this.videoWorkerManager.setOnFirstFrame(() => {
-        if (!this.firstFrameReceived && this.onFirstFrameCallback) {
-          this.firstFrameReceived = true;
-          LoggerClient.info('[StreamMode] First frame received via Worker');
-          this.onFirstFrameCallback();
-        }
-      });
-
-      this.videoWorkerManager.setOnDisconnect((reason: string) => {
-        if (!this.isClosed) {
-          this.triggerDisconnect(reason);
-        }
-      });
-
-      // Start worker
-      await this.videoWorkerManager.start();
-
-      // Start C++ stream processor (must be done after worker is ready)
-      await this.videoDecoder.startStreamProcessor();
-
-      // Start reading frames on main thread and pushing to worker
-      this.startFramePushLoop();
-
-      LoggerClient.info('[StreamMode] Worker-based video processing started');
-    } catch (err) {
-      LoggerClient.error('[StreamMode] Failed to start Worker, using fallback:', err);
-      this.startVideoLoopFallback();
-    }
-  }
-
-  /**
-   * Fallback: Original video loop (for when Worker isn't available)
-   */
-  private startVideoLoopFallback(): void {
-    if (this.videoLoopRunning) return;
-
-    this.videoLoopRunning = true;
-
-    // LoggerClient.debug('[StreamMode] Using fallback loop...');
-
-    // Start C++ stream processor first
-    this.videoDecoder?.startStreamProcessor().then(() => {
-      // LoggerClient.debug('[StreamMode] C++ processor started');
-    }).catch((err: Error) => {
-      LoggerClient.error('[StreamMode] Failed to start C++ processor:', err);
-    });
-
-    const pushLoop = async () => {
-      let disconnectReason = '';
+    // 参考 EasyControl: videoStreamInThread 循环
+    const videoThread = async () => {
       let frameCount = 0;
 
       try {
-        // LoggerClient.debug('[StreamMode] Fallback push loop started');
         while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
           try {
-            const frameObj = await this.clientStream.readFrameFromVideo();
-            const frameData = frameObj.data;
-            const pts = frameObj.pts;
+            const frame = await this.clientStream.readFrameFromVideo();
+            const decoder = this.videoDecoder;
 
-            if (frameData.byteLength > 0 && this.videoDecoder) {
-              const pushResult = this.videoDecoder.pushDataToStream(
-                frameData, pts, frameObj.flags
+            if (frame.data.byteLength > 0 && decoder) {
+              // 直接 pushFrame（EasyControl 风格）
+              const pushResult = decoder.pushFrame(
+                frame.data, frame.pts, frame.flags
               );
 
               if (pushResult === 0) {
                 frameCount++;
-
-                // First frame callback (仅第一帧输出日志)
                 if (frameCount === 1 && !this.firstFrameReceived && this.onFirstFrameCallback) {
                   this.firstFrameReceived = true;
-                  LoggerClient.info('[StreamMode] First frame received');
+                  LoggerClient.info('[Client] First video frame received');
                   this.onFirstFrameCallback();
                 }
               } else if (pushResult === -2) {
+                // Buffer 满，等待重试
                 let waitCount = 0;
                 const maxWait = 50;
-                while (waitCount < maxWait) {
+                while (waitCount < maxWait && !this.isClosed && decoder) {
                   await new Promise<void>((resolve) => setTimeout(resolve, 1));
-                  waitCount++;
-                  const retryResult = this.videoDecoder.pushDataToStream(
-                    frameData, pts, frameObj.flags
+                  const retryResult = decoder.pushFrame(
+                    frame.data, frame.pts, frame.flags
                   );
                   if (retryResult === 0) {
                     frameCount++;
                     break;
                   }
+                  waitCount++;
                 }
               }
             }
-          } catch (frameErr) {
-            const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
             if (this.isClosed || errMsg.includes('closed')) {
-              // 正常关闭，不输出日志
+              LoggerClient.debug('[Client] Video loop terminated');
               break;
             }
-            LoggerClient.error('[StreamMode] Frame error:', errMsg);
-            disconnectReason = '连接已断开: ' + errMsg;
+            LoggerClient.error('[Client] Video frame error:', errMsg);
             break;
           }
         }
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        LoggerClient.error('[StreamMode] Fallback loop error:', errMsg);
-        disconnectReason = '流模式循环错误: ' + errMsg;
+        LoggerClient.error('[Client] Video loop error:', err);
       } finally {
         this.videoLoopRunning = false;
-        // LoggerClient.debug('[StreamMode] Fallback loop stopped');
-
-        this.videoDecoder?.releaseStreamProcessor();
-
-        if (disconnectReason && !this.isClosed) {
-          this.triggerDisconnect(disconnectReason);
-        }
+        LoggerClient.info('[Client] Video loop stopped');
       }
     };
 
-    pushLoop();
-  }
-
-  /**
-   * Frame push loop - reads frames and sends to Worker
-   * This runs on main thread but does minimal work
-   */
-  private startFramePushLoop(): void {
-    const pushLoop = async () => {
-      let frameCount = 0;
-
-      try {
-        while (!this.isClosed && this.videoLoopRunning && this.clientStream) {
-          try {
-            const frameObj = await this.clientStream.readFrameFromVideo();
-            const frameData = frameObj.data;
-
-            if (frameData.byteLength > 0) {
-              // Send to worker for processing
-              const manager = this.videoWorkerManager;
-              let pushResult = -1;
-              if (manager) {
-                pushResult = await manager.pushFrame(frameData, frameObj.pts, frameObj.flags);
-              }
-
-              if (pushResult === 0) {
-                frameCount++;
-
-                if (frameCount === 1 && !this.firstFrameReceived && this.onFirstFrameCallback) {
-                  this.firstFrameReceived = true;
-                  this.onFirstFrameCallback();
-                }
-              }
-            }
-          } catch (frameErr) {
-            const errMsg = frameErr instanceof Error ? frameErr.message : String(frameErr);
-            if (this.isClosed || errMsg.includes('closed')) {
-              // 正常关闭
-              break;
-            }
-            LoggerClient.error('[StreamMode] Frame error:', errMsg);
-            break;
-          }
-        }
-      } catch (err) {
-        LoggerClient.error('[StreamMode] Loop error:', err);
-      } finally {
-        this.videoLoopRunning = false;
-      }
-    };
-
-    pushLoop();
-  }
-
-  /**
-   * Original video loop (kept for fallback)
-   */
-  private startVideoLoop(): void {
-    this.startVideoLoopFallback();
+    videoThread();
   }
 
   // handleAction - 对应 Java ClientController.handleAction
@@ -883,16 +731,6 @@ export class Client {
     this.videoLoopRunning = false;
     this.audioLoopRunning = false;
 
-    // 终止视频 Worker
-    if (this.videoWorkerManager) {
-      try {
-        await this.videoWorkerManager.terminate();
-      } catch (err) {
-        LoggerClient.warn('[Client] Error terminating video worker:', err);
-      }
-      this.videoWorkerManager = undefined;
-    }
-    
     // 停止保活
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer);
@@ -900,24 +738,13 @@ export class Client {
     }
     
     // 释放资源
-    // Release stream processor first
     if (this.videoDecoder) {
-      try {
-        await this.videoDecoder.releaseStreamProcessor();
-      } catch (err) {
-        LoggerClient.warn('[Client] Error releasing video stream processor:', err);
-      }
       await this.videoDecoder.release();
       this.videoDecoder = undefined;
     }
 
-    // Release audio decoder and stream processor
+    // Release audio decoder
     if (this.audioDecoder) {
-      try {
-        await this.audioDecoder.releaseStreamProcessor();
-      } catch (err) {
-        LoggerClient.warn('[Client] Error releasing audio stream processor:', err);
-      }
       await this.audioDecoder.release();
       this.audioDecoder = undefined;
     }

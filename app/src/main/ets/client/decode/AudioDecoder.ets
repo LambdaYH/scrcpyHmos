@@ -1,6 +1,6 @@
 import scrcpy_native from 'libscrcpy_native.so';
 
-// 音频解码器 - 使用Native C++ AudioDecoder
+// 音频解码器 - 使用Native C++ AudioDecoder（EasyControl 风格）
 export class AudioDecoder {
   // 静态实例追踪 - 确保只有一个解码器实例
   private static currentInstance: AudioDecoder | null = null;
@@ -30,27 +30,42 @@ export class AudioDecoder {
       // 初始化解码器
       const ret: number = scrcpy_native.initAudioDecoder(this.decoderId, codecType, sampleRate, channelCount);
       if (ret !== 0) {
-        const error = new Error(`Native audio decoder init failed: ${ret}`);
-        throw error;
+        throw new Error(`Native audio decoder init failed: ${ret}`);
       }
       console.info(`[AudioDecoder] Native decoder initialized`);
 
       // 启动解码器
       const startRet: number = scrcpy_native.startAudioDecoder(this.decoderId);
       if (startRet !== 0) {
-        const error = new Error(`Native audio decoder start failed: ${startRet}`);
-        throw error;
+        throw new Error(`Native audio decoder start failed: ${startRet}`);
       }
 
       this.isStarted = true;
-      console.info(`[AudioDecoder] Native audio decoder started successfully!`);
+      console.info(`[AudioDecoder] Native audio decoder started!`);
 
     } catch (err) {
       const error = err as Error;
       console.error(`[AudioDecoder] Init failed: ${error.message}`);
-      const newError = new Error(`AudioDecoder init failed: ${error.message}`);
-      throw newError;
+      throw new Error(`AudioDecoder init failed: ${error.message}`);
     }
+  }
+
+  /**
+   * 直接推送音频帧（EasyControl 风格）
+   * 直接调用 native PushData，无中间层
+   */
+  pushFrame(data: ArrayBuffer, pts: number): number {
+    if (!this.isStarted || this.decoderId === 0) {
+      return -1;
+    }
+    return scrcpy_native.pushAudioData(this.decoderId, data, pts);
+  }
+
+  /**
+   * 旧方法名（兼容）
+   */
+  pushDataToStream(data: ArrayBuffer, pts: number): number {
+    return this.pushFrame(data, pts);
   }
 
   async release(): Promise<void> {
@@ -66,93 +81,36 @@ export class AudioDecoder {
     }
   }
 
-  // ============== Stream Mode APIs (C++ processing) ==============
+  // ============== Stream Mode APIs（保留兼容，但已废弃）==============
 
   private streamProcessorId: number = 0;
 
   /**
-   * Create and initialize stream processor (C++ mode)
-   * Must be called after init() and startAudioDecoder()
+   * @deprecated 不再需要，使用 direct pushFrame()
    */
   async createStreamProcessor(codecType: string, sampleRate: number, channelCount: number): Promise<number> {
-    try {
-      console.info(`[AudioDecoder] Creating stream processor...`);
-
-      // Create stream processor linked to this decoder
-      this.streamProcessorId = scrcpy_native.createAudioStreamProcessor(
-        this.decoderId, codecType, sampleRate, channelCount
-      );
-
-      if (this.streamProcessorId <= 0) {
-        throw new Error(`Failed to create stream processor: ${this.streamProcessorId}`);
-      }
-
-      console.info(`[AudioDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
-      return this.streamProcessorId;
-
-    } catch (err) {
-      const error = err as Error;
-      console.error(`[AudioDecoder] createStreamProcessor failed: ${error.message}`);
-      throw error;
-    }
+    console.warn('[AudioDecoder] Stream processor is deprecated, use direct pushFrame()');
+    return 0;
   }
 
   /**
-   * Start stream processor (C++ processing thread)
+   * @deprecated 不再需要
    */
   async startStreamProcessor(): Promise<void> {
-    if (this.streamProcessorId === 0) {
-      console.warn('[AudioDecoder] Stream processor not created');
-      return;
-    }
-
-    const ret: number = scrcpy_native.startAudioStreamProcessor(this.streamProcessorId);
-    if (ret !== 0) {
-      throw new Error(`Failed to start stream processor: ${ret}`);
-    }
-
-    console.info('[AudioDecoder] Stream processor started');
+    // 空实现
   }
 
   /**
-   * Push data to stream processor (ArkTS continuously calls this)
-   * For audio: prepends 4-byte size header since ArkTS parses the protocol header
-   * The C++ processor expects: [4 bytes size][N bytes audio data]
-   */
-  pushDataToStream(data: ArrayBuffer, pts: number): number {
-    if (this.streamProcessorId === 0) {
-      return -1;
-    }
-
-    // Construct header + data format for C++ processor
-    // C++ ParseAudioFrame expects: [4 bytes size][N bytes data]
-    const size = data.byteLength;
-    const header = new ArrayBuffer(4);
-    const headerView = new DataView(header);
-    headerView.setInt32(0, size, false);  // Big-endian
-
-    // Combine header + data
-    const combined = new ArrayBuffer(4 + size);
-    const combinedView = new Uint8Array(combined);
-    const dataView = new Uint8Array(data);
-    combinedView.set(new Uint8Array(header), 0);
-    combinedView.set(dataView, 4);
-
-    return scrcpy_native.pushAudioStreamData(this.streamProcessorId, combined, pts);
-  }
-
-  /**
-   * Release stream processor
+   * @deprecated 不再需要，使用 pushFrame()
    */
   async releaseStreamProcessor(): Promise<void> {
-    if (this.streamProcessorId !== 0) {
-      try {
-        scrcpy_native.releaseAudioStreamProcessor(this.streamProcessorId);
-        this.streamProcessorId = 0;
-        console.info('[AudioDecoder] Stream processor released');
-      } catch (err) {
-        console.error('[AudioDecoder] Release stream processor failed:', err);
-      }
-    }
+    // 空实现
+  }
+
+  /**
+   * @deprecated
+   */
+  getStreamProcessorId(): number {
+    return 0;
   }
 }

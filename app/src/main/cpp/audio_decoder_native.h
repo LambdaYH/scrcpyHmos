@@ -12,19 +12,10 @@
 // Forward declaration for RingBuffer
 class RingBuffer;
 
-struct AudioDecoderContext {
-    std::queue<uint32_t> inputBufferQueue;
-    std::queue<OH_AVBuffer*> inputBuffers;
-    std::mutex inputMutex;
-    class AudioDecoderNative* decoder;
-    bool waitForFirstBuffer;
-};
-
-// PCM Frame structure - 合并三个独立队列为一个
 struct PcmFrame {
-    std::array<uint8_t, 32 * 1024> data{};  // 32KB buffer
-    size_t size = 0;                         // Actual data size
-    size_t offset = 0;                       // Current read offset
+    std::array<uint8_t, 32 * 1024> data{};
+    size_t size = 0;
+    size_t offset = 0;
     size_t remaining() const { return size - offset; }
 };
 
@@ -37,7 +28,6 @@ public:
     int32_t Init(const char* codecType, int32_t sampleRate, int32_t channelCount);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
-    // Direct push from RingBuffer (optimized, avoids intermediate copy)
     int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags = 0);
     int32_t Stop();
     int32_t Release();
@@ -49,7 +39,6 @@ private:
     static void OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData);
     static void OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData);
 
-    // 音频渲染回调
     static int32_t OnAudioRendererWriteData(OH_AudioRenderer* renderer,
                                             void* userData,
                                             void* buffer,
@@ -61,15 +50,14 @@ private:
     OH_AudioRenderer* renderer_;
     OH_AudioStreamBuilder* builder_;
     bool isStarted_;
-    bool isRaw_;  // raw格式不需要解码
+    bool isRaw_;
     int32_t sampleRate_;
     int32_t channelCount_;
     uint32_t frameCount_;
     std::string codecType_;
-    AudioDecoderContext* context_;
 
-    // PCM缓冲区 - 使用单一结构体队列（优化：替代三个独立队列）
-    static constexpr size_t PCM_POOL_SIZE = 32;  // 32 pre-allocated frames
+    struct AudioDecoderContext* context_;
+    static constexpr size_t PCM_POOL_SIZE = 32;
     std::queue<PcmFrame> pcmPool_;
     std::mutex pcmMutex_;
 };
