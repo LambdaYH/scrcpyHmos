@@ -827,6 +827,18 @@
     {
       "name": "config_server_log_desc",
       "value": "Set scrcpy-server log level on the device."
+    },
+    {
+      "name": "control_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "control_disconnected",
+      "value": "Disconnected"
+    },
+    {
+      "name": "auth_required_toast",
+      "value": "Please authorize on the device"
     }
   ]
 }

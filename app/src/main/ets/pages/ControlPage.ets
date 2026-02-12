@@ -24,7 +24,7 @@ struct ControlPage {
   @State displayXComponentHeight: number = 0; // 计算后的显示高度
 
   @State isConnected: boolean = false;
-  @State connectionStatus: string = 'Connecting...';
+  @State connectionStatus: string = '';
   @State showLoading: boolean = true;
 
   // 悬浮按钮状态
@@ -49,6 +49,16 @@ struct ControlPage {
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
   
+  // 辅助方法：将 Resource 引用解析为字符串
+  private getResString(res: Resource): string {
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      return ctx.resourceManager.getStringSync(res.id);
+    } catch (e) {
+      return '';
+    }
+  }
+
   aboutToAppear() {
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
@@ -59,6 +69,7 @@ struct ControlPage {
         if (params['clientReady'] === true) {
           // 客户端已连接，从缓存获取
           this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+          this.connectionStatus = this.getResString($r('app.string.connecting_status'));
           this.initFromExistingClient();
         } else {
           try {
@@ -206,7 +217,7 @@ struct ControlPage {
           case WorkerMessageType.CONNECTED:
             LoggerControlPage.info('[ControlPage] Worker connected');
             this.isConnected = true;
-            this.connectionStatus = 'Connected';
+            this.connectionStatus = this.getResString($r('app.string.control_connected'));
             this.startAutoHideTimer();
             // 如果 surface 已就绪，立即初始化解码器
             if (this.surfaceReady && this.surfaceId) {
@@ -217,9 +228,9 @@ struct ControlPage {
           case WorkerMessageType.DISCONNECTED:
             LoggerControlPage.warn('[ControlPage] Worker disconnected');
             this.isConnected = false;
-            this.connectionStatus = 'Disconnected';
+            this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
             try {
-              this.getUIContext().getPromptAction().showToast({ message: 'Disconnected' });
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
             } catch (err) {
               LoggerControlPage.error('Show toast failed:', err);
             }
@@ -247,7 +258,15 @@ struct ControlPage {
           case WorkerMessageType.STATUS_UPDATE:
             const statusData = message.data as Record<string, string>;
             if (statusData && statusData['status']) {
-              this.connectionStatus = statusData['status'];
+              // Worker 发送状态 key，在主线程解析为本地化字符串
+              const statusKey = statusData['status'];
+              if (statusKey === 'connecting') {
+                this.connectionStatus = this.getResString($r('app.string.connecting_status'));
+              } else if (statusKey === 'getting_video_config') {
+                this.connectionStatus = this.getResString($r('app.string.getting_video_config'));
+              } else {
+                this.connectionStatus = statusKey;
+              }
             }
             break;
 
@@ -281,7 +300,7 @@ struct ControlPage {
           case WorkerMessageType.AUTH_REQUIRED:
             LoggerControlPage.info('[ControlPage] Auth required');
             try {
-              this.getUIContext().getPromptAction().showToast({ message: 'Please authorize on the device' });
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
             } catch (err) {
               LoggerControlPage.error('Show toast failed:', err);
             }

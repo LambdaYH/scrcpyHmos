@@ -50,7 +50,7 @@ class WorkerState {
       this.isClosed = false;
 
       LoggerClient.info('[StreamWorker] Starting connection...');
-      this.postMessage({ type: WorkerMessageType.STATUS_UPDATE, data: { status: 'Connecting...' } });
+      this.postMessage({ type: WorkerMessageType.STATUS_UPDATE, data: { status: 'connecting' } });
 
       // 建立流连接（使用 Worker 兼容的连接方法）
       this.clientStream = new ClientStream(this.device);
@@ -84,7 +84,7 @@ class WorkerState {
         return;
       }
 
-      this.postMessage({ type: WorkerMessageType.STATUS_UPDATE, data: { status: 'Getting video config...' } });
+      this.postMessage({ type: WorkerMessageType.STATUS_UPDATE, data: { status: 'getting_video_config' } });
 
       // 获取视频配置
       const videoConfig = this.clientStream.getVideoConfig();

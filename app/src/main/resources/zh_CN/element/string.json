@@ -775,6 +775,18 @@
         {
             "name": "config_server_log_desc",
             "value": "设置 scrcpy-server 在设备端的日志输出级别。"
+        },
+        {
+            "name": "control_connected",
+            "value": "已连接"
+        },
+        {
+            "name": "control_disconnected",
+            "value": "已断开连接"
+        },
+        {
+            "name": "auth_required_toast",
+            "value": "请在被控设备上点击允许授权"
         }
     ]
 }
