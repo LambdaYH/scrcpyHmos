@@ -286,21 +286,25 @@ struct ControlPage {
                     text: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
                     color: '#007AFF'
                   }]
+                }).then(() => {
+                  // 用户点击按钮后退出页面
+                  this.exitPage();
                 });
               } catch (e) {
                 LoggerControlPage.error('Show timeout dialog failed:', e);
+                this.exitPage(); // 即使弹窗失败也退出
               }
-            }
-            try {
-              this.getUIContext().getPromptAction().showToast({ message: errMsg });
-            } catch (toastErr) {
-              LoggerControlPage.error('Show toast failed:', toastErr);
-            }
-            // 如果是严重错误（如连接失败），退出页面
-            if (errMsg.includes('Connect failed') || errMsg.includes('Authorization failed')) {
-               setTimeout(() => {
-                 this.exitPage();
-               }, 1500);
+            } else {
+              // 其他错误，显示 Toast 并稍后退出
+              try {
+                this.getUIContext().getPromptAction().showToast({ message: errMsg });
+              } catch (toastErr) {
+                LoggerControlPage.error('Show toast failed:', toastErr);
+              }
+              // 无论什么错误，最终都退出页面
+              setTimeout(() => {
+                this.exitPage();
+              }, 1500);
             }
             break;
 
