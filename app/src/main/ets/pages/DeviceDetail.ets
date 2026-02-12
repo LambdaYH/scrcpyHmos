@@ -9,6 +9,9 @@ import { util } from '@kit.ArkTS';
 struct DeviceDetail {
   @State device: Device = new Device('', 0);
   @State isEditMode: boolean = false;
+  @State nameError: boolean = false;
+  @State addressError: boolean = false;
+  @State portError: boolean = false;
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
 
   // 视频编码选项
@@ -91,38 +94,75 @@ struct DeviceDetail {
         Column({ space: 16 }) {
           // 基本信息
           Column({ space: 8 }) {
-            Text($r('app.string.device_name'))
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
+            Row() {
+              Text($r('app.string.device_name'))
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+              Text(' *')
+                .fontSize(14)
+                .fontColor(Color.Red)
+            }
             TextInput({ text: this.device.name })
+              .borderColor(this.nameError ? Color.Red : $r('sys.color.ohos_id_color_component_normal'))
+              .borderWidth(this.nameError ? 2 : 0)
               .onChange((value: string) => {
                 this.device.name = value;
+                if (value.trim()) {
+                  this.nameError = false;
+                }
               })
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
           Column({ space: 8 }) {
-            Text($r('app.string.device_address'))
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
+            Row() {
+              Text($r('app.string.device_address'))
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+              Text(' *')
+                .fontSize(14)
+                .fontColor(Color.Red)
+            }
             TextInput({ text: this.device.address, placeholder: '127.0.0.1' })
+              .borderColor(this.addressError ? Color.Red : $r('sys.color.ohos_id_color_component_normal'))
+              .borderWidth(this.addressError ? 2 : 0)
               .onChange((value: string) => {
                 this.device.address = value;
+                if (value.trim()) {
+                  this.addressError = false;
+                }
               })
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
           Column({ space: 8 }) {
-            Text($r('app.string.device_adb_port'))
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.device.adbPort.toString(), placeholder: '5555' })
+            Row() {
+              Text($r('app.string.device_adb_port'))
+                .fontSize(14)
+                .fontColor($r('app.color.text_secondary'))
+              Text(' *')
+                .fontSize(14)
+                .fontColor(Color.Red)
+            }
+            TextInput({ 
+              text: this.device.adbPort > 0 ? this.device.adbPort.toString() : '', 
+              placeholder: '5555' 
+            })
               .type(InputType.Number)
+              .borderColor(this.portError ? Color.Red : $r('sys.color.ohos_id_color_component_normal'))
+              .borderWidth(this.portError ? 2 : 0)
               .onChange((value: string) => {
-                const num = parseInt(value);
-                this.device.adbPort = isNaN(num) ? 0 : num;
+                if (value === '') {
+                  this.device.adbPort = 0;
+                } else {
+                  const num = parseInt(value);
+                  this.device.adbPort = isNaN(num) ? 0 : num;
+                }
+                if (value.trim() && parseInt(value) > 0) {
+                  this.portError = false;
+                }
               })
           }
           .alignItems(HorizontalAlign.Start)
@@ -612,7 +652,30 @@ struct DeviceDetail {
   }
 
   async saveDevice() {
-    if (!this.device.name || !this.device.address) {
+    // Reset errors
+    this.nameError = false;
+    this.addressError = false;
+    this.portError = false;
+
+    // Validate required fields
+    let hasError = false;
+    
+    if (!this.device.name || !this.device.name.trim()) {
+      this.nameError = true;
+      hasError = true;
+    }
+    
+    if (!this.device.address || !this.device.address.trim()) {
+      this.addressError = true;
+      hasError = true;
+    }
+    
+    if (!this.device.adbPort || this.device.adbPort <= 0) {
+      this.portError = true;
+      hasError = true;
+    }
+
+    if (hasError) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.fill_complete_info') });
       } catch (e) {
