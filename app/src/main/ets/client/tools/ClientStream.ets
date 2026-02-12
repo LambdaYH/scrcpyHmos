@@ -563,12 +563,19 @@ export class ClientStream {
 
     // 3. Read Data
     // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
-    const frameData = await this.readBytesFromVideo(frameSize);
+    // const frameData = await this.readBytesFromVideo(frameSize);
+    
+    // 使用 Native 缓冲池读取视频帧数据（零拷贝优化）
+    if (!this.vidStream) {
+       throw new Error('Video stream not connected during frame read');
+    }
+    const frameData = await this.vidStream.readToNativeBuffer(frameSize);
+    
     // console.debug(`[ClientStream] Frame data read complete`);
 
     // Convert BigInt PTS to number
     // Note: cleanPts can be > 2^53 when bit 63 was set (config frames), causing Number() overflow
-    // If Number() overflows, the result is negative, so we need to recover the unsigned value
+    // If Number() overflows, the result is negative, so we need to recovery the unsigned value
     const UINT64_MAX_PLUS_1 = 18446744073709551616n;
     let ptsNumber = Number(cleanPts);
     if (ptsNumber < 0) {

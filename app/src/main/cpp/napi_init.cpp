@@ -2,6 +2,7 @@
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
 #include "video_stream_processor.h"
+#include "native_buffer_pool.h"
 #include <hilog/log.h>
 #include <map>
 #include <unordered_map>
@@ -546,6 +547,100 @@ static napi_value ReleaseAudioStreamProcessor(napi_env env, napi_callback_info i
     return result;
 }
 
+// ============== Native Buffer Pool ==============
+
+// GC finalize callback: 当 external ArrayBuffer 被回收时，归还 buffer 到池
+static void NativeBufferFinalizeCallback(napi_env env, void* finalize_data, void* finalize_hint) {
+    NativeBufferInfo* info = static_cast<NativeBufferInfo*>(finalize_hint);
+    if (info != nullptr) {
+        NativeBufferPool::GetInstance().Release(info->bufferId, info->ptr);
+        delete info;
+    }
+}
+
+// 分配 native buffer，返回 external ArrayBuffer
+static napi_value AllocNativeBuffer(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t requestedSize;
+    napi_get_value_int64(env, args[0], &requestedSize);
+
+    if (requestedSize <= 0) {
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    uint8_t* ptr = nullptr;
+    size_t capacity = 0;
+    int32_t bufferId = NativeBufferPool::GetInstance().Alloc(
+        static_cast<size_t>(requestedSize), &ptr, &capacity);
+
+    if (ptr == nullptr) {
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    // 创建 finalize info
+    NativeBufferInfo* bufInfo = new NativeBufferInfo();
+    bufInfo->bufferId = bufferId;
+    bufInfo->ptr = ptr;
+
+    // 用 napi_create_external_arraybuffer 包装 native 内存
+    // 注意: 这里用 requestedSize 而非 capacity，让 ArkTS 看到精确大小
+    napi_value arrayBuffer;
+    napi_status status = napi_create_external_arraybuffer(
+        env, ptr, static_cast<size_t>(requestedSize),
+        NativeBufferFinalizeCallback, bufInfo, &arrayBuffer);
+
+    if (status != napi_ok) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] napi_create_external_arraybuffer failed");
+        NativeBufferPool::GetInstance().Release(bufferId, ptr);
+        delete bufInfo;
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    return arrayBuffer;
+}
+
+// 主动释放 native buffer（不等 GC）
+// 注意：调用后 ArkTS 侧的 ArrayBuffer 仍然存在但底层内存已归还池，
+//       后续不应再使用该 ArrayBuffer。
+static napi_value ReleaseNativeBuffer(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    void* data;
+    size_t length;
+    napi_status status = napi_get_arraybuffer_info(env, args[0], &data, &length);
+    
+    if (status == napi_ok && data != nullptr) {
+        // 尝试归还到池
+        bool released = NativeBufferPool::GetInstance().Release(static_cast<uint8_t*>(data));
+        if (!released) {
+            // OH_LOG_DEBUG(LOG_APP, "[NAPI] ReleaseNativeBuffer: buffer not in pool or already released");
+        }
+    }
+
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    return undefined;
+}
+
+// 销毁整个缓冲池
+static napi_value DestroyBufferPool(napi_env env, napi_callback_info info) {
+    NativeBufferPool::GetInstance().ReleaseAll();
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    return undefined;
+}
+
 // ============== Module Registration ==============
 
 EXTERN_C_START
@@ -573,6 +668,10 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"startAudioStreamProcessor", nullptr, StartAudioStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"pushAudioStreamData", nullptr, PushAudioStreamData, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseAudioStreamProcessor", nullptr, ReleaseAudioStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
+        // Native Buffer Pool API
+        {"allocNativeBuffer", nullptr, AllocNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"releaseNativeBuffer", nullptr, ReleaseNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"destroyBufferPool", nullptr, DestroyBufferPool, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

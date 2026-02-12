@@ -13,6 +13,7 @@ import {
   WorkerMessageType, WorkerMessage, TouchEventData, KeyEventData,
   InitData, VideoDecoderInitData, AudioDecoderInitData, ClipboardData, ActionData
 } from './WorkerMessages';
+import { NativeBufferPool } from '../buffer/NativeBufferPool';
 
 const workerPort: ThreadWorkerGlobalScope = worker.workerPort;
 
@@ -287,6 +288,10 @@ class WorkerState {
                   waitCount++;
                 }
               }
+
+              // 显式释放 Native Buffer (即使是 GC 也会释放，但显式释放更快)
+              // 注意: pushFrame 时 NAPI 已经 memcpy 数据，所以此时 frame.data 已经不再需要了
+              NativeBufferPool.release(frame.data);
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
