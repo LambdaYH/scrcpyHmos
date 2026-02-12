@@ -202,7 +202,7 @@ struct ControlPage {
       }
       setTimeout(() => {
         this.exitPage();
-      }, 1000);
+      }, 1500);
     }
   }
 
@@ -234,9 +234,10 @@ struct ControlPage {
             } catch (err) {
               LoggerControlPage.error('Show toast failed:', err);
             }
+            // 延迟退出，让用户看清提示
             setTimeout(() => {
               this.exitPage();
-            }, 1000);
+            }, 1500);
             break;
 
           case WorkerMessageType.VIDEO_CONFIG:
@@ -295,6 +296,12 @@ struct ControlPage {
             } catch (toastErr) {
               LoggerControlPage.error('Show toast failed:', toastErr);
             }
+            // 如果是严重错误（如连接失败），退出页面
+            if (errMsg.includes('Connect failed') || errMsg.includes('Authorization failed')) {
+               setTimeout(() => {
+                 this.exitPage();
+               }, 1500);
+            }
             break;
 
           case WorkerMessageType.AUTH_REQUIRED:
@@ -318,6 +325,14 @@ struct ControlPage {
 
       this.streamWorker.onerror = (err) => {
         LoggerControlPage.error('[ControlPage] Worker error event:', err.message);
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+        } catch (e) {
+          LoggerControlPage.error('Show toast failed:', e);
+        }
+        setTimeout(() => {
+          this.exitPage();
+        }, 1500);
       };
 
     } catch (err) {
