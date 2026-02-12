@@ -1,6 +1,6 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
-import { Client } from '../client/Client';
+
 import { Logger, LoggerIndex } from '../helper/Logger';
 
 import { common } from '@kit.AbilityKit';
@@ -17,7 +17,7 @@ struct Index {
   @State connectionStatus: string = '';
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
   private tabsController: TabsController = new TabsController();
-  private connectingClient: Client | null = null;
+
   @State localIpList: string[] = [];
   
   private ipListDialogController: CustomDialogController = new CustomDialogController({
@@ -628,7 +628,7 @@ struct Index {
       
     } catch (err) {
       this.isConnecting = false;
-      this.connectingClient = null;
+
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerIndex.error('Connect device failed:', errMsg);
       this.getUIContext().getPromptAction().showToast({ message: this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.connect_error_prefix').id) + errMsg });
@@ -644,10 +644,7 @@ struct Index {
       clearInterval(this.connectionTimer);
       this.connectionTimer = -1;
     }
-    if (this.connectingClient) {
-      this.connectingClient.close();
-      this.connectingClient = null;
-    }
+
     this.isConnecting = false;
   }
 
