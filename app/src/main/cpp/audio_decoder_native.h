@@ -4,21 +4,18 @@
 #include <string>
 #include <queue>
 #include <mutex>
-#include <condition_variable>
+#include <array>
 #include "multimedia/player_framework/native_avcodec_audiocodec.h"
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "ohaudio/native_audiorenderer.h"
 
-struct AudioDecoderContext {
-    std::queue<uint32_t> inputBufferQueue;
-    std::queue<OH_AVBuffer*> inputBuffers;
-    std::queue<OH_AVBuffer*> outputBuffers;
-    std::queue<uint32_t> outputBufferIndices;
-    std::mutex inputMutex;
-    std::mutex outputMutex;
-    std::condition_variable outputCond;
-    class AudioDecoderNative* decoder;
-    bool waitForFirstBuffer;
+
+
+struct PcmFrame {
+    std::array<uint8_t, 32 * 1024> data{};
+    size_t size = 0;
+    size_t offset = 0;
+    size_t remaining() const { return size - offset; }
 };
 
 class AudioDecoderNative {
@@ -30,11 +27,10 @@ public:
     int32_t Init(const char* codecType, int32_t sampleRate, int32_t channelCount);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
+
     int32_t Stop();
     int32_t Release();
-
-    // 获取解码后的PCM数据并播放
-    void ProcessOutputBuffers();
+    bool HasAvailableBuffer() const;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);
@@ -42,7 +38,6 @@ private:
     static void OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData);
     static void OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData);
 
-    // 音频渲染回调
     static int32_t OnAudioRendererWriteData(OH_AudioRenderer* renderer,
                                             void* userData,
                                             void* buffer,
@@ -54,15 +49,15 @@ private:
     OH_AudioRenderer* renderer_;
     OH_AudioStreamBuilder* builder_;
     bool isStarted_;
-    bool isRaw_;  // raw格式不需要解码
+    bool isRaw_;
     int32_t sampleRate_;
     int32_t channelCount_;
     uint32_t frameCount_;
     std::string codecType_;
-    AudioDecoderContext* context_;
 
-    // PCM缓冲区（用于RAW模式或解码后数据）
-    std::queue<std::vector<uint8_t>> pcmQueue_;
+    struct AudioDecoderContext* context_;
+    static constexpr size_t PCM_POOL_SIZE = 32;
+    std::queue<PcmFrame> pcmPool_;
     std::mutex pcmMutex_;
 };
 

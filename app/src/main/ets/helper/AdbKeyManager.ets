@@ -26,7 +26,15 @@ class KeyGenerationInfo {
   }
 }
 
-// ADB密钥管理 - 支持多设备，使用文件系统保存
+// ADB密钥管理
+
+// 可序列化的密钥数据（用于 Worker 线程传递）
+export interface AdbKeySerialData {
+  privateKeyBase64: string;
+  publicKeyBase64: string;
+  adbPublicKeyBase64: string;
+  keyGeneration: number;
+}
 export class AdbKeyManager {
   private static instance: AdbKeyManager;
   private preferences?: preferences.Preferences;
@@ -473,6 +481,39 @@ export class AdbKeyManager {
   // 获取公共密钥信息
   getCommonKeyInfo(): KeyGenerationInfo {
     return new KeyGenerationInfo(this.keyGeneration, !!this.cachedKeyPair);
+  }
+
+  // 导出可序列化的密钥数据（用于 Worker 线程传递）
+  exportKeyData(): AdbKeySerialData {
+    return {
+      privateKeyBase64: this.privateKeyBase64,
+      publicKeyBase64: this.publicKeyBase64,
+      adbPublicKeyBase64: this.adbPublicKeyBase64,
+      keyGeneration: this.keyGeneration
+    };
+  }
+
+  // 从序列化数据初始化（Worker 线程中使用，不需要 Context）
+  async initFromKeyData(data: AdbKeySerialData): Promise<void> {
+    try {
+      this.privateKeyBase64 = data.privateKeyBase64;
+      this.publicKeyBase64 = data.publicKeyBase64;
+      this.adbPublicKeyBase64 = data.adbPublicKeyBase64;
+      this.keyGeneration = data.keyGeneration;
+
+      // 从 base64 字符串重建 KeyPair（使用 cryptoFramework，不需要 Context）
+      if (this.privateKeyBase64 && this.publicKeyBase64) {
+        await this.rebuildKeyPair();
+      }
+
+      if (this.cachedKeyPair) {
+        LoggerAdbKeyManager.info('ADB: KeyPair restored from serialized data, generation:', this.keyGeneration);
+      } else {
+        LoggerAdbKeyManager.error('ADB: Failed to restore KeyPair from serialized data');
+      }
+    } catch (err) {
+      LoggerAdbKeyManager.error('initFromKeyData failed:', err);
+    }
   }
 
   // 重新生成公共密钥

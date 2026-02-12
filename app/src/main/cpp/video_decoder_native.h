@@ -4,24 +4,11 @@
 #include <string>
 #include <queue>
 #include <mutex>
-#include <map>
 #include "multimedia/player_framework/native_avcodec_videodecoder.h"
+#include "multimedia/player_framework/native_avbuffer.h"
 #include "native_window/external_window.h"
 
-struct DecoderContext {
-    std::queue<uint32_t> inputBufferQueue;
-    std::queue<OH_AVBuffer*> inputBuffers;  // 保存buffer指针队列
-    std::mutex queueMutex;
-    class VideoDecoderNative* decoder;
-    bool waitForFirstBuffer;  // 标记是否在等待第一个buffer
-    
-    // Output format info
-    bool isDecFirstFrame;
-    int32_t outputWidth;
-    int32_t outputHeight;
-    int32_t widthStride;
-    int32_t heightStride;
-};
+
 
 class VideoDecoderNative {
 public:
@@ -32,8 +19,10 @@ public:
     int32_t Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags);
+
     int32_t Stop();
     int32_t Release();
+    bool HasAvailableBuffer() const;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);
@@ -47,8 +36,8 @@ private:
     int32_t width_;
     int32_t height_;
     uint32_t frameCount_;
-    std::string codecType_;  // 当前编解码类型
-    DecoderContext* context_;  // 添加上下文指针访问
+    std::string codecType_;
+    struct DecoderContext* context_;
 };
 
 #endif // VIDEO_DECODER_NATIVE_H

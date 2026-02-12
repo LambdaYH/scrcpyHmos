@@ -26,9 +26,26 @@ export class Logger {
   private static isWriting: boolean = false;
   private static logFilePath: string = '';
   private static fileLogLevel: LogLevel = LogLevel.INFO;
+  private static isFileEnabled: boolean = false; // 默认关闭
 
   constructor(tag: string) {
     this.tag = tag;
+  }
+
+  // ... (init method remains same)
+
+  /**
+   * 设置是否启用文件日志
+   */
+  static setFileLoggingEnabled(enable: boolean) {
+    Logger.isFileEnabled = enable;
+  }
+
+  /**
+   * 获取是否启用文件日志
+   */
+  static isFileLoggingEnabled(): boolean {
+    return Logger.isFileEnabled;
   }
 
   /**
@@ -147,6 +164,7 @@ export class Logger {
    */
   private writeToFile(level: LogLevel, levelName: string, msg: string): void {
     if (!Logger.context) return; // 还没初始化
+    if (!Logger.isFileEnabled) return; // 开关未打开
     if (level < Logger.fileLogLevel) return; // 级别控制
 
     const now = new Date();
@@ -261,6 +279,7 @@ export class Logger {
 // 预定义的 Logger 实例，方便各模块使用
 export const LoggerIndex = new Logger('Index');
 export const LoggerControlPage = new Logger('ControlPage');
+export const LoggerHelpPage = new Logger('HelpPage');
 export const LoggerDeviceDetail = new Logger('DeviceDetail');
 export const LoggerAdbManage = new Logger('AdbManage');
 export const LoggerPublicTools = new Logger('PublicTools');

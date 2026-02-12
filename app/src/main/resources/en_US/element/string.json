@@ -529,6 +529,18 @@
             "value": "Client"
         },
         {
+            "name": "init_control_page_error",
+            "value": "Failed to initialize the control interface."
+        },
+        {
+            "name": "video_decoder_init_failed",
+            "value": "Failed to init video decoder: "
+        },
+        {
+            "name": "audio_decoder_init_failed",
+            "value": "Failed to init audio decoder: "
+        },
+        {
             "name": "about_src_code",
             "value": "Source Code"
         },
@@ -567,6 +579,38 @@
         {
             "name": "help_config_ref",
             "value": "For specific configuration items, please refer to the Scrcpy official documentation"
+        },
+        {
+            "name": "clipboard_empty",
+            "value": "Clipboard is empty"
+        },
+        {
+            "name": "clipboard_synced",
+            "value": "Synced to device"
+        },
+        {
+            "name": "clipboard_no_text",
+            "value": "No text content"
+        },
+        {
+            "name": "paste_failed",
+            "value": "Paste failed"
+        },
+        {
+            "name": "show_bottom_nav_bar",
+            "value": "Show Bottom Navigation Bar"
+        },
+        {
+            "name": "control_connected",
+            "value": "Connected"
+        },
+        {
+            "name": "control_disconnected",
+            "value": "Disconnected"
+        },
+        {
+            "name": "auth_required_toast",
+            "value": "Please authorize on the device"
         }
     ]
 }

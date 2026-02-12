@@ -5,8 +5,7 @@ import { common, Want } from '@kit.AbilityKit';
 @Entry
 @Component
 struct AboutPage {
-  private scrcpyRepo: string = 'https://github.com/LambdaYH/scrcpyHmos';
-  private easyControlRepo: string = 'https://github.com/mingzhixian/Easycontrol';
+  private thisProjectRepo: string = 'https://github.com/LambdaYH/scrcpyHmos';
 
   private licenseDialogController: CustomDialogController = new CustomDialogController({
     builder: LicenseDialog(),
@@ -66,7 +65,7 @@ struct AboutPage {
             .fontWeight(FontWeight.Bold)
             .margin({ bottom: 8 })
             
-          Text('v1.0.1')
+          Text('v1.0.2')
             .fontSize(14)
             .fontColor($r('app.color.text_tertiary'))
             .margin({ bottom: 4 })
@@ -78,9 +77,8 @@ struct AboutPage {
             .fontSize(12)
             .fontColor($r('app.color.text_tertiary'))
             .margin({ bottom: 32 })
-            
-          // Project Info
-           // Project Info
+
+
           Column() {
             // App Info (GPL-3.0)
             Text($r('app.string.about_client_section'))
@@ -95,13 +93,13 @@ struct AboutPage {
               .margin({ bottom: 4 })
               .alignSelf(ItemAlign.Start)
 
-            Text(this.scrcpyRepo)
+            Text(this.thisProjectRepo)
               .fontSize(14)
               .fontColor($r('app.color.btn_primary'))
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 12 })
               .onClick(() => {
-                this.openUrl(this.scrcpyRepo);
+                this.openUrl(this.thisProjectRepo);
               })
 
             Text() {

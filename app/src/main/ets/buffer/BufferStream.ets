@@ -76,6 +76,17 @@ export class BufferStream {
     return await this.source.read(size);
   }
 
+  /**
+   * 使用 Native 缓冲池读取数据（仅视频帧使用）
+   * 底层调用 BufferNew.readToNativeBuffer()
+   */
+  async readToNativeBuffer(size: number): Promise<ArrayBuffer> {
+    if (this.isClosed) {
+      throw new Error('connection is closed');
+    }
+    return await this.source.readToNativeBuffer(size);
+  }
+
   readByteArrayBeforeClose(): ArrayBuffer {
     return this.source.readByteArrayBeforeClose();
   }

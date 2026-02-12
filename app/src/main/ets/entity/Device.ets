@@ -21,7 +21,7 @@ export class Device {
   displayId: number = 0;
 
   // 显示设置
-  showBottomNavBar: boolean = false; // 底部显示导航栏
+  showBottomNavBar: boolean = true; // 底部显示导航栏
 
   // 音频参数
   isAudio: boolean = true;

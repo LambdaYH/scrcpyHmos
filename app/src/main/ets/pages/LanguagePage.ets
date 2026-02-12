@@ -1,8 +1,6 @@
 import { i18n } from '@kit.LocalizationKit';
-import { resourceManager } from '@kit.LocalizationKit';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
 import { LoggerIndex } from '../helper/Logger';
-import { common } from '@kit.AbilityKit';
 
 @Entry
 @Component
@@ -28,8 +26,6 @@ struct LanguagePage {
     try {
       let targetLang = lan;
       if (lan === 'system') {
-        // Since 'default' doesn't consistently work, we manually fetch and set the system language.
-        // We rely on ScrcpyHmosAbility.onForeground to keep this in sync if system language changes.
         targetLang = i18n.System.getSystemLanguage();
         if(targetLang.startsWith('zh')) {
           targetLang = 'zh-Hans';

@@ -1,13 +1,15 @@
 #include "napi/native_api.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
-#include "video_stream_processor.h"
+
+#include "native_buffer_pool.h"
 #include <hilog/log.h>
 #include <map>
+#include <unordered_map>
 
 // ============== Video Decoder ==============
 
-static std::map<int64_t, VideoDecoderNative*> g_videoDecoders;
+static std::unordered_map<int64_t, VideoDecoderNative*> g_videoDecoders;
 static int64_t g_nextVideoId = 1;
 
 // 创建视频解码器
@@ -91,11 +93,11 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
 
     napi_get_value_int64(env, args[0], &decoderId);
     napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
-    
-    // Check PTS type (Number or BigInt)
+
+    // Fast path: assume Number type (common case)
     napi_valuetype valueType;
     napi_typeof(env, args[2], &valueType);
-    
+
     if (valueType == napi_bigint) {
         bool lossless;
         napi_get_value_bigint_int64(env, args[2], &pts, &lossless);
@@ -110,7 +112,7 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
             napi_get_value_uint32(env, args[3], &flags);
         }
     }
-    
+
     // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld, flags=%{public}u", dataSize, (long)pts, flags);
 
     auto it = g_videoDecoders.find(decoderId);
@@ -149,7 +151,7 @@ static napi_value ReleaseVideoDecoder(napi_env env, napi_callback_info info) {
 
 // ============== Audio Decoder ==============
 
-static std::map<int64_t, AudioDecoderNative*> g_audioDecoders;
+static std::unordered_map<int64_t, AudioDecoderNative*> g_audioDecoders;
 static int64_t g_nextAudioId = 1;
 
 // 创建音频解码器
@@ -263,354 +265,100 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
     return result;
 }
 
-// ============== Video Stream Processor ==============
 
-static std::map<int64_t, VideoStreamProcessor*> g_videoStreamProcessors;
-static std::map<int64_t, VideoDecoderNative*> g_videoDecoderMap;  // Link decoder ID to native
-static int64_t g_nextVideoProcessorId = 1;
 
-// 创建视频流处理器
-static napi_value CreateVideoStreamProcessor(napi_env env, napi_callback_info info) {
-    size_t argc = 4;
-    napi_value args[4];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+// ============== Native Buffer Pool ==============
 
-    int64_t decoderId;
-    char codecType[32];
-    size_t codecTypeLen;
-
-    napi_get_value_int64(env, args[0], &decoderId);
-    napi_get_value_string_utf8(env, args[1], codecType, sizeof(codecType), &codecTypeLen);
-
-    // Get video decoder from map
-    auto it = g_videoDecoders.find(decoderId);
-    if (it == g_videoDecoders.end()) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] CreateVideoStreamProcessor: decoder %{public}lld not found", (long long)decoderId);
-        napi_value result;
-        napi_create_int64(env, -1, &result);
-        return result;
+// GC finalize callback: 当 external ArrayBuffer 被回收时，归还 buffer 到池
+static void NativeBufferFinalizeCallback(napi_env env, void* finalize_data, void* finalize_hint) {
+    NativeBufferInfo* info = static_cast<NativeBufferInfo*>(finalize_hint);
+    if (info != nullptr) {
+        NativeBufferPool::GetInstance().Release(info->bufferId, info->ptr);
+        delete info;
     }
-
-    // Create stream processor
-    VideoStreamProcessor* processor = new VideoStreamProcessor();
-    int64_t processorId = g_nextVideoProcessorId++;
-
-    int32_t ret = processor->Init(VideoStreamProcessor::MediaType::VIDEO,
-                                   it->second, codecType);
-    if (ret != 0) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] CreateVideoStreamProcessor: init failed %{public}d", ret);
-        delete processor;
-        napi_value result;
-        napi_create_int64(env, -1, &result);
-        return result;
-    }
-
-    g_videoStreamProcessors[processorId] = processor;
-    g_videoDecoderMap[processorId] = it->second;  // Keep reference to decoder
-
-    napi_value result;
-    napi_create_int64(env, processorId, &result);
-    OH_LOG_INFO(LOG_APP, "[NAPI] VideoStreamProcessor created: %{public}lld", (long long)processorId);
-    return result;
 }
 
-// 启动视频流处理器
-static napi_value StartVideoStreamProcessor(napi_env env, napi_callback_info info) {
+// 分配 native buffer，返回 external ArrayBuffer
+static napi_value AllocNativeBuffer(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-    int64_t processorId;
-    napi_get_value_int64(env, args[0], &processorId);
+    int64_t requestedSize;
+    napi_get_value_int64(env, args[0], &requestedSize);
 
-    auto it = g_videoStreamProcessors.find(processorId);
-    if (it != g_videoStreamProcessors.end()) {
-        int32_t ret = it->second->Start();
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
+    if (requestedSize <= 0) {
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
     }
 
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
+    uint8_t* ptr = nullptr;
+    size_t capacity = 0;
+    int32_t bufferId = NativeBufferPool::GetInstance().Alloc(
+        static_cast<size_t>(requestedSize), &ptr, &capacity);
+
+    if (ptr == nullptr) {
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    // 创建 finalize info
+    NativeBufferInfo* bufInfo = new NativeBufferInfo();
+    bufInfo->bufferId = bufferId;
+    bufInfo->ptr = ptr;
+
+    // 用 napi_create_external_arraybuffer 包装 native 内存
+    // 注意: 这里用 requestedSize 而非 capacity，让 ArkTS 看到精确大小
+    napi_value arrayBuffer;
+    napi_status status = napi_create_external_arraybuffer(
+        env, ptr, static_cast<size_t>(requestedSize),
+        NativeBufferFinalizeCallback, bufInfo, &arrayBuffer);
+
+    if (status != napi_ok) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] napi_create_external_arraybuffer failed");
+        NativeBufferPool::GetInstance().Release(bufferId, ptr);
+        delete bufInfo;
+        napi_value undefined;
+        napi_get_undefined(env, &undefined);
+        return undefined;
+    }
+
+    return arrayBuffer;
 }
 
-// 推送数据到视频流处理器
-static napi_value PushVideoStreamData(napi_env env, napi_callback_info info) {
-    size_t argc = 4;
-    napi_value args[4];
+// 主动释放 native buffer（不等 GC）
+// 注意：调用后 ArkTS 侧的 ArrayBuffer 仍然存在但底层内存已归还池，
+//       后续不应再使用该 ArrayBuffer。
+static napi_value ReleaseNativeBuffer(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-    int64_t processorId;
     void* data;
-    size_t dataSize;
-    int64_t pts;
-    uint32_t flags = 0;
-
-    napi_get_value_int64(env, args[0], &processorId);
-    napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
-
-    // Check PTS type (Number or BigInt)
-    napi_valuetype valueType;
-    napi_typeof(env, args[2], &valueType);
-
-    if (valueType == napi_bigint) {
-        bool lossless;
-        napi_get_value_bigint_int64(env, args[2], &pts, &lossless);
-    } else {
-        napi_get_value_int64(env, args[2], &pts);
-    }
-
-    // Get flags if provided
-    if (argc > 3) {
-        napi_typeof(env, args[3], &valueType);
-        if (valueType == napi_number) {
-            napi_get_value_uint32(env, args[3], &flags);
+    size_t length;
+    napi_status status = napi_get_arraybuffer_info(env, args[0], &data, &length);
+    
+    if (status == napi_ok && data != nullptr) {
+        // 尝试归还到池
+        bool released = NativeBufferPool::GetInstance().Release(static_cast<uint8_t*>(data));
+        if (!released) {
+            // OH_LOG_DEBUG(LOG_APP, "[NAPI] ReleaseNativeBuffer: buffer not in pool or already released");
         }
     }
 
-    auto it = g_videoStreamProcessors.find(processorId);
-    if (it != g_videoStreamProcessors.end()) {
-        int32_t ret = it->second->PushData(static_cast<uint8_t*>(data),
-                                            static_cast<int32_t>(dataSize),
-                                            pts, flags);
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
-    }
-
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    return undefined;
 }
 
-// 释放视频流处理器
-static napi_value ReleaseVideoStreamProcessor(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t processorId;
-    napi_get_value_int64(env, args[0], &processorId);
-
-    auto it = g_videoStreamProcessors.find(processorId);
-    if (it != g_videoStreamProcessors.end()) {
-        it->second->Release();
-        delete it->second;
-        g_videoStreamProcessors.erase(it);
-        g_videoDecoderMap.erase(processorId);
-    }
-
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
-
-// ============== Audio Stream Processor ==============
-
-static std::map<int64_t, VideoStreamProcessor*> g_audioStreamProcessors;
-static std::map<int64_t, AudioDecoderNative*> g_audioDecoderMap;
-static int64_t g_nextAudioProcessorId = 1;
-
-// 创建音频流处理器
-static napi_value CreateAudioStreamProcessor(napi_env env, napi_callback_info info) {
-    size_t argc = 4;
-    napi_value args[4];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t decoderId;
-    char codecType[32];
-    size_t codecTypeLen;
-    int32_t sampleRate, channelCount;
-
-    napi_get_value_int64(env, args[0], &decoderId);
-    napi_get_value_string_utf8(env, args[1], codecType, sizeof(codecType), &codecTypeLen);
-    napi_get_value_int32(env, args[2], &sampleRate);
-    napi_get_value_int32(env, args[3], &channelCount);
-
-    // Get audio decoder from map
-    auto it = g_audioDecoders.find(decoderId);
-    if (it == g_audioDecoders.end()) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] CreateAudioStreamProcessor: decoder %{public}lld not found", (long long)decoderId);
-        napi_value result;
-        napi_create_int64(env, -1, &result);
-        return result;
-    }
-
-    // Create stream processor
-    VideoStreamProcessor* processor = new VideoStreamProcessor();
-    int64_t processorId = g_nextAudioProcessorId++;
-
-    int32_t ret = processor->Init(VideoStreamProcessor::MediaType::AUDIO,
-                                   it->second, codecType);
-    if (ret != 0) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] CreateAudioStreamProcessor: init failed %{public}d", ret);
-        delete processor;
-        napi_value result;
-        napi_create_int64(env, -1, &result);
-        return result;
-    }
-
-    g_audioStreamProcessors[processorId] = processor;
-    g_audioDecoderMap[processorId] = it->second;
-
-    napi_value result;
-    napi_create_int64(env, processorId, &result);
-    OH_LOG_INFO(LOG_APP, "[NAPI] AudioStreamProcessor created: %{public}lld", (long long)processorId);
-    return result;
-}
-
-// 启动音频流处理器
-static napi_value StartAudioStreamProcessor(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t processorId;
-    napi_get_value_int64(env, args[0], &processorId);
-
-    auto it = g_audioStreamProcessors.find(processorId);
-    if (it != g_audioStreamProcessors.end()) {
-        int32_t ret = it->second->Start();
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
-    }
-
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
-}
-
-// 推送音频数据到流处理器
-static napi_value PushAudioStreamData(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value args[3];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t processorId;
-    void* data;
-    size_t dataSize;
-    int64_t pts;
-
-    napi_get_value_int64(env, args[0], &processorId);
-    napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
-
-    // Check PTS type (Number or BigInt)
-    napi_valuetype valueType;
-    napi_typeof(env, args[2], &valueType);
-
-    if (valueType == napi_bigint) {
-        bool lossless;
-        napi_get_value_bigint_int64(env, args[2], &pts, &lossless);
-    } else {
-        napi_get_value_int64(env, args[2], &pts);
-    }
-
-    auto it = g_audioStreamProcessors.find(processorId);
-    if (it != g_audioStreamProcessors.end()) {
-        int32_t ret = it->second->PushData(static_cast<uint8_t*>(data),
-                                            static_cast<int32_t>(dataSize),
-                                            pts, 0);
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
-    }
-
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
-}
-
-// 释放音频流处理器
-static napi_value ReleaseAudioStreamProcessor(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t processorId;
-    napi_get_value_int64(env, args[0], &processorId);
-
-    auto it = g_audioStreamProcessors.find(processorId);
-    if (it != g_audioStreamProcessors.end()) {
-        it->second->Release();
-        delete it->second;
-        g_audioStreamProcessors.erase(it);
-        g_audioDecoderMap.erase(processorId);
-    }
-
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
-}
-
-// 旧版创建解码器（保持向后兼容）
-static napi_value CreateDecoder(napi_env env, napi_callback_info info) {
-    return CreateVideoDecoder(env, info);
-}
-
-// 旧版初始化解码器（兼容useH265布尔值）
-static napi_value InitDecoder(napi_env env, napi_callback_info info) {
-    size_t argc = 5;
-    napi_value args[5];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    // 检查第二个参数类型
-    napi_valuetype argType;
-    napi_typeof(env, args[1], &argType);
-
-    int64_t decoderId;
-    char surfaceId[128];
-    size_t surfaceIdLen;
-    int32_t width, height;
-
-    napi_get_value_int64(env, args[0], &decoderId);
-
-    const char* codecType = "h264";
-
-    if (argType == napi_boolean) {
-        // 旧版API：bool useH265
-        bool useH265;
-        napi_get_value_bool(env, args[1], &useH265);
-        codecType = useH265 ? "h265" : "h264";
-        napi_get_value_string_utf8(env, args[2], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-        napi_get_value_int32(env, args[3], &width);
-        napi_get_value_int32(env, args[4], &height);
-    } else {
-        // 新版API：string codecType
-        char codecTypeBuf[32];
-        size_t codecTypeLen;
-        napi_get_value_string_utf8(env, args[1], codecTypeBuf, sizeof(codecTypeBuf), &codecTypeLen);
-        codecType = codecTypeBuf;
-        napi_get_value_string_utf8(env, args[2], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-        napi_get_value_int32(env, args[3], &width);
-        napi_get_value_int32(env, args[4], &height);
-    }
-
-    auto it = g_videoDecoders.find(decoderId);
-    if (it != g_videoDecoders.end()) {
-        int32_t ret = it->second->Init(codecType, surfaceId, width, height);
-        napi_value result;
-        napi_create_int32(env, ret, &result);
-        return result;
-    }
-
-    napi_value result;
-    napi_create_int32(env, -1, &result);
-    return result;
-}
-
-static napi_value StartDecoder(napi_env env, napi_callback_info info) {
-    return StartVideoDecoder(env, info);
-}
-
-static napi_value PushData(napi_env env, napi_callback_info info) {
-    return PushVideoData(env, info);
-}
-
-static napi_value ReleaseDecoder(napi_env env, napi_callback_info info) {
-    return ReleaseVideoDecoder(env, info);
+// 销毁整个缓冲池
+static napi_value DestroyBufferPool(napi_env env, napi_callback_info info) {
+    NativeBufferPool::GetInstance().ReleaseAll();
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    return undefined;
 }
 
 // ============== Module Registration ==============
@@ -618,34 +366,23 @@ static napi_value ReleaseDecoder(napi_env env, napi_callback_info info) {
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
-        // 旧版API（兼容）
-        {"createDecoder", nullptr, CreateDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"initDecoder", nullptr, InitDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"startDecoder", nullptr, StartDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"pushData", nullptr, PushData, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"releaseDecoder", nullptr, ReleaseDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 新版视频API
+        // 视频API
         {"createVideoDecoder", nullptr, CreateVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initVideoDecoder", nullptr, InitVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"startVideoDecoder", nullptr, StartVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"pushVideoData", nullptr, PushVideoData, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseVideoDecoder", nullptr, ReleaseVideoDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 新版音频API
+        // 音频API
         {"createAudioDecoder", nullptr, CreateAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initAudioDecoder", nullptr, InitAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"startAudioDecoder", nullptr, StartAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"pushAudioData", nullptr, PushAudioData, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseAudioDecoder", nullptr, ReleaseAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 流处理器API（视频）
-        {"createVideoStreamProcessor", nullptr, CreateVideoStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"startVideoStreamProcessor", nullptr, StartVideoStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"pushVideoStreamData", nullptr, PushVideoStreamData, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"releaseVideoStreamProcessor", nullptr, ReleaseVideoStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
-        // 流处理器API（音频）
-        {"createAudioStreamProcessor", nullptr, CreateAudioStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"startAudioStreamProcessor", nullptr, StartAudioStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"pushAudioStreamData", nullptr, PushAudioStreamData, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"releaseAudioStreamProcessor", nullptr, ReleaseAudioStreamProcessor, nullptr, nullptr, nullptr, napi_default, nullptr},
+
+        // Native Buffer Pool API
+        {"allocNativeBuffer", nullptr, AllocNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"releaseNativeBuffer", nullptr, ReleaseNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"destroyBufferPool", nullptr, DestroyBufferPool, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

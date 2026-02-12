@@ -1,7 +1,10 @@
 import { Device } from '../entity/Device';
-import { Client } from '../client/Client';
 import { TouchAction, KeyCode } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
+import { WorkerMessageType, WorkerMessage } from '../workers/WorkerMessages';
+import { AdbKeyManager } from '../helper/AdbKeyManager';
+import { ServerManager } from '../helper/ServerManager';
+import { worker } from '@kit.ArkTS';
 import window from '@ohos.window';
 import { common } from '@kit.AbilityKit';
 import pasteboard from '@ohos.pasteboard';
@@ -21,20 +24,21 @@ struct ControlPage {
   @State displayXComponentHeight: number = 0; // 计算后的显示高度
 
   @State isConnected: boolean = false;
-  @State connectionStatus: string = 'Connecting...';
+  @State connectionStatus: string = '';
   @State showLoading: boolean = true;
-  
+
   // 悬浮按钮状态
   @State showControlPanel: boolean = false;  // 控制面板是否展开
   @State fabX: number = 0; // 悬浮按钮X位置
   @State fabY: number = 0; // 悬浮按钮Y位置
   @State checkFabPosition: boolean = false; // 是否需要初始化位置
-  
-  private client: Client | null = null;
+
+  // Worker 实例
+  private streamWorker?: worker.ThreadWorker;
   private xComponentController: XComponentController = new XComponentController();
   private pointerDownTime: Map<number, number> = new Map();  // 存储毫秒时间戳
   private surfaceReady: boolean = false;
-  private clientReady: boolean = false;
+  private context?: common.UIAbilityContext;
   private autoHideTimer: number = -1;
   private readonly FAB_SIZE = 30; // 悬浮按钮大小
   private readonly BOTTOM_SAFE_AREA = 28; // 底部安全区域高度(系统导航条)
@@ -45,45 +49,77 @@ struct ControlPage {
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
   
+  // 辅助方法：将 Resource 引用解析为字符串
+  private getResString(res: Resource): string {
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      return ctx.resourceManager.getStringSync(res.id);
+    } catch (e) {
+      return '';
+    }
+  }
+
   aboutToAppear() {
+    this.isExiting = false;
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
       if (params && params['device']) {
         this.device = params['device'] as Device;
-        
+
         // 检查是否是从 Index 页面预连接后跳转的
         if (params['clientReady'] === true) {
           // 客户端已连接，从缓存获取
+          this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+          this.connectionStatus = this.getResString($r('app.string.connecting_status'));
           this.initFromExistingClient();
         } else {
-          // 旧的流程 - 在本页面连接 (兼容性保留)
-          this.connectDevice();
+          try {
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+          } catch (e) {
+            LoggerControlPage.error('Show toast failed:', e);
+          }
+          setTimeout(() => {
+            this.exitPage();
+          }, 1000);
         }
       }
     } catch (e) {
       LoggerControlPage.error('Failed to get router params:', e);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+      } catch (e) {
+        LoggerControlPage.error('Show toast failed:', e);
+      }
+      setTimeout(() => {
+        this.exitPage();
+      }, 1000);
     }
-    
+
     // 设置全屏并隐藏导航条
     this.setFullScreen();
   }
   
   aboutToDisappear() {
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
-    
+
     // 停止自动隐藏定时器
     if (this.autoHideTimer !== -1) {
       clearTimeout(this.autoHideTimer);
       this.autoHideTimer = -1;
     }
-    
-    // 关闭客户端连接
-    if (this.client) {
-      LoggerControlPage.info('ControlPage: Closing client connection');
-      this.client.close();
-      this.client = null;
+
+    // 关闭 Worker
+    if (this.streamWorker) {
+      LoggerControlPage.info('ControlPage: Closing Worker');
+      try {
+        this.streamWorker.postMessage({ type: WorkerMessageType.CLOSE } as WorkerMessage);
+        this.streamWorker.terminate();
+      } catch (e) {
+        LoggerControlPage.error('Worker terminate failed:', e);
+      }
+      this.streamWorker = undefined;
     }
-    
+
     // 恢复窗口状态
     this.restoreWindow();
   }
@@ -101,66 +137,258 @@ struct ControlPage {
     }
   }
 
+  // 追踪是否正在退出，防止多重调用
+  private isExiting: boolean = false;
+
   // 统一退出页面逻辑
   async exitPage() {
+    if (this.isExiting) {
+      LoggerControlPage.warn('ExitPage: Already exiting, ignoring call');
+      return;
+    }
+    this.isExiting = true;
+
     // 先恢复窗口状态
     await this.restoreWindow();
     // 再返回
     try {
-      this.getUIContext().getRouter().back();
+      const router = this.getUIContext().getRouter();
+      const length = router.getLength(); // 返回页面栈数量
+      const lenNum = typeof length === 'string' ? parseInt(length) : Number(length);
+      
+      LoggerControlPage.info('ExitPage: Router length:', lenNum);
+
+      if (lenNum > 1) {
+        router.back();
+      } else {
+        LoggerControlPage.warn('ExitPage: No previous page, replacing with Index');
+        router.replaceUrl({ url: 'pages/Index' });
+      }
     } catch (e) {
       LoggerControlPage.error('Router back failed:', e);
+      // 尝试强制跳转首页
+      try {
+        this.getUIContext().getRouter().replaceUrl({ url: 'pages/Index' });
+      } catch (err) {
+        LoggerControlPage.error('Force replace Index failed:', err);
+      }
     }
   }
   
-  // 从已连接的客户端初始化
-  private initFromExistingClient(): void {
-    if (!this.device) return;
-    
-    // 从 Client 缓存获取已连接的实例
-    this.client = Client.getClient(this.device.uuid);
-    
-    if (this.client) {
-      this.isConnected = true;
-      this.showLoading = false;  // 已经有视频流了
-      this.connectionStatus = 'Connected';
-      this.clientReady = true;
-      LoggerControlPage.debug('ControlPage: Using existing client connection');
-      
-      // 重新设置断开回调
-      this.client.setOnDisconnect((reason: string) => {
-        LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
-        this.showLoading = false;
+  // 发送按键事件到 Worker
+  private sendKeyToWorker(keyCode: KeyCode): void {
+    if (!this.streamWorker || !this.isConnected) return;
+    this.streamWorker.postMessage({
+      type: WorkerMessageType.SEND_KEY,
+      data: { keyCode: keyCode }
+    } as WorkerMessage);
+  }
+
+  // 从已连接的客户端初始化（Worker 架构）
+  private async initFromExistingClient(): Promise<void> {
+    if (!this.device || !this.context) return;
+
+    try {
+      // 1. 在主线程预加载所有依赖 Context 的数据
+      LoggerControlPage.info('ControlPage: Pre-loading context-dependent data on main thread...');
+
+      // 预加载 ADB 密钥
+      const keyManager = AdbKeyManager.getInstance();
+      await keyManager.init(this.context);
+      const adbKeyData = keyManager.exportKeyData();
+      LoggerControlPage.info('ControlPage: ADB key data exported');
+
+      // 预加载 server.jar
+      const serverJarData = await ServerManager.loadServerFromRawfile(this.context);
+      LoggerControlPage.info('ControlPage: Server jar pre-loaded, size:', serverJarData?.byteLength || 0);
+
+      // 2. 创建 Worker
+      this.createStreamWorker();
+
+      // 3. 发送可序列化的初始化数据到 Worker
+      // 注意：device 被 @State 装饰器包装为 Proxy，不能直接序列化
+      // 使用 JSON 深拷贝去除 Proxy 包装
+      if (this.streamWorker && this.device) {
+        const plainDevice = JSON.parse(JSON.stringify(this.device)) as Device;
+        this.streamWorker.postMessage({
+          type: WorkerMessageType.INIT,
+          data: {
+            device: plainDevice,
+            adbKeyData: adbKeyData,
+            serverJarData: serverJarData
+          }
+        } as WorkerMessage);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('ControlPage: Pre-load failed:', errMsg);
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
+      } catch (e) {
+        LoggerControlPage.error('Show toast failed:', e);
+      }
+      setTimeout(() => {
+        this.exitPage();
+      }, 1500);
+    }
+  }
+
+  // 创建 Worker 并设置消息处理
+  private createStreamWorker(): void {
+    try {
+      this.streamWorker = new worker.ThreadWorker('app/ets/workers/StreamWorker.ets');
+
+      this.streamWorker.onmessage = (e) => {
+        const message = e.data as WorkerMessage;
+        switch (message.type) {
+          case WorkerMessageType.CONNECTED:
+            LoggerControlPage.info('[ControlPage] Worker connected');
+            this.isConnected = true;
+            this.connectionStatus = this.getResString($r('app.string.control_connected'));
+            this.startAutoHideTimer();
+            // 如果 surface 已就绪，立即初始化解码器
+            if (this.surfaceReady && this.surfaceId) {
+              this.initVideoAndAudioDecoder();
+            }
+            break;
+
+          case WorkerMessageType.DISCONNECTED:
+            LoggerControlPage.warn('[ControlPage] Worker disconnected');
+            this.isConnected = false;
+            this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
+            try {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
+            } catch (err) {
+              LoggerControlPage.error('Show toast failed:', err);
+            }
+            // 延迟退出，让用户看清提示
+            setTimeout(() => {
+              this.exitPage();
+            }, 1500);
+            break;
+
+          case WorkerMessageType.VIDEO_CONFIG:
+            const configData = message.data as Record<string, Object>;
+            const config = configData['config'] as Record<string, number>;
+            if (config) {
+              this.videoWidth = config['width'] || 1920;
+              this.videoHeight = config['height'] || 1080;
+              LoggerControlPage.info('[ControlPage] Video dimensions: ' + this.videoWidth + 'x' + this.videoHeight);
+              this.calcVideoDisplaySize();
+            }
+            break;
+
+          case WorkerMessageType.FIRST_FRAME:
+            LoggerControlPage.info('[ControlPage] First frame received');
+            this.showLoading = false;
+            break;
+
+          case WorkerMessageType.STATUS_UPDATE:
+            const statusData = message.data as Record<string, string>;
+            if (statusData && statusData['status']) {
+              // Worker 发送状态 key，在主线程解析为本地化字符串
+              const statusKey = statusData['status'];
+              if (statusKey === 'connecting') {
+                this.connectionStatus = this.getResString($r('app.string.connecting_status'));
+              } else if (statusKey === 'getting_video_config') {
+                this.connectionStatus = this.getResString($r('app.string.getting_video_config'));
+              } else {
+                this.connectionStatus = statusKey;
+              }
+            }
+            break;
+
+          case WorkerMessageType.ERROR:
+            const errorData = message.data as Record<string, string>;
+            const errMsg = errorData ? errorData['message'] : 'Unknown error';
+            LoggerControlPage.error('[ControlPage] Worker error:', errMsg);
+            // 如果是超时错误，在主线程显示对话框
+            if (errMsg.includes('Read timeout')) {
+              try {
+                const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+                this.getUIContext().getPromptAction().showDialog({
+                  title: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
+                  message: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
+                  buttons: [{
+                    text: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
+                    color: '#007AFF'
+                  }]
+                }).then(() => {
+                  // 用户点击按钮后退出页面
+                  this.exitPage();
+                });
+              } catch (e) {
+                LoggerControlPage.error('Show timeout dialog failed:', e);
+                this.exitPage(); // 即使弹窗失败也退出
+              }
+            } else {
+              // 其他错误，显示 Toast 并稍后退出
+              try {
+                this.getUIContext().getPromptAction().showToast({ message: errMsg });
+              } catch (toastErr) {
+                LoggerControlPage.error('Show toast failed:', toastErr);
+              }
+              // 无论什么错误，最终都退出页面
+              setTimeout(() => {
+                this.exitPage();
+              }, 1500);
+            }
+            break;
+
+          case WorkerMessageType.AUTH_REQUIRED:
+            LoggerControlPage.info('[ControlPage] Auth required');
+            this.connectionStatus = this.getResString($r('app.string.auth_required_toast'));
+            try {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
+            } catch (err) {
+              LoggerControlPage.error('Show toast failed:', err);
+            }
+            break;
+
+          case WorkerMessageType.CLIPBOARD_RECEIVED:
+            const clipData = message.data as Record<string, Object>;
+            if (clipData && clipData['text'] && clipData['autoSync']) {
+              this.syncClipboardToSystem(clipData['text'] as string);
+            }
+            break;
+        }
+      };
+
+      this.streamWorker.onerror = (err) => {
+        LoggerControlPage.error('[ControlPage] Worker error event:', err.message);
         try {
-          this.getUIContext().getPromptAction().showToast({ message: reason });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
         } catch (e) {
           LoggerControlPage.error('Show toast failed:', e);
         }
         setTimeout(() => {
           this.exitPage();
-        }, 1000);
-      });
-      
-      // 获取视频尺寸
-      const videoSize = this.client.getVideoSize();
-      if (videoSize) {
-        this.videoWidth = videoSize.width;
-        this.videoHeight = videoSize.height;
-        LoggerControlPage.info(`[ControlPage] Video dimensions: ${this.videoWidth}x${this.videoHeight}`);
-        // 尝试重新计算布局
-        this.calcVideoDisplaySize();
-      }
-      
-      // 如果surface已经就绪，立即初始化视频解码器
-      if (this.surfaceReady && this.surfaceId) {
-        this.initVideoDecoder();
-      }
-      
-      // 启动自动隐藏定时器
-      this.startAutoHideTimer();
-    } else {
-      LoggerControlPage.error('ControlPage: Client not found in cache, falling back to connect');
-      this.connectDevice();
+        }, 1500);
+      };
+
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('Failed to create Worker:', errMsg);
+    }
+  }
+
+  // 同步剪贴板到系统
+  private async syncClipboardToSystem(text: string): Promise<void> {
+    try {
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      await systemPasteboard.setData(pasteData);
+      LoggerControlPage.debug('[ControlPage] Clipboard synced to system');
+    } catch (err) {
+      LoggerControlPage.error('[ControlPage] Failed to sync clipboard:', err);
+    }
+  }
+
+  async initVideoAndAudioDecoder() {
+    this.initVideoDecoder();
+    // 初始化音频解码器 (如果启用)
+    if (this.device?.isAudio) {
+      this.initAudioDecoder();
     }
   }
 
@@ -176,91 +404,7 @@ struct ControlPage {
       LoggerControlPage.error('Set fullscreen failed:', err);
     }
   }
-  
-  async connectDevice() {
-    if (!this.device) {
-      LoggerControlPage.error('ControlPage: No device available');
-      return;
-    }
-    
-    try {
-      this.connectionStatus = 'Connecting to device...';
-      LoggerControlPage.debug('ControlPage: Starting connection to device:', this.device.name);
-      LoggerControlPage.debug('ControlPage: Device address:', this.device.address, 'port:', this.device.adbPort);
-      
-      // 显示授权提示
-      this.connectionStatus = '连接中...如果是首次连接，请在Android设备上授权USB调试';
 
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      this.client = await Client.startDevice(this.device, ctx, this.getUIContext(), undefined, (client: Client) => {
-        // 立即保存Client引用，以便退出页面时关闭
-        this.client = client;
-      });
-      LoggerControlPage.debug('ControlPage: Client.startDevice returned:', this.client ? 'success' : 'null');
-      
-      if (this.client) {
-        this.isConnected = true;
-        this.showLoading = false;
-        this.connectionStatus = 'Connected';
-        this.clientReady = true;
-        LoggerControlPage.info('ControlPage: Device connected successfully');
-        
-        // 设置断开连接回调 - 自动返回上一页
-        this.client.setOnDisconnect((reason: string) => {
-          LoggerControlPage.warn('[ControlPage] Disconnected:', reason);
-          try {
-            this.getUIContext().getPromptAction().showToast({ message: reason });
-          } catch (e) {
-            LoggerControlPage.error('Show toast failed:', e);
-          }
-          // 延迟返回，让用户看到提示
-          setTimeout(() => {
-            this.exitPage();
-          }, 1000);
-        });
-        
-        // 如果surface已经就绪，立即初始化视频解码器
-        if (this.surfaceReady && this.surfaceId) {
-          this.initVideoDecoder();
-        }
-        
-        // 启动自动隐藏定时器
-        this.startAutoHideTimer();
-      } else {
-        this.showLoading = false;
-        this.connectionStatus = 'Connection failed';
-        LoggerControlPage.error('ControlPage: Client.startDevice returned null');
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: '连接失败。请检查设备是否开启ADB，并在设备上授权USB调试。' });
-        } catch (e) {
-          LoggerControlPage.error('Show toast failed:', e);
-        }
-        LoggerControlPage.error('Failed to start client - check if device is reachable and ADB is enabled');
-      }
-    } catch (err) {
-      this.showLoading = false;
-      this.connectionStatus = 'Connection error';
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('ControlPage: Connect device exception:', errMsg);
-      
-      // 根据错误类型显示不同的提示
-      let toastMsg = '连接错误';
-      if (errMsg.includes('timeout')) {
-        try {
-          toastMsg = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.connect_timeout_toast').id) || 'Connection timeout';
-        } catch (e) {
-          toastMsg = 'Connection timeout';
-        }
-      }
-      
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: toastMsg });
-      } catch (e) {
-        LoggerControlPage.error('Show toast failed:', e);
-      }
-    }
-  }
-  
   // 启动自动隐藏定时器
   startAutoHideTimer() {
     this.clearAutoHideTimer();
@@ -357,23 +501,37 @@ struct ControlPage {
     Column() {
       // 主内容区域（视频 + 悬浮按钮）
       Stack() {
-        // Loading indicator
+        // Loading indicator - 支持深色/浅色模式
         if (this.showLoading) {
           Column() {
+            // 加载动画
             LoadingProgress()
-              .width(80)
-              .height(80)
-              .color($r('sys.color.comp_background_list_card'))
+              .width(64)
+              .height(64)
+              .color($r('sys.color.ohos_id_color_text_primary'))
+
+            // 连接状态文字
             Text(this.connectionStatus)
               .fontSize(16)
-              .fontColor($r('sys.color.comp_background_list_card'))
-              .margin({ top: 16 })
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('sys.color.ohos_id_color_text_primary'))
+              .margin({ top: 20 })
+              .animation({ duration: 300, curve: Curve.EaseInOut })
+
+            // 设备名提示
+            if (this.device?.name) {
+              Text(this.device.name)
+                .fontSize(13)
+                .fontColor($r('sys.color.ohos_id_color_text_secondary'))
+                .margin({ top: 8 })
+            }
           }
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.Center)
-          .backgroundColor($r('sys.color.black'))
+          .backgroundColor($r('sys.color.ohos_id_color_background'))
           .zIndex(100)
+          .transition(TransitionEffect.OPACITY.animation({ duration: 400, curve: Curve.EaseOut }))
         }
         
         // 视频显示区域容器 - 用于获取可用空间
@@ -387,10 +545,10 @@ struct ControlPage {
               this.surfaceId = this.xComponentController.getXComponentSurfaceId();
               this.surfaceReady = true;
               LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
-              
-              // 如果client已经就绪,立即初始化视频解码器
-              if (this.clientReady && this.client) {
-                this.initVideoDecoder();
+
+              // 如果Worker已经就绪,立即初始化视频解码器
+              if (this.isConnected && this.streamWorker) {
+                this.initVideoAndAudioDecoder();
               }
             })
             .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
@@ -421,7 +579,7 @@ struct ControlPage {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('sys.color.black')) // 背景黑色，作为信箱模式的黑边
+        .backgroundColor('#000000') // 背景黑色，作为信箱模式的黑边
         .onAreaChange((_: Area, newArea: Area) => {
           // 获取容器容器实际尺寸(px)
           this.containerWidth = newArea.width as number;
@@ -449,9 +607,9 @@ struct ControlPage {
             .backgroundColor('#80000000')
             .borderRadius(22)
             .onClick(() => {
-              this.client?.sendKeyEvent(KeyCode.KEYCODE_BACK);
+              this.sendKeyToWorker(KeyCode.KEYCODE_BACK);
             })
-            
+
             // 主页（Android Home键）
             Button() {
               SymbolGlyph($r('sys.symbol.house'))
@@ -463,9 +621,9 @@ struct ControlPage {
             .backgroundColor('#80000000')
             .borderRadius(22)
             .onClick(() => {
-              this.client?.sendKeyEvent(KeyCode.KEYCODE_HOME);
+              this.sendKeyToWorker(KeyCode.KEYCODE_HOME);
             })
-            
+
             // 多任务界面（Android Recent Apps键）
             Button() {
               SymbolGlyph($r('sys.symbol.square'))
@@ -477,7 +635,7 @@ struct ControlPage {
             .backgroundColor('#80000000')
             .borderRadius(22)
             .onClick(() => {
-              this.client?.sendKeyEvent(KeyCode.KEYCODE_APP_SWITCH);
+              this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
             })
             
             // 剪贴板同步按钮 - 使用安全控件
@@ -496,8 +654,12 @@ struct ControlPage {
                     }
                     const pasteData = await systemPasteboard.getData();
                     const text = pasteData.getPrimaryText();
-                    if (text && this.client) {
-                      await this.client.sendClipboard(text, true);
+                    if (text && this.streamWorker) {
+                      // 发送到 Worker
+                      this.streamWorker.postMessage({
+                        type: WorkerMessageType.SEND_CLIPBOARD,
+                        data: { text: text, paste: true }
+                      } as WorkerMessage);
                       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_synced') });
                     } else {
                       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_no_text') });
@@ -519,7 +681,12 @@ struct ControlPage {
             .height(44)
             .borderRadius(22)
             .onClick(() => {
-              this.client?.close();
+              // 先关闭 Worker
+              if (this.streamWorker) {
+                this.streamWorker.postMessage({ type: WorkerMessageType.CLOSE } as WorkerMessage);
+                this.streamWorker.terminate();
+                this.streamWorker = undefined;
+              }
               this.exitPage();
             })
           }
@@ -596,7 +763,7 @@ struct ControlPage {
       }
       .width('100%')
       .layoutWeight(1) // 占用剩余空间，让底部导航栏不覆盖视频
-      .backgroundColor($r('sys.color.black'))
+      .backgroundColor($r('sys.color.ohos_id_color_background'))
       .clip(false) // 允许悬浮按钮超出边界，实现吸边半隐藏效果
       
       // 底部导航栏
@@ -606,209 +773,234 @@ struct ControlPage {
           Button() {
             SymbolGlyph($r('sys.symbol.arrow_left'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
-            this.client?.sendKeyEvent(KeyCode.KEYCODE_BACK);
+            this.sendKeyToWorker(KeyCode.KEYCODE_BACK);
           })
-          
+
           // 主页键
           Button() {
             SymbolGlyph($r('sys.symbol.house'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
-            this.client?.sendKeyEvent(KeyCode.KEYCODE_HOME);
+            this.sendKeyToWorker(KeyCode.KEYCODE_HOME);
           })
-          
+
           // 多任务键
           Button() {
             SymbolGlyph($r('sys.symbol.square'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
-            this.client?.sendKeyEvent(KeyCode.KEYCODE_APP_SWITCH);
+            this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
           })
         }
         .width('100%')
         .height(70)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#40000000')
+        .backgroundColor($r('sys.color.ohos_id_color_background'))
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('sys.color.black'))
+    .backgroundColor($r('sys.color.ohos_id_color_background'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
   
   handleTap(event: GestureEvent) {
-    if (!this.client) return;
-    
+    if (!this.streamWorker || !this.isConnected) return;
+
     // 如果正在滑动或刚滑动过（有MOVE事件），忽略 TAP 事件
     // 这是因为 PanGesture 和 TapGesture 并行运行，滑动结束时 TAP 会错误触发
     if (this.isPanning || this.panMoveCount > 0) {
       return;
     }
-    
+
     const localX = event.fingerList[0].localX;
     const localY = event.fingerList[0].localY;
-    
+
     // Scrcpy uses absolute pixel coordinates mapped to video dimensions
     const x = Math.round((localX / this.componentWidth) * this.videoWidth);
     const y = Math.round((localY / this.componentHeight) * this.videoHeight);
-    
+
     // 模拟点击（按下-抬起）
-    this.client.sendTouchEvent(TouchAction.ACTION_DOWN, 0, x, y, this.videoWidth, this.videoHeight);
+    // 发送 ACTION_DOWN
+    this.streamWorker.postMessage({
+      type: WorkerMessageType.SEND_TOUCH,
+      data: {
+        action: TouchAction.ACTION_DOWN,
+        pointerId: 0,
+        x: x,
+        y: y,
+        screenWidth: this.videoWidth,
+        screenHeight: this.videoHeight
+      }
+    } as WorkerMessage);
+
+    // 延迟发送 ACTION_UP
     setTimeout(() => {
-      this.client?.sendTouchEvent(TouchAction.ACTION_UP, 0, x, y, this.videoWidth, this.videoHeight);
+      if (this.streamWorker) {
+        this.streamWorker.postMessage({
+          type: WorkerMessageType.SEND_TOUCH,
+          data: {
+            action: TouchAction.ACTION_UP,
+            pointerId: 0,
+            x: x,
+            y: y,
+            screenWidth: this.videoWidth,
+            screenHeight: this.videoHeight
+          }
+        } as WorkerMessage);
+      }
     }, 50);
   }
-  
+
   handleTouchStart(event: GestureEvent) {
-    if (!this.client) return;
-    
+    if (!this.streamWorker || !this.isConnected) return;
+
     // 标记开始滑动
     this.isPanning = true;
     this.panMoveCount = 0;
-    
-    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
-    // 注意：模拟器上 timestamp 可能返回0
+
     const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
-    
+
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      
-      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+
       const x = Math.round((localX / this.componentWidth) * this.videoWidth);
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
-      
-      // 存储毫秒时间戳
+
       this.pointerDownTime.set(pointerId, eventTimestampMs);
-      this.client?.sendTouchEvent(TouchAction.ACTION_DOWN, pointerId, x, y, this.videoWidth, this.videoHeight);
+
+      this.streamWorker?.postMessage({
+        type: WorkerMessageType.SEND_TOUCH,
+        data: {
+          action: TouchAction.ACTION_DOWN,
+          pointerId: pointerId,
+          x: x,
+          y: y,
+          screenWidth: this.videoWidth,
+          screenHeight: this.videoHeight
+        }
+      } as WorkerMessage);
     });
   }
-  
+
   handleTouchMove(event: GestureEvent) {
-    if (!this.client) return;
-    
-    // 增加 MOVE 事件计数
+    if (!this.streamWorker || !this.isConnected) return;
+
     this.panMoveCount++;
-    
-    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
-    
+
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      
-      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+
       const x = Math.round((localX / this.componentWidth) * this.videoWidth);
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
-      
-      this.client?.sendTouchEvent(TouchAction.ACTION_MOVE, pointerId, x, y, this.videoWidth, this.videoHeight);
+
+      this.streamWorker?.postMessage({
+        type: WorkerMessageType.SEND_TOUCH,
+        data: {
+          action: TouchAction.ACTION_MOVE,
+          pointerId: pointerId,
+          x: x,
+          y: y,
+          screenWidth: this.videoWidth,
+          screenHeight: this.videoHeight
+        }
+      } as WorkerMessage);
     });
   }
-  
+
   handleTouchEnd(event: GestureEvent) {
-    if (!this.client) return;
-    
-    // 结束滑动
+    if (!this.streamWorker || !this.isConnected) return;
+
     this.isPanning = false;
-    // 延迟重置 panMoveCount，给 TapGesture 时间先触发并被忽略
     setTimeout(() => {
       this.panMoveCount = 0;
     }, 100);
-    
-    // GestureEvent.timestamp 是纳秒级，如果为0或无效则使用 Date.now()
-    
+
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
       const localY = finger.localY;
-      
-      // Scrcpy uses absolute pixel coordinates mapped to video dimensions
+
       const x = Math.round((localX / this.componentWidth) * this.videoWidth);
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
-      
-      this.client?.sendTouchEvent(TouchAction.ACTION_UP, pointerId, x, y, this.videoWidth, this.videoHeight);
+
+      this.streamWorker?.postMessage({
+        type: WorkerMessageType.SEND_TOUCH,
+        data: {
+          action: TouchAction.ACTION_UP,
+          pointerId: pointerId,
+          x: x,
+          y: y,
+          screenWidth: this.videoWidth,
+          screenHeight: this.videoHeight
+        }
+      } as WorkerMessage);
+
       this.pointerDownTime.delete(pointerId);
     });
   }
 
   
-  // 初始化视频解码器的辅助方法
-  private initVideoDecoder(): void {
-    if (!this.client || !this.surfaceId) {
-      LoggerControlPage.error('Cannot init video decoder: client or surfaceId missing');
+  // 初始化视频解码器
+  private async initVideoDecoder(): Promise<void> {
+    if (!this.streamWorker || !this.surfaceId) {
+      LoggerControlPage.error('Cannot init video decoder: worker or surfaceId missing');
       return;
     }
 
-    LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);
-    this.client.initVideoDecoder(this.surfaceId).then(() => {
-      // 从 Client 获取实际视频尺寸
-      const videoSize = this.client?.getVideoSize();
-      if (videoSize) {
-        this.videoWidth = videoSize.width;
-        this.videoHeight = videoSize.height;
-        LoggerControlPage.debug(`[ControlPage] Updated video dimensions: ${this.videoWidth}x${this.videoHeight}`);
-        // 重新计算显示尺寸，确保比例正确
-        this.calcVideoDisplaySize();
-      }
-
-      // 初始化音频解码器（如果启用）
-      if (this.client?.getDevice()?.isAudio) {
-        this.initAudioDecoder();
-      }
-    }).catch((err: Error) => {
-      LoggerControlPage.error('Failed to init video decoder:', err.message);
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: '视频解码器初始化失败: ' + err.message });
-      } catch (e) {
-        LoggerControlPage.error('Show toast failed:', e);
-      }
-    });
+    try {
+      LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);
+      this.streamWorker.postMessage({
+        type: WorkerMessageType.INIT_VIDEO_DECODER,
+        data: { surfaceId: this.surfaceId }
+      } as WorkerMessage);
+      LoggerControlPage.info('Video decoder init message sent to Worker');
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('Video decoder init failed:', errMsg);
+    }
   }
 
   // 初始化音频解码器
-  private initAudioDecoder(): void {
-    if (!this.client) {
-      LoggerControlPage.error('Cannot init audio decoder: client missing');
+  private async initAudioDecoder(): Promise<void> {
+    if (!this.streamWorker) {
+      LoggerControlPage.error('Cannot init audio decoder: worker missing');
       return;
     }
 
-    // 使用设备配置的音频编码格式
-    const audioCodec = this.client.getDevice()?.audioCodec || 'opus';
-    LoggerControlPage.debug(`Initializing audio decoder with codec: ${audioCodec}...`);
-    this.client.initAudioDecoder(audioCodec, 48000, 2).then(() => {
-      LoggerControlPage.info('[ControlPage] Audio decoder initialized successfully');
-    }).catch((err: Error) => {
-      LoggerControlPage.error('Failed to init audio decoder:', err.message);
-      // 音频失败不应该影响视频功能，不显示错误提示
-    });
-  }
-
-  // 启用流模式（C++处理）
-  private enableStreamMode(enable: boolean = true): void {
-    if (this.client) {
-      this.client.enableStreamMode(enable);
-      LoggerControlPage.info(`[ControlPage] Stream mode ${enable ? 'enabled' : 'disabled'}`);
+    try {
+      LoggerControlPage.debug('Initializing audio decoder');
+      this.streamWorker.postMessage({
+        type: WorkerMessageType.INIT_AUDIO_DECODER,
+        data: { codecType: this.device?.audioCodec || 'opus', sampleRate: 48000, channelCount: 2 }
+      } as WorkerMessage);
+      LoggerControlPage.info('Audio decoder init message sent to Worker');
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('Audio decoder init failed:', errMsg);
     }
   }
 }

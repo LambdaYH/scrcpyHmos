@@ -1,6 +1,9 @@
 import scrcpy_native from 'libscrcpy_native.so';
+import { Logger } from '../../helper/Logger';
 
-// 视频解码器 - 使用Native C++ VideoDecoder
+const LoggerVideoDecoder = new Logger('VideoDecoder');
+
+// 视频解码器 - 使用Native C++ VideoDecoder（EasyControl风格）
 export class VideoDecoder {
   // 静态实例追踪 - 确保只有一个解码器实例
   private static currentInstance: VideoDecoder | null = null;
@@ -11,137 +14,69 @@ export class VideoDecoder {
   private frameCount: number = 0;
 
   // Flags
-  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA = 8;
+  static readonly AVCODEC_BUFFER_FLAGS_CODEC_DATA: number = 8;
 
-  // 支持两种调用方式：新的codecType字符串 或 旧的useH265布尔值
-  async init(codecTypeOrUseH265: string | boolean, surfaceId: string, width: number, height: number, csd0: ArrayBuffer, csd1?: ArrayBuffer): Promise<void> {
-    // 兼容旧API
-    if (typeof codecTypeOrUseH265 === 'boolean') {
-      this.codecType = codecTypeOrUseH265 ? 'h265' : 'h264';
-    } else {
-      this.codecType = codecTypeOrUseH265;
-    }
+  async init(codecType: string, surfaceId: string, width: number, height: number): Promise<void> {
+    this.codecType = codecType;
 
     try {
       // 释放之前的解码器实例（防止资源泄漏）
       if (VideoDecoder.currentInstance && VideoDecoder.currentInstance !== this) {
-        console.info('[VideoDecoder] Releasing previous decoder instance...');
+        LoggerVideoDecoder.info('Releasing previous decoder instance...');
         await VideoDecoder.currentInstance.release();
       }
       VideoDecoder.currentInstance = this;
 
-      console.info(`[VideoDecoder] Initializing Native decoder...`);
-      console.info(`[VideoDecoder] Codec: ${this.codecType.toUpperCase()}`);
-      console.info(`[VideoDecoder] Resolution: ${width}x${height}`);
-      console.info(`[VideoDecoder] SurfaceId: ${surfaceId}`);
-      console.info(`[VideoDecoder] CSD-0 (SPS/VPS) size: ${csd0.byteLength} bytes`);
-
-      if (csd1) {
-        console.info(`[VideoDecoder] CSD-1 (PPS) size: ${csd1.byteLength} bytes`);
-      }
+      LoggerVideoDecoder.info('Initializing Native decoder...');
+      LoggerVideoDecoder.info('Codec: ' + this.codecType.toUpperCase());
+      LoggerVideoDecoder.info('Resolution: ' + width + 'x' + height);
 
       // 创建Native解码器
       this.decoderId = scrcpy_native.createVideoDecoder();
-      console.info(`[VideoDecoder] Native decoder created, ID: ${this.decoderId}`);
+      LoggerVideoDecoder.info('Native decoder created, ID: ' + this.decoderId);
 
-      // 初始化解码器 - 使用codecType字符串
+      // 初始化解码器
       const ret: number = scrcpy_native.initVideoDecoder(this.decoderId, this.codecType, surfaceId, width, height);
       if (ret !== 0) {
-        const error = new Error(`Native decoder init failed: ${ret}`);
-        throw error;
+        throw new Error(`Native decoder init failed: ${ret}`);
       }
-      console.info(`[VideoDecoder] Native decoder initialized`);
+      LoggerVideoDecoder.info('Native decoder initialized');
 
       // 启动解码器
       const startRet: number = scrcpy_native.startVideoDecoder(this.decoderId);
       if (startRet !== 0) {
-        const error = new Error(`Native decoder start failed: ${startRet}`);
-        throw error;
+        throw new Error(`Native decoder start failed: ${startRet}`);
       }
 
       this.isStarted = true;
-      console.info(`[VideoDecoder] Native decoder started successfully!`);
-
-      // 等待一小段时间确保解码器准备好
-      await new Promise<void>((resolve: () => void) => setTimeout(resolve, 100));
-
-      // 推送CSD数据（Codec Specific Data）
-      // H264: SPS/PPS
-      // H265: VPS/SPS/PPS
-      // Pass AVCODEC_BUFFER_FLAGS_CODEC_DATA (8)
-      if (csd0 && csd0.byteLength > 0) {
-        console.info(`[VideoDecoder] Pushing CSD-0 (size: ${csd0.byteLength} bytes)`);
-        await this.decode(csd0, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
-        // 等待CSD-0被处理
-        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
-      }
-      if (csd1 && csd1.byteLength > 0) {
-        console.info(`[VideoDecoder] Pushing CSD-1 (PPS) (size: ${csd1.byteLength} bytes)`);
-        await this.decode(csd1, 0, VideoDecoder.AVCODEC_BUFFER_FLAGS_CODEC_DATA);
-        // 等待CSD-1被处理
-        await new Promise<void>((resolve: () => void) => setTimeout(resolve, 50));
-      }
-
-      console.info(`[VideoDecoder] CSD data pushed, ready for frame data`);
+      LoggerVideoDecoder.info('Native decoder started!');
 
     } catch (err) {
       const error = err as Error;
-      console.error(`[VideoDecoder] Init failed: ${error.message}`);
-      const newError = new Error(`VideoDecoder init failed: ${error.message}`);
-      throw newError;
+      LoggerVideoDecoder.error('Init failed: ' + error.message);
+      throw new Error(`VideoDecoder init failed: ${error.message}`);
     }
   }
 
-  async decode(data: ArrayBuffer, pts: number, flags: number = 0): Promise<void> {
+  /**
+   * 直接推送视频帧数据（EasyControl 风格）
+   * 直接调用 native PushData，无中间层
+   */
+  pushFrame(data: ArrayBuffer, pts: number, flags: number = 0): number {
     if (!this.isStarted || this.decoderId === 0) {
-      console.warn('[VideoDecoder] Not ready, frame dropped');
-      return;
+      return -1;
     }
 
-    try {
-      // 推送数据到Native解码器，带重试机制
-      // KeyFrame or CSD: Max 5 retries (aggressive)
-      // Others: 5 retries (always retry for smoothness)
-      const maxRetries = 5; 
-      
-      let retryCount = 0;
-      let result: number = -2;
-
-      while (retryCount <= maxRetries) {
-        // Native expects: id, data, pts, flags
-        result = scrcpy_native.pushVideoData(this.decoderId, data, pts, flags);
-
-        if (result === 0) {
-          // 成功
-          break;
-        } else if (result === -2) {
-          // 没有可用输入缓冲区
-          if (retryCount < maxRetries) {
-            retryCount++;
-            await new Promise<void>((resolve: () => void) => setTimeout(resolve, 2)); // Reduced wait time to 2ms
-          } else {
-             break;
-          }
-        } else {
-          // 其他错误，不重试
-          console.error(`[VideoDecoder] pushData failed with error: ${result}`);
-          break;
-        }
-      }
-
-      if (result === 0) {
-        this.frameCount++;
-      } else if (result === -2) {
-          // console.warn(`[VideoDecoder] Frame dropped (full) pts=${pts}`);
-      }
-    } catch (err) {
-      console.error('[VideoDecoder] Decode error:', err);
+    const result: number = scrcpy_native.pushVideoData(this.decoderId, data, pts, flags);
+    if (result === 0) {
+      this.frameCount++;
     }
+    return result;
   }
 
   async flush(): Promise<void> {
     if (this.isStarted) {
-      console.info('[VideoDecoder] Flushing decoder...');
+      LoggerVideoDecoder.info('Flushing decoder...');
       this.frameCount = 0;
     }
   }
@@ -152,84 +87,12 @@ export class VideoDecoder {
         this.isStarted = false;
         scrcpy_native.releaseVideoDecoder(this.decoderId);
         this.decoderId = 0;
-        console.info(`[VideoDecoder] Released | Total frames decoded: ${this.frameCount}`);
+        LoggerVideoDecoder.info('Released | Total frames: ' + this.frameCount);
       } catch (err) {
-        console.error('[VideoDecoder] Release failed:', err);
+        LoggerVideoDecoder.error('Release failed:', err);
       }
     }
   }
 
-  // ============== Stream Mode APIs (C++ processing) ==============
 
-  private streamProcessorId: number = 0;
-
-  /**
-   * Create and initialize stream processor (C++ mode)
-   * Must be called after init() and startVideoDecoder()
-   */
-  async createStreamProcessor(codecType: string): Promise<number> {
-    try {
-      console.info(`[VideoDecoder] Creating stream processor...`);
-
-      // Create stream processor linked to this decoder
-      this.streamProcessorId = scrcpy_native.createVideoStreamProcessor(this.decoderId, codecType);
-
-      if (this.streamProcessorId <= 0) {
-        throw new Error(`Failed to create stream processor: ${this.streamProcessorId}`);
-      }
-
-      console.info(`[VideoDecoder] Stream processor created, ID: ${this.streamProcessorId}`);
-      return this.streamProcessorId;
-
-    } catch (err) {
-      const error = err as Error;
-      console.error(`[VideoDecoder] createStreamProcessor failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Start stream processor (C++ processing thread)
-   */
-  async startStreamProcessor(): Promise<void> {
-    if (this.streamProcessorId === 0) {
-      console.warn('[VideoDecoder] Stream processor not created');
-      return;
-    }
-
-    const ret: number = scrcpy_native.startVideoStreamProcessor(this.streamProcessorId);
-    if (ret !== 0) {
-      throw new Error(`Failed to start stream processor: ${ret}`);
-    }
-
-    console.info('[VideoDecoder] Stream processor started');
-  }
-
-  /**
-   * Push data to stream processor (ArkTS continuously calls this)
-   * This is a lightweight call - just writes to ring buffer
-   */
-  pushDataToStream(data: ArrayBuffer, pts: number, flags: number = 0): number {
-    if (this.streamProcessorId === 0) {
-      return -1;
-    }
-
-    // Direct call to native - no async, minimal overhead
-    return scrcpy_native.pushVideoStreamData(this.streamProcessorId, data, pts, flags);
-  }
-
-  /**
-   * Release stream processor
-   */
-  async releaseStreamProcessor(): Promise<void> {
-    if (this.streamProcessorId !== 0) {
-      try {
-        scrcpy_native.releaseVideoStreamProcessor(this.streamProcessorId);
-        this.streamProcessorId = 0;
-        console.info('[VideoDecoder] Stream processor released');
-      } catch (err) {
-        console.error('[VideoDecoder] Release stream processor failed:', err);
-      }
-    }
-  }
 }
