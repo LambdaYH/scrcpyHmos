@@ -24,7 +24,7 @@
     },
     "sourceOption": {
       "workers": [
-        './src/main/ets/workers/VideoWorker.ets'
+        './src/main/ets/workers/StreamWorker.ets'
       ]
     }
   },

@@ -98,36 +98,5 @@ export class VideoDecoder {
     }
   }
 
-  // ============== Stream Mode APIs（保留兼容，但已废弃）==============
 
-  private streamProcessorId: number = 0;
-
-  /**
-   * @deprecated 不再需要，使用 direct pushFrame()
-   */
-  async createStreamProcessor(codecType: string): Promise<number> {
-    console.warn('[VideoDecoder] Stream processor is deprecated, use direct pushFrame()');
-    return 0;
-  }
-
-  /**
-   * @deprecated 不再需要
-   */
-  async startStreamProcessor(): Promise<void> {
-    // 空实现
-  }
-
-  /**
-   * @deprecated 不再需要，使用 pushFrame()
-   */
-  async releaseStreamProcessor(): Promise<void> {
-    // 空实现
-  }
-
-  /**
-   * @deprecated
-   */
-  getStreamProcessorId(): number {
-    return 0;
-  }
 }

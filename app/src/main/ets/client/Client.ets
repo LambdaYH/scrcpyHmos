@@ -130,9 +130,9 @@ export class Client {
 
       LoggerClient.info('[Client] Audio decoder initialized');
 
-      // Create and start stream processor
-      await this.audioDecoder.createStreamProcessor(actualCodec, sampleRate, channelCount);
-      await this.audioDecoder.startStreamProcessor();
+      // Create and start stream processor - Deprecated
+      // await this.audioDecoder.createStreamProcessor(actualCodec, sampleRate, channelCount);
+      // await this.audioDecoder.startStreamProcessor();
 
       // Start audio playback loop
       this.startAudioLoop();

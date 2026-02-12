@@ -18,17 +18,7 @@ export const startAudioDecoder: (decoderId: number) => number;
 export const pushAudioData: (decoderId: number, data: ArrayBuffer, pts: number) => number;
 export const releaseAudioDecoder: (decoderId: number) => void;
 
-// Video Stream Processor API
-export const createVideoStreamProcessor: (decoderId: number, codecType: string) => number;
-export const startVideoStreamProcessor: (processorId: number) => number;
-export const pushVideoStreamData: (processorId: number, data: ArrayBuffer, pts: number, flags?: number) => number;
-export const releaseVideoStreamProcessor: (processorId: number) => void;
 
-// Audio Stream Processor API
-export const createAudioStreamProcessor: (decoderId: number, codecType: string, sampleRate: number, channelCount: number) => number;
-export const startAudioStreamProcessor: (processorId: number) => number;
-export const pushAudioStreamData: (processorId: number, data: ArrayBuffer, pts: number) => number;
-export const releaseAudioStreamProcessor: (processorId: number) => void;
 
 // Native Buffer Pool API
 export const allocNativeBuffer: (size: number) => ArrayBuffer | undefined;

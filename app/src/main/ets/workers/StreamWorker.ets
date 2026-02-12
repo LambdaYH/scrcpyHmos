@@ -232,8 +232,6 @@ class WorkerState {
 
       LoggerClient.info('[StreamWorker] Audio decoder initialized');
 
-      await this.audioDecoder.createStreamProcessor(actualCodec, sampleRate, channelCount);
-      await this.audioDecoder.startStreamProcessor();
 
       // 启动音频循环
       this.startAudioLoop();

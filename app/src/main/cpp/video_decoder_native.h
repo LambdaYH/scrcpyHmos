@@ -8,8 +8,7 @@
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "native_window/external_window.h"
 
-// Forward declaration for RingBuffer
-class RingBuffer;
+
 
 class VideoDecoderNative {
 public:
@@ -20,7 +19,7 @@ public:
     int32_t Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags);
-    int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags);
+
     int32_t Stop();
     int32_t Release();
     bool HasAvailableBuffer() const;

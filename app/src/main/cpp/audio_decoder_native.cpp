@@ -1,5 +1,5 @@
 #include "audio_decoder_native.h"
-#include "video_stream_processor.h"  // Include for RingBuffer access
+
 #include <hilog/log.h>
 #include <cstring>
 #include <algorithm>
@@ -366,103 +366,7 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     return 0;
 }
 
-int32_t AudioDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags) {
-    if (!isStarted_) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushFromRingBuffer: not started");
-        return -1;
-    }
 
-    // RAW模式直接放入PCM队列（优化：单一队列）
-    if (isRaw_) {
-        std::lock_guard<std::mutex> lock(pcmMutex_);
-
-        if (pcmPool_.size() < PCM_POOL_SIZE) {
-            PcmFrame frame;
-            size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame.data));
-            size_t read = ringBuffer->Read(frame.data.data(), copySize);
-            frame.size = read;
-            frame.offset = 0;
-            pcmPool_.push(std::move(frame));
-        }
-        frameCount_++;
-        return 0;
-    }
-
-    // 解码模式
-    if (decoder_ == nullptr || context_ == nullptr) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushFromRingBuffer: decoder not ready");
-        return -1;
-    }
-
-    // 获取输入buffer
-    uint32_t bufferIndex = 0;
-    OH_AVBuffer* buffer = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(context_->inputMutex);
-        if (context_->inputBufferQueue.empty() || context_->inputBuffers.empty()) {
-            return -2;  // No available buffer
-        }
-        bufferIndex = context_->inputBufferQueue.front();
-        context_->inputBufferQueue.pop();
-        buffer = context_->inputBuffers.front();
-        context_->inputBuffers.pop();
-    }
-
-    // 获取buffer的内存地址和容量
-    uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
-    int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
-
-    if (bufferSize < size) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushFromRingBuffer: buffer too small");
-        // Put buffer back
-        {
-            std::lock_guard<std::mutex> lock(context_->inputMutex);
-            context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
-        }
-        return -1;
-    }
-
-    // 直接从RingBuffer读取到buffer（优化：减少一次memcpy）
-    size_t read = ringBuffer->Read(bufferAddr, size);
-
-    if (read < static_cast<size_t>(size)) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushFromRingBuffer: incomplete read");
-        // Put buffer back
-        {
-            std::lock_guard<std::mutex> lock(context_->inputMutex);
-            context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
-        }
-        return -1;
-    }
-
-    // 设置属性
-    OH_AVCodecBufferAttr attr;
-    attr.pts = pts;
-    attr.size = size;
-    attr.offset = 0;
-    attr.flags = 0;
-
-    OH_AVBuffer_SetBufferAttr(buffer, &attr);
-
-    // 提交
-    int32_t ret = OH_AudioCodec_PushInputBuffer(decoder_, bufferIndex);
-    if (ret != AV_ERR_OK) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushFromRingBuffer: PushInputBuffer failed: %{public}d", ret);
-        // Put buffer back
-        {
-            std::lock_guard<std::mutex> lock(context_->inputMutex);
-            context_->inputBufferQueue.push(bufferIndex);
-            context_->inputBuffers.push(buffer);
-        }
-        return -1;
-    }
-
-    frameCount_++;
-    return 0;
-}
 
 int32_t AudioDecoderNative::Stop() {
     if (!isStarted_) {

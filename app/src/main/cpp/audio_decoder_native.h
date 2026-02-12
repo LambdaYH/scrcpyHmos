@@ -9,8 +9,7 @@
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "ohaudio/native_audiorenderer.h"
 
-// Forward declaration for RingBuffer
-class RingBuffer;
+
 
 struct PcmFrame {
     std::array<uint8_t, 32 * 1024> data{};
@@ -28,7 +27,7 @@ public:
     int32_t Init(const char* codecType, int32_t sampleRate, int32_t channelCount);
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts);
-    int32_t PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags = 0);
+
     int32_t Stop();
     int32_t Release();
     bool HasAvailableBuffer() const;

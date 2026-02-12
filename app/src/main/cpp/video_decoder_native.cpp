@@ -1,5 +1,4 @@
 #include "video_decoder_native.h"
-#include "video_stream_processor.h"
 #include <hilog/log.h>
 #include <queue>
 #include <mutex>
@@ -222,10 +221,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     return 0;
 }
 
-int32_t VideoDecoderNative::PushFromRingBuffer(RingBuffer* ringBuffer, int32_t size, int64_t pts, uint32_t flags) {
-    // RingBuffer 已废弃，不再使用
-    return -1;
-}
+
 
 int32_t VideoDecoderNative::Stop() {
     if (decoder_ != nullptr && isStarted_) {

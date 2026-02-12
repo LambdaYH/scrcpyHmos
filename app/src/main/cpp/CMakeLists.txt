@@ -8,7 +8,7 @@ include_directories(${NATIVERENDER_ROOT_PATH})
 add_library(scrcpy_native SHARED
     video_decoder_native.cpp
     audio_decoder_native.cpp
-    video_stream_processor.cpp
+
     native_buffer_pool.cpp
     napi_init.cpp
 )
