@@ -455,23 +455,37 @@ struct ControlPage {
     Column() {
       // 主内容区域（视频 + 悬浮按钮）
       Stack() {
-        // Loading indicator
+        // Loading indicator - 支持深色/浅色模式
         if (this.showLoading) {
           Column() {
+            // 加载动画
             LoadingProgress()
-              .width(80)
-              .height(80)
-              .color($r('sys.color.comp_background_list_card'))
+              .width(64)
+              .height(64)
+              .color($r('sys.color.ohos_id_color_text_primary'))
+
+            // 连接状态文字
             Text(this.connectionStatus)
               .fontSize(16)
-              .fontColor($r('sys.color.comp_background_list_card'))
-              .margin({ top: 16 })
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('sys.color.ohos_id_color_text_primary'))
+              .margin({ top: 20 })
+              .animation({ duration: 300, curve: Curve.EaseInOut })
+
+            // 设备名提示
+            if (this.device?.name) {
+              Text(this.device.name)
+                .fontSize(13)
+                .fontColor($r('sys.color.ohos_id_color_text_secondary'))
+                .margin({ top: 8 })
+            }
           }
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.Center)
-          .backgroundColor($r('sys.color.black'))
+          .backgroundColor($r('sys.color.ohos_id_color_background'))
           .zIndex(100)
+          .transition(TransitionEffect.OPACITY.animation({ duration: 400, curve: Curve.EaseOut }))
         }
         
         // 视频显示区域容器 - 用于获取可用空间
@@ -519,7 +533,7 @@ struct ControlPage {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('sys.color.black')) // 背景黑色，作为信箱模式的黑边
+        .backgroundColor('#000000') // 背景黑色，作为信箱模式的黑边
         .onAreaChange((_: Area, newArea: Area) => {
           // 获取容器容器实际尺寸(px)
           this.containerWidth = newArea.width as number;
@@ -703,7 +717,7 @@ struct ControlPage {
       }
       .width('100%')
       .layoutWeight(1) // 占用剩余空间，让底部导航栏不覆盖视频
-      .backgroundColor($r('sys.color.black'))
+      .backgroundColor($r('sys.color.ohos_id_color_background'))
       .clip(false) // 允许悬浮按钮超出边界，实现吸边半隐藏效果
       
       // 底部导航栏
@@ -713,11 +727,11 @@ struct ControlPage {
           Button() {
             SymbolGlyph($r('sys.symbol.arrow_left'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
             this.sendKeyToWorker(KeyCode.KEYCODE_BACK);
@@ -727,11 +741,11 @@ struct ControlPage {
           Button() {
             SymbolGlyph($r('sys.symbol.house'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
             this.sendKeyToWorker(KeyCode.KEYCODE_HOME);
@@ -741,11 +755,11 @@ struct ControlPage {
           Button() {
             SymbolGlyph($r('sys.symbol.square'))
               .fontSize(24)
-              .fontColor(['#FFFFFF'])
+              .fontColor([$r('sys.color.ohos_id_color_text_primary')])
           }
           .width(52)
           .height(52)
-          .backgroundColor('#80000000')
+          .backgroundColor(Color.Transparent)
           .borderRadius(26)
           .onClick(() => {
             this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
@@ -754,12 +768,12 @@ struct ControlPage {
         .width('100%')
         .height(70)
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#40000000')
+        .backgroundColor($r('sys.color.ohos_id_color_background'))
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('sys.color.black'))
+    .backgroundColor($r('sys.color.ohos_id_color_background'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
   
