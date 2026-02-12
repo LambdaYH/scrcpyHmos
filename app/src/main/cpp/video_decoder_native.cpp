@@ -197,7 +197,15 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
 
     if (bufferSize < size) {
-        OH_LOG_ERROR(LOG_APP, "[Native] Buffer too small: %{public}d < %{public}d", bufferSize, size);
+        OH_LOG_ERROR(LOG_APP, "[Native] Buffer too small: %{public}d < %{public}d, dropping frame", bufferSize, size);
+        // 归还buffer，避免泄漏
+        OH_AVCodecBufferAttr attr;
+        attr.pts = 0;
+        attr.size = 0;
+        attr.offset = 0;
+        attr.flags = 0;
+        OH_AVBuffer_SetBufferAttr(buffer, &attr);
+        OH_VideoDecoder_PushInputBuffer(decoder_, bufferIndex);
         return -1;
     }
 

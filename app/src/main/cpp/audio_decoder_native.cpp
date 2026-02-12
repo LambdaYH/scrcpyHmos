@@ -336,7 +336,11 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
 
     if (bufferSize < size) {
-        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushData: buffer too small");
+        OH_LOG_ERROR(LOG_APP, "[AudioNative] PushData: buffer too small (size=%{public}d, capacity=%{public}d), dropping frame", size, bufferSize);
+        // 归还buffer，避免泄漏
+        OH_AVCodecBufferAttr attr = {0, 0, 0, 0};
+        OH_AVBuffer_SetBufferAttr(buffer, &attr);
+        OH_AudioCodec_PushInputBuffer(decoder_, bufferIndex);
         return -1;
     }
 
