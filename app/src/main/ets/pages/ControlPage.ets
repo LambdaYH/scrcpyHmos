@@ -60,6 +60,7 @@ struct ControlPage {
   }
 
   aboutToAppear() {
+    this.isExiting = false;
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
       if (params && params['device']) {
@@ -136,15 +137,41 @@ struct ControlPage {
     }
   }
 
+  // 追踪是否正在退出，防止多重调用
+  private isExiting: boolean = false;
+
   // 统一退出页面逻辑
   async exitPage() {
+    if (this.isExiting) {
+      LoggerControlPage.warn('ExitPage: Already exiting, ignoring call');
+      return;
+    }
+    this.isExiting = true;
+
     // 先恢复窗口状态
     await this.restoreWindow();
     // 再返回
     try {
-      this.getUIContext().getRouter().back();
+      const router = this.getUIContext().getRouter();
+      const length = router.getLength(); // 返回页面栈数量
+      const lenNum = typeof length === 'string' ? parseInt(length) : Number(length);
+      
+      LoggerControlPage.info('ExitPage: Router length:', lenNum);
+
+      if (lenNum > 1) {
+        router.back();
+      } else {
+        LoggerControlPage.warn('ExitPage: No previous page, replacing with Index');
+        router.replaceUrl({ url: 'pages/Index' });
+      }
     } catch (e) {
       LoggerControlPage.error('Router back failed:', e);
+      // 尝试强制跳转首页
+      try {
+        this.getUIContext().getRouter().replaceUrl({ url: 'pages/Index' });
+      } catch (err) {
+        LoggerControlPage.error('Force replace Index failed:', err);
+      }
     }
   }
   
