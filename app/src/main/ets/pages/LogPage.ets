@@ -6,6 +6,7 @@ import { Logger, LoggerIndex, LogLevel } from '../helper/Logger';
 struct LogPage {
   @State logContent: string = 'Loading...';
   @State selectedLogLevel: number = Logger.getLogLevel();
+  @State isFileLoggingEnabled: boolean = Logger.isFileLoggingEnabled();
   private scroller: Scroller = new Scroller();
 
   aboutToAppear() {
@@ -69,27 +70,36 @@ struct LogPage {
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_title'))
           .textAlign(TextAlign.Start)
-          .margin({ left: 12 })
+          .margin({ left: 12, right: 12 })
         
+        Toggle({ type: ToggleType.Switch, isOn: this.isFileLoggingEnabled })
+          .onChange((isOn: boolean) => {
+            this.isFileLoggingEnabled = isOn;
+            Logger.setFileLoggingEnabled(isOn);
+          })
+          .height(24)
+
         Blank()
 
-        Select([
-          { value: 'DEBUG' },
-          { value: 'INFO' },
-          { value: 'WARN' },
-          { value: 'ERROR' }
-        ])
-          .selected(this.selectedLogLevel)
-          .value(LogLevel[this.selectedLogLevel])
-          .font({ size: 12 })
-          .fontColor($r('app.color.text_primary'))
-          .selectedOptionFont({ size: 12 })
-          .optionFont({ size: 12 })
-          .backgroundColor($r('app.color.bg_card'))
-          .onSelect((index: number) => {
-            this.selectedLogLevel = index;
-            Logger.setLogLevel(index);
-          })
+        if (this.isFileLoggingEnabled) {
+          Select([
+            { value: 'DEBUG' },
+            { value: 'INFO' },
+            { value: 'WARN' },
+            { value: 'ERROR' }
+          ])
+            .selected(this.selectedLogLevel)
+            .value(LogLevel[this.selectedLogLevel])
+            .font({ size: 12 })
+            .fontColor($r('app.color.text_primary'))
+            .selectedOptionFont({ size: 12 })
+            .optionFont({ size: 12 })
+            .backgroundColor($r('app.color.bg_card'))
+            .onSelect((index: number) => {
+              this.selectedLogLevel = index;
+              Logger.setLogLevel(index);
+            })
+        }
       }
       .width('100%')
       .height(56 + 38)
@@ -98,32 +108,39 @@ struct LogPage {
       .alignItems(VerticalAlign.Center)
 
       // Content
-      Scroll(this.scroller) {
-        Text(this.logContent)
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
-          .fontFamily('Monospace')
-          .width('100%')
-          .padding(16)
-          .copyOption(CopyOptions.LocalDevice) // Allow text selection and copying
+      if (this.isFileLoggingEnabled) {
+        Scroll(this.scroller) {
+          // 仅显示最后 50KB 日志，避免大量文本渲染导致卡顿
+          Text(this.logContent.length > 50000 ? '... (日志过长，仅显示最后部分)\n' + this.logContent.slice(-50000) : this.logContent)
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+            .fontFamily('Monospace')
+            .width('100%')
+            .padding(16)
+            .copyOption(CopyOptions.LocalDevice)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
+        .align(Alignment.TopStart)
+        .backgroundColor($r('app.color.bg_primary'))
+      } else {
+        Blank().layoutWeight(1)
       }
-      .layoutWeight(1)
-      .width('100%')
-      .edgeEffect(EdgeEffect.Spring) // 添加回弹效果
-      .align(Alignment.TopStart)
-      .backgroundColor($r('app.color.bg_primary'))
 
       // Footer Actions
       Row() {
-        Button($r('app.string.refresh'))
-          .fontSize(14)
-          .backgroundColor($r('app.color.btn_secondary'))
-          .fontColor($r('app.color.text_primary'))
-          .margin({ right: 12 })
-          .onClick(() => {
-            this.refreshLogs();
-          })
-          .layoutWeight(1)
+        if (this.isFileLoggingEnabled) {
+          Button($r('app.string.refresh'))
+            .fontSize(14)
+            .backgroundColor($r('app.color.btn_secondary'))
+            .fontColor($r('app.color.text_primary'))
+            .margin({ right: 12 })
+            .onClick(() => {
+              this.refreshLogs();
+            })
+            .layoutWeight(1)
+        }
 
         Button($r('app.string.clear_logs'))
           .fontSize(14)
@@ -132,10 +149,11 @@ struct LogPage {
           .onClick(() => {
             this.clearLogs();
           })
-          .layoutWeight(1)
+          .layoutWeight(this.isFileLoggingEnabled ? 1 : 0.5) // Adjust width
+          .width(this.isFileLoggingEnabled ? 'auto' : '50%') // Make it centered or wider if alone?
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 16, bottom: 28 }) // bottom: 28vp for system nav bar
+      .padding({ left: 16, right: 16, top: 16, bottom: 28 })
       .justifyContent(FlexAlign.Center)
       .backgroundColor($r('app.color.bg_card'))
       .shadow({ radius: 8, color: '#1A000000', offsetY: -2 })
