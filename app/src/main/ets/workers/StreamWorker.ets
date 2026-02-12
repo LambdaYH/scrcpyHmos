@@ -387,7 +387,7 @@ class WorkerState {
 
           switch (eventType) {
             case 0: // DEVICE_MSG_TYPE_CLIPBOARD
-              LoggerClient.debug('[StreamWorker] Received clipboard event');
+              // LoggerClient.debug('[StreamWorker] Received clipboard event');
               const clipLen = await this.clientStream.readIntFromMain();
               if (clipLen > 0 && clipLen <= 100000) {
                 const clipTextData = await this.clientStream.readBytesFromMain(clipLen);
@@ -396,12 +396,12 @@ class WorkerState {
               break;
 
             case 1: // DEVICE_MSG_TYPE_ACK_CLIPBOARD
-              LoggerClient.debug('[StreamWorker] Received ack clipboard event');
+              // LoggerClient.debug('[StreamWorker] Received ack clipboard event');
               await this.clientStream.readBytesFromMain(8);
               break;
 
             case 2: // DEVICE_MSG_TYPE_UHID_OUTPUT
-              LoggerClient.debug('[StreamWorker] Received UHID output event');
+              // LoggerClient.debug('[StreamWorker] Received UHID output event');
               await this.clientStream.readBytesFromMain(2);
               const sizeData = await this.clientStream.readBytesFromMain(2);
               const view = new DataView(sizeData);
