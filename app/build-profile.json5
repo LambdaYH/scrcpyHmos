@@ -2,11 +2,6 @@
   "apiType": "stageMode",
   "buildOption": {
     "arkOptions": {
-      "runtimeOnly": {
-        "sources": [
-          "./src/main/cpp/types/libscrcpy_native"
-        ]
-      }
     },
     "externalNativeOptions": {
       "path": "./src/main/cpp/CMakeLists.txt",

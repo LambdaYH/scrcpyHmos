@@ -41,7 +41,11 @@ class WorkerState {
 
   // 发送消息到主线程
   private postMessage(message: WorkerMessage): void {
-    workerPort.postMessage(message);
+    try {
+      workerPort.postMessage(message);
+    } catch (e) {
+      LoggerClient.error('[StreamWorker] postMessage failed:', e);
+    }
   }
 
   // 初始化并连接（使用预加载的序列化数据）
@@ -263,7 +267,7 @@ class WorkerState {
             const decoder = this.videoDecoder;
 
             if (frame.data.byteLength > 0 && decoder) {
-              const pushResult = decoder.pushFrame(frame.data, frame.pts, frame.flags);
+              let pushResult = decoder.pushFrame(frame.data, frame.pts, frame.flags);
 
               if (pushResult === 0) {
                 frameCount++;
@@ -273,18 +277,17 @@ class WorkerState {
                   this.postMessage({ type: WorkerMessageType.FIRST_FRAME });
                 }
               } else if (pushResult === -2) {
-                // Buffer 满，等待重试
-                let waitCount = 0;
-                const maxWait = 50;
-                while (waitCount < maxWait && !this.isClosed && decoder) {
-                  await new Promise<void>((resolve) => setTimeout(resolve, 1));
-                  const retryResult = decoder.pushFrame(frame.data, frame.pts, frame.flags);
-                  if (retryResult === 0) {
-                    frameCount++;
-                    break;
+                // Buffer 满，无限重试（直到 Buffer 可用或 Worker 关闭）
+                // 增加等待时间到 10ms，避免过于频繁的唤醒
+                while (pushResult === -2 && !this.isClosed && decoder) {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+                  pushResult = decoder.pushFrame(frame.data, frame.pts, frame.flags);
+                  if (pushResult === 0) {
+                     frameCount++;
                   }
-                  waitCount++;
                 }
+              } else {
+                 LoggerClient.error('[StreamWorker] Push video frame failed: ' + pushResult);
               }
 
               // 显式释放 Native Buffer (即使是 GC 也会释放，但显式释放更快)
@@ -329,9 +332,16 @@ class WorkerState {
           try {
             const frame = await this.clientStream.readFrameFromAudio();
             if (frame.data.byteLength > 0 && this.audioDecoder) {
-              const pushResult = this.audioDecoder.pushFrame(frame.data, frame.pts);
-              if (pushResult < 0) {
-                await new Promise<void>((resolve) => setTimeout(resolve, 1));
+              // 优化的背压机制：如果 Buffer 满 (-2)，则等待并重试
+              let pushResult = -2;
+              while (pushResult === -2 && !this.isClosed && this.audioLoopRunning) {
+                pushResult = this.audioDecoder.pushFrame(frame.data, frame.pts);
+                if (pushResult === -2) {
+                  // Buffer 满，等待 10ms 后重试
+                  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+                } else if (pushResult < 0) {
+                  LoggerClient.warn('[StreamWorker] Push audio frame failed: ' + pushResult);
+                }
               }
             }
           } catch (frameErr) {
