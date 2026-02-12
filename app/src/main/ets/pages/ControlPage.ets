@@ -299,6 +299,7 @@ struct ControlPage {
 
           case WorkerMessageType.AUTH_REQUIRED:
             LoggerControlPage.info('[ControlPage] Auth required');
+            this.connectionStatus = this.getResString($r('app.string.auth_required_toast'));
             try {
               this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
             } catch (err) {
