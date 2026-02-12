@@ -81,7 +81,7 @@ export class Adb {
   }
 
   // 通过TCP连接创建ADB实例
-  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<Adb> {
+  static async connectTcp(address: string, port: number, keyPair: AdbKeyPair, uiContext?: UIContext, onAuth?: () => void): Promise<Adb> {
     const channel = new TcpChannel();
     await channel.connect(address, port);
     const adb = new Adb(channel);
@@ -89,7 +89,7 @@ export class Adb {
     return adb;
   }
 
-  private async connect(keyPair: AdbKeyPair, uiContext: UIContext, onAuth?: () => void): Promise<void> {
+  private async connect(keyPair: AdbKeyPair, uiContext?: UIContext, onAuth?: () => void): Promise<void> {
     // 连接ADB并认证
     await this.channel.write(AdbProtocol.generateConnect());
 
@@ -120,7 +120,7 @@ export class Adb {
 
         if (onAuth) {
           onAuth();
-        } else {
+        } else if (uiContext) {
           const context = uiContext.getHostContext() as common.UIAbilityContext;
           uiContext.getPromptAction().showDialog({
             title: context.resourceManager.getStringSync($r('app.string.adb_auth_title').id),
@@ -129,6 +129,8 @@ export class Adb {
           }).catch((error: Error) => {
             LoggerAdb.error('Show auth dialog failed:', error);
           });
+        } else {
+          LoggerAdb.warn('ADB: Auth required but no uiContext or onAuth callback provided');
         }
         await this.channel.write(AdbProtocol.generateAuth(AdbProtocol.AUTH_TYPE_RSA_PUBLIC, pubKeyBuffer));
         message = await AdbMessage.parseAdbMessage(this.channel);

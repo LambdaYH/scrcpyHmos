@@ -612,86 +612,21 @@ struct Index {
     if (this.isConnecting) return;
     
     this.isConnecting = true;
-    this.connectionTime = 0;
-    
-    // Start timer
-    this.connectionTimer = setInterval(() => {
-      this.connectionTime++;
-    }, 1000);
     
     try {
-      const ctx = this.getUIContext().getHostContext()! as common.UIAbilityContext;
+      LoggerIndex.debug('[Index] Navigating to ControlPage, Worker will handle connection');
+      this.isConnecting = false;
       
-      // 第一阶段：等待ADB授权 (在连接开始前提示)
-      this.connectionStatus = this.getUIContext().getHostContext()!.resourceManager.getStringSync($r('app.string.adb_auth_waiting').id);
-      
-      // 启动连接
-      // 如果设备未授权，这里会阻塞等待用户在该设备上点击允许
-      const client = await Client.startDevice(device, ctx, this.getUIContext(), (status: string) => {
-        // 更新连接状态
-        if (this.isConnecting) {
-          this.connectionStatus = status;
-        }
-      }, (createdClient: Client) => {
-        // 立即保存Client引用，以便取消时可以close
-        if (this.isConnecting) {
-          this.connectingClient = createdClient;
-        } else {
-          // 如果在这之前已经被取消了(极少情况)，立即关闭
-          createdClient.close();
-        }
-      }, () => {
-        // onAuth callback: Show custom auth dialog
-        LoggerIndex.info('[Index] Showing auth dialog');
-        this.authDialogController.open();
+      // 直接跳转到控制页面，Worker 线程将负责完整的连接流程
+      this.getUIContext().getRouter().pushUrl({
+        url: 'pages/ControlPage',
+        params: { device: device, clientReady: true }
+      }).catch((err: Error) => {
+        LoggerIndex.error('Navigate failed:', err);
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.navigate_failed') });
       });
       
-      // 连接成功(或失败返回null)，关闭授权弹窗
-      this.authDialogController.close();
-      
-      // 检查连接过程中是否被取消
-      if (!this.isConnecting) {
-        LoggerIndex.info('[Index] Connection cancelled by user');
-        if (client) {
-          await client.close();
-        }
-        return;
-      }
-      
-      this.connectingClient = client;
-      
-      // Clear timer on completion (success or fail handled below)
-      if (this.connectionTimer !== -1) {
-        clearInterval(this.connectionTimer);
-        this.connectionTimer = -1;
-      }
-      
-      if (this.connectingClient) {
-        // 连接成功，立即跳转到控制页面
-        // 注意：视频解码需要 ControlPage 的 Surface，所以不能在这里等首帧
-        LoggerIndex.debug('[Index] Connection successful, navigating to ControlPage');
-        this.isConnecting = false;
-        
-        // 跳转到控制页面，传递已连接的 client
-        this.getUIContext().getRouter().pushUrl({
-          url: 'pages/ControlPage',
-          params: { device: device, clientReady: true }
-        }).catch((err: Error) => {
-          LoggerIndex.error('Navigate failed:', err);
-          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.navigate_failed') });
-        });
-        
-      } else {
-        this.isConnecting = false;
-        this.getUIContext().getPromptAction().showToast({ 
-          message: $r('app.string.connect_failed_hint')
-        });
-      }
     } catch (err) {
-      if (this.connectionTimer !== -1) {
-        clearInterval(this.connectionTimer);
-        this.connectionTimer = -1;
-      }
       this.isConnecting = false;
       this.connectingClient = null;
       const errMsg = err instanceof Error ? err.message : String(err);

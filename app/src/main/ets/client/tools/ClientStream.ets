@@ -2,7 +2,7 @@
 import { Device } from '../../entity/Device';
 import { Adb } from '../../adb/Adb';
 import { BufferStream } from '../../buffer/BufferStream';
-import { AdbKeyManager } from '../../helper/AdbKeyManager';
+import { AdbKeyManager, AdbKeySerialData } from '../../helper/AdbKeyManager';
 import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
 import { LoggerClientStream } from '../../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
@@ -94,7 +94,95 @@ export class ClientStream {
         }
       }
 
-      // 3. 启动服务端 - 使用ServerManager的scrcpy启动命令
+      // 后续连接逻辑复用
+      return await this.connectStreams(adb);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerClientStream.error('ClientStream connect failed:', errMsg);
+
+      // 短暂延迟再检查isClosing，避免取消连接时的竞态条件
+      await new Promise<void>(resolve => setTimeout(resolve, 200));
+
+      if (errMsg.includes('Read timeout') && !this.isClosing) {
+        try {
+          await uiContext.getPromptAction().showDialog({
+            title: context.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
+            message: context.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
+            buttons: [{
+              text: context.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
+              color: '#007AFF'
+            }]
+          });
+        } catch (e) {
+          LoggerClientStream.error('Show timeout dialog failed:', e);
+        }
+      }
+      return false;
+    }
+  }
+
+  // Worker 线程中使用的连接方法（不需要 Context/UIContext）
+  async connectInWorker(
+    adbKeyData: AdbKeySerialData,
+    serverJarData: ArrayBuffer | null,
+    onAuth?: () => void,
+    onError?: (message: string) => void
+  ): Promise<boolean> {
+    try {
+      this.isClosing = false;
+      LoggerClientStream.info('[Worker] Starting device connection...');
+
+      // 0. 从序列化数据初始化 ADB 密钥管理器（不需要 Context）
+      const keyManager = AdbKeyManager.getInstance();
+      await keyManager.initFromKeyData(adbKeyData);
+      LoggerClientStream.info('[Worker] ADB key manager initialized from serialized data');
+
+      // 1. 通过ADB连接设备
+      LoggerClientStream.info(`[Worker] Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
+
+      const keyPair = keyManager.getAdbKeyPair();
+      if (!keyPair) {
+        throw new Error('Failed to get ADB key pair');
+      }
+      // 不传 uiContext，使用 onAuth 回调
+      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, undefined, onAuth);
+      LoggerClientStream.info('[Worker] ADB connected successfully');
+
+      // 保存adb实例
+      this.adb = adb;
+
+      // 2. 检查并推送服务端
+      const serverExists = await ServerManager.checkServerExists(adb);
+      if (!serverExists) {
+        if (!serverJarData) {
+          throw new Error('Server not found on device and no server data provided');
+        }
+        // 使用主线程预加载的 server.jar 数据
+        const pushed = await ServerManager.pushServer(adb, serverJarData);
+        if (!pushed) {
+          throw new Error('Push server.jar failed');
+        }
+      }
+
+      // 后续连接逻辑复用
+      return await this.connectStreams(adb);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerClientStream.error('[Worker] ClientStream connect failed:', errMsg);
+
+      await new Promise<void>(resolve => setTimeout(resolve, 200));
+
+      if (onError) {
+        onError(errMsg);
+      }
+      return false;
+    }
+  }
+
+  // 连接服务端流的共用逻辑（从 connect 和 connectInWorker 复用）
+  private async connectStreams(adb: Adb): Promise<boolean> {
+    try {
+      // 3. 启动服务端
       LoggerClientStream.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
 
       const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
@@ -212,7 +300,6 @@ export class ClientStream {
       await this.performHandshakeRest();
 
       // 连接成功后才开始读取shell输出
-      // this.readShellOutputAsync(); // Move this to be safer or ensure it doesn't race
       this.readShellOutputAsync();
 
       this.isConnected = true;
@@ -220,25 +307,7 @@ export class ClientStream {
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.error('ClientStream connect failed:', errMsg);
-
-      // 短暂延迟再检查isClosing，避免取消连接时的竞态条件
-      await new Promise<void>(resolve => setTimeout(resolve, 200));
-
-      if (errMsg.includes('Read timeout') && !this.isClosing) {
-        try {
-          await uiContext.getPromptAction().showDialog({
-            title: context.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
-            message: context.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
-            buttons: [{
-              text: context.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
-              color: '#007AFF'
-            }]
-          });
-        } catch (e) {
-          LoggerClientStream.error('Show timeout dialog failed:', e);
-        }
-      }
+      LoggerClientStream.error('connectStreams failed:', errMsg);
       return false;
     }
   }
