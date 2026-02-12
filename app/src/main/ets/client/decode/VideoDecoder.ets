@@ -1,4 +1,7 @@
 import scrcpy_native from 'libscrcpy_native.so';
+import { Logger } from '../../helper/Logger';
+
+const LoggerVideoDecoder = new Logger('VideoDecoder');
 
 // 视频解码器 - 使用Native C++ VideoDecoder（EasyControl风格）
 export class VideoDecoder {
@@ -19,25 +22,25 @@ export class VideoDecoder {
     try {
       // 释放之前的解码器实例（防止资源泄漏）
       if (VideoDecoder.currentInstance && VideoDecoder.currentInstance !== this) {
-        console.info('[VideoDecoder] Releasing previous decoder instance...');
+        LoggerVideoDecoder.info('Releasing previous decoder instance...');
         await VideoDecoder.currentInstance.release();
       }
       VideoDecoder.currentInstance = this;
 
-      console.info(`[VideoDecoder] Initializing Native decoder...`);
-      console.info(`[VideoDecoder] Codec: ${this.codecType.toUpperCase()}`);
-      console.info(`[VideoDecoder] Resolution: ${width}x${height}`);
+      LoggerVideoDecoder.info('Initializing Native decoder...');
+      LoggerVideoDecoder.info('Codec: ' + this.codecType.toUpperCase());
+      LoggerVideoDecoder.info('Resolution: ' + width + 'x' + height);
 
       // 创建Native解码器
       this.decoderId = scrcpy_native.createVideoDecoder();
-      console.info(`[VideoDecoder] Native decoder created, ID: ${this.decoderId}`);
+      LoggerVideoDecoder.info('Native decoder created, ID: ' + this.decoderId);
 
       // 初始化解码器
       const ret: number = scrcpy_native.initVideoDecoder(this.decoderId, this.codecType, surfaceId, width, height);
       if (ret !== 0) {
         throw new Error(`Native decoder init failed: ${ret}`);
       }
-      console.info(`[VideoDecoder] Native decoder initialized`);
+      LoggerVideoDecoder.info('Native decoder initialized');
 
       // 启动解码器
       const startRet: number = scrcpy_native.startVideoDecoder(this.decoderId);
@@ -46,11 +49,11 @@ export class VideoDecoder {
       }
 
       this.isStarted = true;
-      console.info(`[VideoDecoder] Native decoder started!`);
+      LoggerVideoDecoder.info('Native decoder started!');
 
     } catch (err) {
       const error = err as Error;
-      console.error(`[VideoDecoder] Init failed: ${error.message}`);
+      LoggerVideoDecoder.error('Init failed: ' + error.message);
       throw new Error(`VideoDecoder init failed: ${error.message}`);
     }
   }
@@ -71,16 +74,9 @@ export class VideoDecoder {
     return result;
   }
 
-  /**
-   * 旧方法名（兼容）
-   */
-  pushDataToStream(data: ArrayBuffer, pts: number, flags: number = 0): number {
-    return this.pushFrame(data, pts, flags);
-  }
-
   async flush(): Promise<void> {
     if (this.isStarted) {
-      console.info('[VideoDecoder] Flushing decoder...');
+      LoggerVideoDecoder.info('Flushing decoder...');
       this.frameCount = 0;
     }
   }
@@ -91,9 +87,9 @@ export class VideoDecoder {
         this.isStarted = false;
         scrcpy_native.releaseVideoDecoder(this.decoderId);
         this.decoderId = 0;
-        console.info(`[VideoDecoder] Released | Total frames: ${this.frameCount}`);
+        LoggerVideoDecoder.info('Released | Total frames: ' + this.frameCount);
       } catch (err) {
-        console.error('[VideoDecoder] Release failed:', err);
+        LoggerVideoDecoder.error('Release failed:', err);
       }
     }
   }

@@ -1,4 +1,7 @@
 import scrcpy_native from 'libscrcpy_native.so';
+import { Logger } from '../../helper/Logger';
+
+const LoggerAudioDecoder = new Logger('AudioDecoder');
 
 // 音频解码器 - 使用Native C++ AudioDecoder（EasyControl 风格）
 export class AudioDecoder {
@@ -13,26 +16,26 @@ export class AudioDecoder {
     try {
       // 释放之前的解码器实例（防止资源泄漏）
       if (AudioDecoder.currentInstance && AudioDecoder.currentInstance !== this) {
-        console.info('[AudioDecoder] Releasing previous decoder instance...');
+        LoggerAudioDecoder.info('Releasing previous decoder instance...');
         await AudioDecoder.currentInstance.release();
       }
       AudioDecoder.currentInstance = this;
 
-      console.info(`[AudioDecoder] Initializing Native decoder...`);
-      console.info(`[AudioDecoder] Codec: ${codecType.toUpperCase()}`);
-      console.info(`[AudioDecoder] Sample Rate: ${sampleRate}Hz`);
-      console.info(`[AudioDecoder] Channels: ${channelCount}`);
+      LoggerAudioDecoder.info('Initializing Native decoder...');
+      LoggerAudioDecoder.info('Codec: ' + codecType.toUpperCase());
+      LoggerAudioDecoder.info('Sample Rate: ' + sampleRate + 'Hz');
+      LoggerAudioDecoder.info('Channels: ' + channelCount);
 
       // 创建Native解码器
       this.decoderId = scrcpy_native.createAudioDecoder();
-      console.info(`[AudioDecoder] Native decoder created, ID: ${this.decoderId}`);
+      LoggerAudioDecoder.info('Native decoder created, ID: ' + this.decoderId);
 
       // 初始化解码器
       const ret: number = scrcpy_native.initAudioDecoder(this.decoderId, codecType, sampleRate, channelCount);
       if (ret !== 0) {
         throw new Error(`Native audio decoder init failed: ${ret}`);
       }
-      console.info(`[AudioDecoder] Native decoder initialized`);
+      LoggerAudioDecoder.info('Native decoder initialized');
 
       // 启动解码器
       const startRet: number = scrcpy_native.startAudioDecoder(this.decoderId);
@@ -41,11 +44,11 @@ export class AudioDecoder {
       }
 
       this.isStarted = true;
-      console.info(`[AudioDecoder] Native audio decoder started!`);
+      LoggerAudioDecoder.info('Native audio decoder started!');
 
     } catch (err) {
       const error = err as Error;
-      console.error(`[AudioDecoder] Init failed: ${error.message}`);
+      LoggerAudioDecoder.error('Init failed: ' + error.message);
       throw new Error(`AudioDecoder init failed: ${error.message}`);
     }
   }
@@ -61,22 +64,15 @@ export class AudioDecoder {
     return scrcpy_native.pushAudioData(this.decoderId, data, pts);
   }
 
-  /**
-   * 旧方法名（兼容）
-   */
-  pushDataToStream(data: ArrayBuffer, pts: number): number {
-    return this.pushFrame(data, pts);
-  }
-
   async release(): Promise<void> {
     if (this.decoderId !== 0) {
       try {
         this.isStarted = false;
         scrcpy_native.releaseAudioDecoder(this.decoderId);
         this.decoderId = 0;
-        console.info('[AudioDecoder] Released');
+        LoggerAudioDecoder.info('Released');
       } catch (err) {
-        console.error('[AudioDecoder] Release failed:', err);
+        LoggerAudioDecoder.error('Release failed:', err);
       }
     }
   }

@@ -6,7 +6,7 @@ import { AdbKeyManager, AdbKeySerialData } from '../../helper/AdbKeyManager';
 import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
 import { LoggerClientStream } from '../../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
-import { common } from '@kit.AbilityKit';
+
 
 // Video configuration from handshake
 export interface VideoConfig {
@@ -53,72 +53,6 @@ export class ClientStream {
 
   constructor(device: Device) {
     this.device = device;
-  }
-
-  async connect(context: common.UIAbilityContext, uiContext: UIContext, onAuth?: () => void): Promise<boolean> {
-    try {
-      this.isClosing = false;
-      LoggerClientStream.info('Starting device connection...');
-
-      // 0. Initialize ADB key manager with device address
-      const keyManager = AdbKeyManager.getInstance();
-      await keyManager.init(context);
-      LoggerClientStream.info('ADB key manager initialized');
-
-      // 1. 通过ADB连接设备
-      LoggerClientStream.info(`Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
-
-      const keyPair = keyManager.getAdbKeyPair();
-      if (!keyPair) {
-        throw new Error('Failed to get ADB key pair');
-      }
-      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, uiContext, onAuth);
-      LoggerClientStream.info('ADB connected successfully');
-
-      // 保存adb实例用于后续转发
-      this.adb = adb;
-
-      // 2. 检查并推送服务端
-      const serverExists = await ServerManager.checkServerExists(adb);
-      if (!serverExists) {
-        // 加载 rawfile/server.jar
-        const serverData = await ServerManager.loadServerFromRawfile(context);
-        if (!serverData) {
-          throw new Error('Load server.jar failed');
-        }
-
-        // 推送
-        const pushed = await ServerManager.pushServer(adb, serverData);
-        if (!pushed) {
-          throw new Error('Push server.jar failed');
-        }
-      }
-
-      // 后续连接逻辑复用
-      return await this.connectStreams(adb);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.error('ClientStream connect failed:', errMsg);
-
-      // 短暂延迟再检查isClosing，避免取消连接时的竞态条件
-      await new Promise<void>(resolve => setTimeout(resolve, 200));
-
-      if (errMsg.includes('Read timeout') && !this.isClosing) {
-        try {
-          await uiContext.getPromptAction().showDialog({
-            title: context.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
-            message: context.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
-            buttons: [{
-              text: context.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
-              color: '#007AFF'
-            }]
-          });
-        } catch (e) {
-          LoggerClientStream.error('Show timeout dialog failed:', e);
-        }
-      }
-      return false;
-    }
   }
 
   // Worker 线程中使用的连接方法（不需要 Context/UIContext）
