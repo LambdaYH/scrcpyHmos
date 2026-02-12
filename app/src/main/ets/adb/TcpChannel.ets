@@ -82,17 +82,19 @@ export class TcpChannel implements AdbChannel {
         reject(err);
       });
 
-      // 连接
+      // 连接 - 自动检测 IPv4/IPv6
+      // IPv6 地址包含冒号，例如 ::1, fe80::1, 2001:db8::1
+      const isIPv6 = address.includes(':');
       const connectAddress: socket.TCPConnectOptions = {
         address: {
           address: address,
           port: port,
-          family: 1 // IPv4
+          family: isIPv6 ? 2 : 1 // IPv6 = 2, IPv4 = 1
         },
         timeout: 10000
       };
 
-      console.info('TcpChannel: Calling socket.connect()...');
+      console.info(`TcpChannel: Connecting to ${isIPv6 ? 'IPv6' : 'IPv4'} address ${address}:${port}...`);
       this.tcpSocket.connect(connectAddress).catch((err: Error) => {
         console.error('TcpChannel: Connect failed immediately:', err.message);
         clearTimeout(timeoutId);
