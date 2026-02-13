@@ -7,6 +7,7 @@
 #include "AdbChannel.h"
 #include "AdbProtocol.h"
 #include "AdbKeyPair.h"
+#include "RingBuffer.h"
 
 #include <cstdint>
 #include <string>
@@ -17,25 +18,30 @@
 #include <thread>
 #include <atomic>
 #include <functional>
+#include <queue> // Added missing include
 
 // 进度回调函数类型
 using ProcessCallback = std::function<void(int progress)>;
 
 // 内部流数据结构 (替代ArkTS的BufferStream)
+// 内部流数据结构 (替代ArkTS的BufferStream)
 struct AdbStream {
     int32_t localId = 0;
     int32_t remoteId = 0;
     bool canMultipleSend = false;
-    bool closed = false;
+    std::atomic<bool> closed{false};
     bool canWrite = false;
 
-    // 读缓冲区
-    std::vector<uint8_t> readBuffer;
-    std::mutex readMutex;
-    std::condition_variable readCv;
+    // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
+    // 默认 4MB 容量
+    RingBuffer readBuffer{4 * 1024 * 1024};
 
-    // 关闭前的累积数据
-    std::vector<uint8_t> closedData;
+    // 关闭前的累积数据 - 也可以考虑放入 RingBuffer 或保留
+    // 为了简单起见，RingBuffer 关闭后仍可读，所以不需要单独的 closedData
+    // 但如果 RingBuffer 满时关闭 ?? RingBuffer.close() 处理了
+    // std::vector<uint8_t> closedData; // Removed
+    
+    AdbStream() = default;
 };
 
 // ADB主类 - 完全参考Adb.ets
@@ -45,7 +51,12 @@ public:
 
     // 通过fd创建并连接ADB实例
     // fd由ArkTS传入，不在C++中创建网络连接
+    // 通过fd创建并连接ADB实例
+    // fd由ArkTS传入，不在C++中创建网络连接
     static Adb* create(int fd);
+
+    // 通过IP和端口创建并连接ADB实例 (C++直接创建Socket)
+    static Adb* create(const std::string& ip, int port);
 
     // ADB认证连接
     // 如果需要认证，needAuth会被设置为true，此时需要ArkTS弹出授权对话框
@@ -72,7 +83,14 @@ public:
     int32_t getShell();
 
     // 从流中读取数据
-    std::vector<uint8_t> streamRead(int32_t streamId, size_t size);
+    // timeoutMs: 超时时间(毫秒), <=0 表示无限等待
+    std::vector<uint8_t> streamRead(int32_t streamId, size_t size, int32_t timeoutMs = -1, bool exact = true);
+
+    // 从流中读取数据到指定缓冲区 (Zero-Copy)
+    // dest: 目标缓冲区指针
+    // destSize: 目标缓冲区大小
+    // 返回实际读取的字节数
+    size_t streamReadToBuffer(int32_t streamId, uint8_t* dest, size_t destSize, int32_t timeoutMs = -1, bool exact = true);
 
     // 向流中写入数据
     void streamWrite(int32_t streamId, const uint8_t* data, size_t len);
@@ -127,19 +145,29 @@ private:
     uint32_t maxData_ = AdbProtocol::CONNECT_MAXDATA;
 
     // 流管理
-    std::map<int32_t, AdbStream*> connectionStreams_;
-    std::map<int32_t, AdbStream*> openStreams_;
     std::mutex streamsMutex_;
+    std::unordered_map<int32_t, AdbStream*> connectionStreams_;
+    std::unordered_map<int32_t, AdbStream*> openStreams_; // Owner of AdbStream*
+
+    // 后台处理线程
+    std::thread handleInThread_;
+    
+    // Asynchronous Send
+    std::thread sendThread_;
+    std::atomic<bool> sendRunning_{false};
+    std::queue<std::vector<uint8_t>> sendQueue_;
+    std::mutex sendMutex_;          // Protects sendQueue_
+    std::condition_variable sendCv_;
+    const size_t MAX_SEND_QUEUE_SIZE = 50 * 1024 * 1024; // 50MB limit
 
     // 等待通知
     std::mutex waitMutex_;
     std::condition_variable waitCv_;
 
-    // channel写入锁
-    std::mutex channelWriteMutex_;
+    // channel写入锁 (由sendLoop管理)
+    // std::mutex channelWriteMutex_; // Removed, managed by sendLoop
 
-    // 后台处理线程
-    std::thread handleInThread_;
+    void sendLoop();
 };
 
 #endif // ADB_H

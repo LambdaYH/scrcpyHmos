@@ -13,13 +13,10 @@ declare module 'libscrcpy_native.so' {
     export function pushVideoData(id: number, data: ArrayBuffer, pts: number, flags?: number): number;
     export function releaseVideoDecoder(id: number): void;
 
-    // Native Buffer Pool
-    export function allocNativeBuffer(size: number): ArrayBuffer | undefined;
-    export function releaseNativeBuffer(buffer: ArrayBuffer): void;
-    export function destroyBufferPool(): void;
+
 
     // ADB Module
-    export function adbCreate(fd: number): number;
+    export function adbCreate(ip: string, port: number): number;
     export function adbConnect(adbId: number, pubKeyPath: string, priKeyPath: string): number;
     export function adbRunCmd(adbId: number, cmd: string): string;
     export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): void;

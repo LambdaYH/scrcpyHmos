@@ -2,7 +2,7 @@
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
 
-#include "native_buffer_pool.h"
+
 #include <hilog/log.h>
 #include <map>
 #include <unordered_map>
@@ -267,99 +267,7 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
 
 
 
-// ============== Native Buffer Pool ==============
 
-// GC finalize callback: 当 external ArrayBuffer 被回收时，归还 buffer 到池
-static void NativeBufferFinalizeCallback(napi_env env, void* finalize_data, void* finalize_hint) {
-    NativeBufferInfo* info = static_cast<NativeBufferInfo*>(finalize_hint);
-    if (info != nullptr) {
-        NativeBufferPool::GetInstance().Release(info->bufferId, info->ptr);
-        delete info;
-    }
-}
-
-// 分配 native buffer，返回 external ArrayBuffer
-static napi_value AllocNativeBuffer(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    int64_t requestedSize;
-    napi_get_value_int64(env, args[0], &requestedSize);
-
-    if (requestedSize <= 0) {
-        napi_value undefined;
-        napi_get_undefined(env, &undefined);
-        return undefined;
-    }
-
-    uint8_t* ptr = nullptr;
-    size_t capacity = 0;
-    int32_t bufferId = NativeBufferPool::GetInstance().Alloc(
-        static_cast<size_t>(requestedSize), &ptr, &capacity);
-
-    if (ptr == nullptr) {
-        napi_value undefined;
-        napi_get_undefined(env, &undefined);
-        return undefined;
-    }
-
-    // 创建 finalize info
-    NativeBufferInfo* bufInfo = new NativeBufferInfo();
-    bufInfo->bufferId = bufferId;
-    bufInfo->ptr = ptr;
-
-    // 用 napi_create_external_arraybuffer 包装 native 内存
-    // 注意: 这里用 requestedSize 而非 capacity，让 ArkTS 看到精确大小
-    napi_value arrayBuffer;
-    napi_status status = napi_create_external_arraybuffer(
-        env, ptr, static_cast<size_t>(requestedSize),
-        NativeBufferFinalizeCallback, bufInfo, &arrayBuffer);
-
-    if (status != napi_ok) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] napi_create_external_arraybuffer failed");
-        NativeBufferPool::GetInstance().Release(bufferId, ptr);
-        delete bufInfo;
-        napi_value undefined;
-        napi_get_undefined(env, &undefined);
-        return undefined;
-    }
-
-    return arrayBuffer;
-}
-
-// 主动释放 native buffer（不等 GC）
-// 注意：调用后 ArkTS 侧的 ArrayBuffer 仍然存在但底层内存已归还池，
-//       后续不应再使用该 ArrayBuffer。
-static napi_value ReleaseNativeBuffer(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
-    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-    void* data;
-    size_t length;
-    napi_status status = napi_get_arraybuffer_info(env, args[0], &data, &length);
-    
-    if (status == napi_ok && data != nullptr) {
-        // 尝试归还到池
-        bool released = NativeBufferPool::GetInstance().Release(static_cast<uint8_t*>(data));
-        if (!released) {
-            // OH_LOG_DEBUG(LOG_APP, "[NAPI] ReleaseNativeBuffer: buffer not in pool or already released");
-        }
-    }
-
-    napi_value undefined;
-    napi_get_undefined(env, &undefined);
-    return undefined;
-}
-
-// 销毁整个缓冲池
-static napi_value DestroyBufferPool(napi_env env, napi_callback_info info) {
-    NativeBufferPool::GetInstance().ReleaseAll();
-    napi_value undefined;
-    napi_get_undefined(env, &undefined);
-    return undefined;
-}
 
 // ============== ADB Module ==============
 
@@ -369,21 +277,32 @@ static napi_value DestroyBufferPool(napi_env env, napi_callback_info info) {
 static std::unordered_map<int64_t, Adb*> g_adbInstances;
 static int64_t g_nextAdbId = 1;
 
-// 创建ADB实例 - adbCreate(fd) => adbId
+// 创建ADB实例 - adbCreate(ip, port) => adbId
 static napi_value AdbCreate(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value args[1];
+    size_t argc = 2;
+    napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-    int32_t fd;
-    napi_get_value_int32(env, args[0], &fd);
+    char ip[64];
+    size_t ipLen;
+    int32_t port;
+
+    napi_get_value_string_utf8(env, args[0], ip, sizeof(ip), &ipLen);
+    napi_get_value_int32(env, args[1], &port);
 
     napi_value result;
     try {
-        Adb* adb = Adb::create(fd);
-        int64_t adbId = g_nextAdbId++;
-        g_adbInstances[adbId] = adb;
-        napi_create_int64(env, adbId, &result);
+        Adb* adb = Adb::create(std::string(ip), port);
+        if (adb) {
+            int64_t adbId = g_nextAdbId++;
+            g_adbInstances[adbId] = adb;
+            napi_create_int64(env, adbId, &result);
+            OH_LOG_INFO(LOG_APP, "[NAPI] AdbCreate success: id=%{public}lld, ip=%{public}s, port=%{public}d",
+                        (long long)adbId, ip, port);
+        } else {
+             OH_LOG_ERROR(LOG_APP, "[NAPI] Adb::create returned nullptr");
+             napi_create_int64(env, -1, &result);
+        }
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "[NAPI] AdbCreate failed: %{public}s", e.what());
         napi_create_int64(env, -1, &result);
@@ -564,7 +483,9 @@ static napi_value AdbStreamRead(napi_env env, napi_callback_info info) {
     }
 
     try {
-        auto data = it->second->streamRead(streamId, static_cast<size_t>(size));
+        // Use non-blocking read (timeout=0, exact=false) to avoid freezing UI
+        auto data = it->second->streamRead(streamId, static_cast<size_t>(size), 0, false);
+
         void* buf;
         napi_create_arraybuffer(env, data.size(), &buf, &result);
         if (!data.empty()) {
@@ -951,10 +872,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"pushAudioData", nullptr, PushAudioData, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseAudioDecoder", nullptr, ReleaseAudioDecoder, nullptr, nullptr, nullptr, napi_default, nullptr},
 
-        // Native Buffer Pool API
-        {"allocNativeBuffer", nullptr, AllocNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"releaseNativeBuffer", nullptr, ReleaseNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"destroyBufferPool", nullptr, DestroyBufferPool, nullptr, nullptr, nullptr, napi_default, nullptr},
+        // Native Buffer
 
         // ADB API
         {"adbCreate", nullptr, AdbCreate, nullptr, nullptr, nullptr, napi_default, nullptr},

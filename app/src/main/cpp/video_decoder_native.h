@@ -20,6 +20,14 @@ public:
     int32_t Start();
     int32_t PushData(uint8_t* data, int32_t size, int64_t pts, uint32_t flags);
 
+    // Zero-Copy API
+    // Get a free input buffer. Blocks up to timeoutMs.
+    // returns 0 on success.
+    int32_t GetInputBuffer(uint32_t* outIndex, uint8_t** outData, int32_t* outCapacity, void** outHandle, int32_t timeoutMs = 10);
+    
+    // Submit the filled input buffer.
+    int32_t SubmitInputBuffer(uint32_t index, void* handle, int64_t pts, int32_t size, uint32_t flags);
+
     int32_t Stop();
     int32_t Release();
     bool HasAvailableBuffer() const;

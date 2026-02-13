@@ -51,8 +51,8 @@ private:
     void audioThreadFunc();
     void controlThreadFunc();
 
-    // 精确读取 N 字节（阻塞），抛出异常表示流关闭
-    std::vector<uint8_t> readExact(int32_t streamId, size_t size);
+    // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
+    std::vector<uint8_t> readExact(int32_t streamId, size_t size, int32_t timeoutMs = -1);
 
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);

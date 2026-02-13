@@ -19,6 +19,7 @@ struct DecoderContext {
     std::queue<uint32_t> inputBufferQueue;  // 只存索引
     std::queue<OH_AVBuffer*> inputBuffers;  // 存 buffer 指针
     std::mutex queueMutex;
+    std::condition_variable queueCv; // For blocking GetInputBuffer
     bool isDecFirstFrame = true;
     int32_t outputWidth = 0;
     int32_t outputHeight = 0;
@@ -49,6 +50,7 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
     ctx->inputBufferQueue.push(index);
     ctx->inputBuffers.push(buffer);
     ctx->isDecFirstFrame = false;
+    ctx->queueCv.notify_all();
 }
 
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
@@ -229,7 +231,51 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
     return 0;
 }
 
+int32_t VideoDecoderNative::GetInputBuffer(uint32_t* outIndex, uint8_t** outData, int32_t* outCapacity, void** outHandle, int32_t timeoutMs) {
+    if (!isStarted_ || decoder_ == nullptr || context_ == nullptr) return -1;
 
+    std::unique_lock<std::mutex> lock(context_->queueMutex);
+    if (!context_->queueCv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] {
+        return !context_->inputBufferQueue.empty();
+    })) {
+        return -2; // Timeout/Empty
+    }
+
+    *outIndex = context_->inputBufferQueue.front();
+    context_->inputBufferQueue.pop();
+    
+    OH_AVBuffer* buffer = context_->inputBuffers.front();
+    context_->inputBuffers.pop();
+    
+    *outHandle = buffer;
+    *outData = OH_AVBuffer_GetAddr(buffer);
+    *outCapacity = OH_AVBuffer_GetCapacity(buffer);
+    
+    return 0;
+}
+
+int32_t VideoDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int64_t pts, int32_t size, uint32_t flags) {
+    if (!isStarted_ || decoder_ == nullptr) return -1;
+    
+    OH_AVBuffer* buffer = static_cast<OH_AVBuffer*>(handle);
+    
+    OH_AVCodecBufferAttr attr;
+    attr.pts = pts;
+    attr.size = size;
+    attr.offset = 0;
+    attr.flags = flags;
+    
+    OH_AVBuffer_SetBufferAttr(buffer, &attr);
+    
+    int32_t ret = OH_VideoDecoder_PushInputBuffer(decoder_, index);
+    if (ret != AV_ERR_OK) {
+        OH_LOG_ERROR(LOG_APP, "[Native] SubmitInputBuffer failed: %{public}d", ret);
+        return -1;
+    }
+    
+    frameCount_++;
+    return 0;
+}
 
 int32_t VideoDecoderNative::Stop() {
     if (decoder_ != nullptr && isStarted_) {
@@ -241,6 +287,8 @@ int32_t VideoDecoderNative::Stop() {
 }
 
 int32_t VideoDecoderNative::Release() {
+    if (decoder_ == nullptr && window_ == nullptr && context_ == nullptr) return 0;
+
     Stop();
 
     if (decoder_ != nullptr) {

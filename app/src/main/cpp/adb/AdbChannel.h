@@ -17,6 +17,9 @@ public:
     // 精确读取指定字节数（阻塞直到读满）
     virtual void read(uint8_t* buf, size_t len) = 0;
 
+    // 精确读取指定字节数，带超时（阻塞直到读满或超时）
+    virtual void readWithTimeout(uint8_t* buf, size_t len, int timeoutMs) = 0;
+
     // 刷新（TCP无需实现）
     virtual void flush() {}
 

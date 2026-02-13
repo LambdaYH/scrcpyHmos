@@ -9,7 +9,6 @@ add_library(scrcpy_native SHARED
     video_decoder_native.cpp
     audio_decoder_native.cpp
 
-    native_buffer_pool.cpp
     ScrcpyStreamManager.cpp
     adb/AdbProtocol.cpp
     adb/AdbBase64.cpp

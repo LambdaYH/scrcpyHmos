@@ -17,6 +17,7 @@ struct AudioDecoderContext {
     std::queue<uint32_t> inputBufferQueue;
     std::queue<OH_AVBuffer*> inputBuffers;
     std::mutex inputMutex;
+    std::condition_variable inputCv;
 };
 
 AudioDecoderNative::AudioDecoderNative()
@@ -44,6 +45,7 @@ void AudioDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
         std::lock_guard<std::mutex> lock(ctx->inputMutex);
         ctx->inputBufferQueue.push(index);
         ctx->inputBuffers.push(buffer);
+        ctx->inputCv.notify_all();
     }
 }
 
@@ -287,6 +289,102 @@ int32_t AudioDecoderNative::Start() {
     return 0;
 }
 
+int32_t AudioDecoderNative::GetInputBuffer(uint32_t* outIndex, uint8_t** outData, int32_t* outCapacity, void** outHandle, int32_t timeoutMs) {
+    if (!isStarted_) return -1;
+
+    // RAW 模式特殊处理：伪造一个 buffer
+    if (isRaw_) {
+        // 对于 RAW 模式，我们需要返回一个临时内存，因为没有解码器 buffer 可用
+        // 调用者填充数据后，在 SubmitInputBuffer 中我们会拷贝到 pcmPool_
+        // 为了简单，我们每次 malloc，Submit 时 free。优化的话可以用 cached buffer。
+        // 这里只是为了统一接口
+        *outIndex = 0; // Dummy
+        *outHandle = nullptr; // Dummy
+
+        // 假设最大音频帧大约 4K-8K，分配 16K 足够
+        const int32_t RAW_BUF_SIZE = 16 * 1024;
+        uint8_t* rawBuf = new uint8_t[RAW_BUF_SIZE];
+        *outData = rawBuf;
+        *outCapacity = RAW_BUF_SIZE;
+        *outHandle = rawBuf; // Store pointer to free later
+        return 0;
+    }
+
+    if (decoder_ == nullptr || context_ == nullptr) return -1;
+
+    std::unique_lock<std::mutex> lock(context_->inputMutex);
+    if (!context_->inputCv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] {
+        return !context_->inputBufferQueue.empty();
+    })) {
+        return -2; // Timeout
+    }
+
+    *outIndex = context_->inputBufferQueue.front();
+    context_->inputBufferQueue.pop();
+
+    OH_AVBuffer* buffer = context_->inputBuffers.front();
+    context_->inputBuffers.pop();
+
+    *outHandle = buffer;
+    *outData = OH_AVBuffer_GetAddr(buffer);
+    *outCapacity = OH_AVBuffer_GetCapacity(buffer);
+
+    return 0;
+}
+
+int32_t AudioDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int64_t pts, int32_t size, uint32_t flags) {
+    if (!isStarted_) {
+        // 如果停止了，Raw模式需要释放内存
+        if (isRaw_ && handle) {
+            delete[] static_cast<uint8_t*>(handle);
+        }
+        return -1;
+    }
+
+    if (isRaw_) {
+        // Raw 模式：hande 是我们 new 出来的 uint8_t*
+        uint8_t* rawBuf = static_cast<uint8_t*>(handle);
+        if (rawBuf) {
+            // PushData 逻辑的变体
+            {
+                std::lock_guard<std::mutex> lock(pcmMutex_);
+                if (pcmPool_.size() < PCM_POOL_SIZE) {
+                    PcmFrame frame;
+                    size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame.data));
+                    std::memcpy(frame.data.data(), rawBuf, copySize);
+                    frame.size = copySize;
+                    frame.offset = 0;
+                    pcmPool_.push(std::move(frame));
+                }
+            }
+            frameCount_++;
+            delete[] rawBuf;
+        }
+        return 0;
+    }
+
+    if (decoder_ == nullptr) return -1;
+
+    OH_AVBuffer* buffer = static_cast<OH_AVBuffer*>(handle);
+
+    OH_AVCodecBufferAttr attr;
+    attr.pts = pts;
+    attr.size = size;
+    attr.offset = 0;
+    attr.flags = flags;
+
+    OH_AVBuffer_SetBufferAttr(buffer, &attr);
+
+    int32_t ret = OH_AudioCodec_PushInputBuffer(decoder_, index);
+    if (ret != AV_ERR_OK) {
+        OH_LOG_ERROR(LOG_APP, "[AudioNative] SubmitInputBuffer failed: %{public}d", ret);
+        return -1;
+    }
+
+    frameCount_++;
+    return 0;
+}
+
 int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     if (!isStarted_) {
         OH_LOG_ERROR(LOG_APP, "[AudioNative] PushData: not started");
@@ -394,6 +492,8 @@ int32_t AudioDecoderNative::Stop() {
 }
 
 int32_t AudioDecoderNative::Release() {
+    if (decoder_ == nullptr && renderer_ == nullptr && context_ == nullptr) return 0;
+    
     Stop();
 
     if (decoder_ != nullptr) {

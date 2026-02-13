@@ -32,11 +32,11 @@ int64_t ScrcpyStreamManager::readInt64BE(const uint8_t* data) {
            (static_cast<int64_t>(data[7]));
 }
 
-std::vector<uint8_t> ScrcpyStreamManager::readExact(int32_t streamId, size_t size) {
+std::vector<uint8_t> ScrcpyStreamManager::readExact(int32_t streamId, size_t size, int32_t timeoutMs) {
     if (!running_.load() || !adb_) {
         throw std::runtime_error("Stream manager not running");
     }
-    auto data = adb_->streamRead(streamId, size);
+    auto data = adb_->streamRead(streamId, size, timeoutMs);
     if (data.size() < size) {
         throw std::runtime_error("Stream closed or read incomplete");
     }
@@ -100,6 +100,19 @@ void ScrcpyStreamManager::stop() {
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
     running_.store(false);
 
+    // Force close streams to unblock read threads
+    if (adb_) {
+        if (config_.videoStreamId >= 0) {
+            adb_->streamClose(config_.videoStreamId);
+        }
+        if (config_.audioStreamId >= 0) {
+            adb_->streamClose(config_.audioStreamId);
+        }
+        if (config_.controlStreamId >= 0) {
+            adb_->streamClose(config_.controlStreamId);
+        }
+    }
+
     // 等待线程退出
     if (videoThread_.joinable()) {
         videoThread_.join();
@@ -146,18 +159,18 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
     try {
         // 1. 读取 dummy byte (1 字节)
-        auto dummy = readExact(config_.videoStreamId, 1);
+        auto dummy = readExact(config_.videoStreamId, 1, 2000); // 2s Timeout
         OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
 
         // 2. 读取设备名 (64 字节)
-        auto deviceNameData = readExact(config_.videoStreamId, 64);
+        auto deviceNameData = readExact(config_.videoStreamId, 64, 2000);
         std::string deviceName(reinterpret_cast<char*>(deviceNameData.data()), 64);
         // 去掉尾零
         deviceName = deviceName.c_str();
         OH_LOG_INFO(LOG_APP, "[VideoThread] Device: %{public}s", deviceName.c_str());
 
         // 3. 读取编码元数据 (12 字节: codecId(4) + width(4) + height(4))
-        auto codecMeta = readExact(config_.videoStreamId, 12);
+        auto codecMeta = readExact(config_.videoStreamId, 12, 2000);
         int32_t codecId = readInt32BE(codecMeta.data());
         int32_t width = readInt32BE(codecMeta.data() + 4);
         int32_t height = readInt32BE(codecMeta.data() + 8);
@@ -200,13 +213,22 @@ void ScrcpyStreamManager::videoThreadFunc() {
         OH_LOG_INFO(LOG_APP, "[VideoThread] Decoder started, entering frame loop");
 
         // 5. 帧读取循环
+        // 5. 帧读取循环
         uint32_t frameCount = 0;
         bool firstFrameNotified = false;
+        
+        uint8_t headerBuf[8]; // Reuse for PTS(8) and Size(4)
 
         while (running_.load()) {
             // 读取 PTS (8 字节)
-            auto ptsData = readExact(config_.videoStreamId, 8);
-            int64_t ptsRaw = readInt64BE(ptsData.data());
+            // Use exact=true to throw if incomplete
+            try {
+                adb_->streamReadToBuffer(config_.videoStreamId, headerBuf, 8, -1, true);
+            } catch (const std::exception& e) {
+                if (running_.load()) OH_LOG_WARN(LOG_APP, "[VideoThread] Stream read error (PTS): %{public}s", e.what());
+                break;
+            }
+            int64_t ptsRaw = readInt64BE(headerBuf);
 
             // 解析 flags
             const int64_t PACKET_FLAG_CONFIG = 1LL << 63;
@@ -220,47 +242,75 @@ void ScrcpyStreamManager::videoThreadFunc() {
             }
 
             // 读取 size (4 字节)
-            auto sizeData = readExact(config_.videoStreamId, 4);
-            int32_t frameSize = readInt32BE(sizeData.data());
+            try {
+                adb_->streamReadToBuffer(config_.videoStreamId, headerBuf, 4, -1, true);
+            } catch (...) {
+                break;
+            }
+            int32_t frameSize = readInt32BE(headerBuf);
 
             if (frameSize <= 0 || frameSize > 20 * 1024 * 1024) {
                 OH_LOG_ERROR(LOG_APP, "[VideoThread] Invalid frame size: %{public}d", frameSize);
                 break;
             }
 
-            // 读取帧数据
-            auto frameData = readExact(config_.videoStreamId, frameSize);
+            // *** ZERO-COPY PATH ***
+            // 1. Acquire Input Buffer
+            uint32_t bufIndex = 0;
+            uint8_t* bufData = nullptr;
+            int32_t bufCapacity = 0;
+            void* bufHandle = nullptr;
+            
+            int32_t getBufRet = -1;
+            while (running_.load()) {
+                getBufRet = videoDecoder_->GetInputBuffer(&bufIndex, &bufData, &bufCapacity, &bufHandle, 10); // 10ms timeout
+                if (getBufRet == 0) break; // Success
+                // If timeout (-2), loop again
+                if (getBufRet != -2) {
+                     OH_LOG_ERROR(LOG_APP, "[VideoThread] GetInputBuffer failed: %{public}d", getBufRet);
+                     break; 
+                }
+            }
+            
+            if (getBufRet != 0) break; // Error or Stopped
+            
+            // 2. Check Capacity
+            if (bufCapacity < frameSize) {
+                 OH_LOG_ERROR(LOG_APP, "[VideoThread] Buffer too small: %{public}d < %{public}d", bufCapacity, frameSize);
+                 // We must read/consume the data from network to stay in sync, even if we drop frame
+                 // Or we could just break/restart?
+                 // For now, let's just drain to a temp buffer and Submit empty flag?
+                 // Or just SubmitInputBuffer with size 0?
+                 // We need to consume stream data!
+                 std::vector<uint8_t> temp(frameSize);
+                 adb_->streamReadToBuffer(config_.videoStreamId, temp.data(), frameSize, -1, true);
+                 
+                 // Return buffer empty
+                 videoDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
+                 continue;
+            }
 
-            // 推送到解码器（带背压处理）
-            int32_t pushResult = videoDecoder_->PushData(frameData.data(), frameSize, cleanPts, flags);
+            // 3. Read directly into Buffer
+            try {
+                adb_->streamReadToBuffer(config_.videoStreamId, bufData, frameSize, -1, true);
+            } catch (...) {
+                 // Return buffer before exiting
+                 videoDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
+                 break;
+            }
 
-            if (pushResult == 0) {
+            // 4. Submit Buffer
+            int32_t submitRet = videoDecoder_->SubmitInputBuffer(bufIndex, bufHandle, cleanPts, frameSize, flags);
+
+            if (submitRet == 0) {
                 frameCount++;
                 if (!firstFrameNotified) {
                     firstFrameNotified = true;
-                    OH_LOG_INFO(LOG_APP, "[VideoThread] First frame decoded");
+                    OH_LOG_INFO(LOG_APP, "[VideoThread] First frame decoded (Zero-Copy)");
                     emitEvent("first_frame", "");
                 }
-            } else if (pushResult == -2) {
-                // Buffer 满，等待重试
-                int retryCount = 0;
-                while (pushResult == -2 && running_.load() && retryCount < 500) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    pushResult = videoDecoder_->PushData(frameData.data(), frameSize, cleanPts, flags);
-                    retryCount++;
-                    if (pushResult == 0) {
-                        frameCount++;
-                        if (!firstFrameNotified) {
-                            firstFrameNotified = true;
-                            emitEvent("first_frame", "");
-                        }
-                    }
-                }
-                if (pushResult == -2) {
-                    OH_LOG_WARN(LOG_APP, "[VideoThread] Frame dropped after %{public}d retries", retryCount);
-                }
             } else {
-                OH_LOG_ERROR(LOG_APP, "[VideoThread] Push failed: %{public}d", pushResult);
+                 OH_LOG_ERROR(LOG_APP, "[VideoThread] Submit failed: %{public}d", submitRet);
             }
         }
 
@@ -275,7 +325,9 @@ void ScrcpyStreamManager::videoThreadFunc() {
         }
     }
 
-    emitEvent("disconnected", "video");
+    if (running_.load()) {
+        emitEvent("disconnected", "video");
+    }
 }
 
 // ===================== Audio Thread =====================
@@ -285,7 +337,8 @@ void ScrcpyStreamManager::audioThreadFunc() {
 
     try {
         // 1. 读取音频 codec header (4 字节)
-        auto codecBytes = readExact(config_.audioStreamId, 4);
+        // 1. 读取音频 codec header (4 字节)
+        auto codecBytes = readExact(config_.audioStreamId, 4, 2000);
         int32_t codecId = readInt32BE(codecBytes.data());
 
         OH_LOG_INFO(LOG_APP, "[AudioThread] Audio codec ID: 0x%{public}x", codecId);
@@ -358,27 +411,65 @@ void ScrcpyStreamManager::audioThreadFunc() {
                 break;
             }
 
-            // 读取帧数据
-            auto frameData = readExact(config_.audioStreamId, frameSize);
+            // *** ZERO-COPY PATH ***
+            // 1. Acquire Input Buffer
+            uint32_t bufIndex = 0;
+            uint8_t* bufData = nullptr;
+            int32_t bufCapacity = 0;
+            void* bufHandle = nullptr;
+
+            int32_t getBufRet = -1;
+            int retryCount = 0;
+            while (running_.load()) {
+                getBufRet = audioDecoder_->GetInputBuffer(&bufIndex, &bufData, &bufCapacity, &bufHandle, 10); // 10ms timeout
+                if (getBufRet == 0) break; // Success
+                
+                // If timeout (-2), loop again (backpressure)
+                if (getBufRet == -2) {
+                    retryCount++;
+                    if (retryCount % 100 == 0) {
+                         // OH_LOG_WARN(LOG_APP, "[AudioThread] Waiting for input buffer...");
+                    }
+                    continue; 
+                }
+                
+                OH_LOG_ERROR(LOG_APP, "[AudioThread] GetInputBuffer failed: %{public}d", getBufRet);
+                break;
+            }
+
+            if (getBufRet != 0) break; // Error or Stopped
+
+            // 2. Check Capacity
+            if (bufCapacity < frameSize) {
+                 OH_LOG_ERROR(LOG_APP, "[AudioThread] Buffer too small: %{public}d < %{public}d", bufCapacity, frameSize);
+                 // Consume data ensuring synchronization
+                 std::vector<uint8_t> temp(frameSize);
+                 adb_->streamReadToBuffer(config_.audioStreamId, temp.data(), frameSize, -1, true);
+                 
+                 // Return buffer empty
+                 audioDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
+                 continue;
+            }
+
+            // 3. Read directly into Buffer
+            try {
+                adb_->streamReadToBuffer(config_.audioStreamId, bufData, frameSize, -1, true);
+            } catch (...) {
+                 // Return buffer before exiting
+                 audioDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
+                 break;
+            }
 
             if (isConfig) {
                 OH_LOG_INFO(LOG_APP, "[AudioThread] Config packet: %{public}d bytes", frameSize);
             }
 
-            // 推送到解码器（带背压处理）
-            int32_t pushResult = audioDecoder_->PushData(frameData.data(), frameSize, cleanPts);
+            // 4. Submit Buffer
+            // Audio decoder doesn't use specific flags for now, but we pass 0
+            int32_t submitRet = audioDecoder_->SubmitInputBuffer(bufIndex, bufHandle, cleanPts, frameSize, 0);
 
-            if (pushResult == -2) {
-                int retryCount = 0;
-                while (pushResult == -2 && running_.load() && retryCount < 500) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    pushResult = audioDecoder_->PushData(frameData.data(), frameSize, cleanPts);
-                    retryCount++;
-                }
-            }
-
-            if (pushResult < 0 && pushResult != -2) {
-                OH_LOG_WARN(LOG_APP, "[AudioThread] Push frame failed: %{public}d", pushResult);
+            if (submitRet != 0) {
+                 OH_LOG_WARN(LOG_APP, "[AudioThread] Submit failed: %{public}d", submitRet);
             }
         }
 

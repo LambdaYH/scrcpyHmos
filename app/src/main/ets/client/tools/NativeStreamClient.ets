@@ -16,7 +16,7 @@
 import { Device } from '../../entity/Device';
 import { ClientStream } from './ClientStream';
 // Import as any/unknown first to allow casting
-import * as libscrcpyAny from 'libscrcpy_native.so';
+import * as libscrcpy from 'libscrcpy_native.so';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager } from '../../helper/ServerManager';
 import fs from '@ohos.file.fs';
@@ -25,30 +25,6 @@ import { LoggerClientStream } from '../../helper/Logger';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 
-// Define explicit interface to avoid 'any' type errors if .d.ts is not picked up
-interface ScrcpyNativeModule {
-  adbCreate(fd: number): number;
-  adbConnect(adbId: number, pubKeyPath: string, priKeyPath: string): number;
-  adbLocalSocketForward(adbId: number, socketName: string): number;
-  adbClose(adbId: number): void;
-  nativeStartStreams(
-    adbId: number,
-    videoStreamId: number,
-    audioStreamId: number,
-    controlStreamId: number,
-    surfaceId: string,
-    videoWidth: number,
-    videoHeight: number,
-    audioSampleRate: number,
-    audioChannelCount: number,
-    callback: (type: string, data: string) => void
-  ): number;
-  nativeStopStreams(): void;
-  nativeSendControl(data: ArrayBuffer): void;
-}
-
-// Cast the imported module to the interface
-const libscrcpy = libscrcpyAny as Object as ScrcpyNativeModule;
 
 export interface NativeStreamListener {
   onVideoConfig: (width: number, height: number) => void;
@@ -161,45 +137,22 @@ export class NativeStreamClient {
   private async connectNativeAdb(): Promise<void> {
     LoggerClientStream.info('[NativeStreamClient] Establishing native ADB connection...');
 
-    // 1. Create Socket
-    this.nativeSocket = socket.constructTCPSocketInstance();
-    const address: socket.NetAddress = {
-      address: this.device.address,
-      port: this.device.adbPort,
-      family: 1 // IPv4
-    };
+    const ip = this.device.address;
+    const port = this.device.adbPort;
+
+    LoggerClientStream.info(`[NativeStreamClient] Connecting to ${ip}:${port} via Native C++...`);
+
+    // Call native adbCreate with IP and Port directly
+    // This avoids ArkTS socket ownership issues where data might be read away by the runtime
+    this.adbId = libscrcpy.adbCreate(ip, port);
     
-    await this.nativeSocket.connect({ address: address });
-    LoggerClientStream.info(`[NativeStreamClient] Connected to ${this.device.address}:${this.device.adbPort}`);
-
-    // 2. Get FD
-    let fd = -1;
-    try {
-       // Use type assertion to access getSocketFd via Object
-       // Note: getSocketFd() returns a Promise<number>, must await
-       const rawSocket = this.nativeSocket as Object as Record<string, Object>;
-       if (typeof rawSocket.getSocketFd === 'function') {
-         fd = await (rawSocket.getSocketFd as Function)() as number;
-       } else {
-         // Try accessing via property if method doesn't exist (hack)
-         fd = (rawSocket['fd'] as number) || -1;
-       }
-    } catch (e) {
-      LoggerClientStream.error('[NativeStreamClient] Failed to get socket FD:', e);
-    }
-
-    if (fd < 0) {
-      throw new Error("Failed to retrieve valid socket file descriptor. Platform not supported?");
-    }
-    LoggerClientStream.info(`[NativeStreamClient] Got Socket FD: ${fd}`);
-
-    // 3. Create Native ADB Instance
-    this.adbId = libscrcpy.adbCreate(fd);
     if (this.adbId < 0) {
-      throw new Error("Failed to create native ADB instance");
+        throw new Error(`Native ADB Create/Connect failed to ${ip}:${port}`);
     }
+    
+    LoggerClientStream.info(`[NativeStreamClient] Native ADB instance created: ${this.adbId}`);
 
-    // 4. Authenticate
+    // 2. Authenticate
     // We need to write keys to temp files for native layer to read
     const keyManager = AdbKeyManager.getInstance();
     const tempDir = this.context.tempDir;
@@ -214,16 +167,8 @@ export class NativeStreamClient {
         fs.closeSync(pubFile);
 
         // Write Private Key (PEM Format)
-        // Native AdbKeyPair expects PEM
-        const base64Helper = new util.Base64Helper();
         const priKeyBase64 = keyManager.getPrivateKey();
-        
-        let pemContent = "-----BEGIN PRIVATE KEY-----\n";
-        // Simple manual formatting to add newlines every 64 chars is respectful but not strictly required for all parsers
-        // But let's just write the whole base64 blob, most parsers handle it.
-        // Better: AdbKeyPair.cpp handles cleaning newlines, so one line is fine.
-        pemContent += priKeyBase64;
-        pemContent += "\n-----END PRIVATE KEY-----";
+        const pemContent = "-----BEGIN PRIVATE KEY-----\n" + priKeyBase64 + "\n-----END PRIVATE KEY-----";
 
         const priFile = fs.openSync(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
         fs.writeSync(priFile.fd, pemContent);
@@ -232,21 +177,23 @@ export class NativeStreamClient {
         LoggerClientStream.info(`[NativeStreamClient] Keys written to temp: ${pubKeyPath}`);
 
         // Call Native Connect
-        const res = libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath);
+        const res: number = libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath);
         
-        // Clean up keys
-        try {
-            fs.unlinkSync(pubKeyPath);
-            fs.unlinkSync(priKeyPath);
-        } catch (e) {}
+        // Clean up keys (optional, maybe keep them for debugging or next time?)
+        // fs.unlinkSync(pubKeyPath);
+        // fs.unlinkSync(priKeyPath);
 
-        if (res !== 0) {
+        if (res !== 0 && res !== 1) { // 0=OK, 1=NeedAuth
             throw new Error(`Native ADB Connect failed with code ${res}`);
         }
-        LoggerClientStream.info('[NativeStreamClient] Native ADB Authenticated');
+        if (res === 1) {
+             LoggerClientStream.info('[NativeStreamClient] Authentication required (User confirmation needed on device)');
+        } else {
+             LoggerClientStream.info('[NativeStreamClient] Native ADB Authenticated');
+        }
 
     } catch (err) {
-        LoggerClientStream.error('[NativeStreamClient] Auth failed:', err);
+        LoggerClientStream.error('[NativeStreamClient] Auth failed:', JSON.stringify(err));
         throw (err instanceof Error) ? err : new Error(String(err));
     }
   }
@@ -256,8 +203,21 @@ export class NativeStreamClient {
     LoggerClientStream.info(`[NativeStreamClient] Forwarding streams to localabstract:${socketName}`);
 
     // 1. Video Stream (Wait for 1st connection behaviour - Dummy Byte handled by native thread)
-    this.videoStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
-    if (this.videoStreamId < 0) throw new Error("Failed to connect Video stream");
+    // Retry mechanism to wait for server to start listening
+    let retries = 50; // 50 * 100ms = 5 seconds
+    while (retries > 0) {
+      this.videoStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
+      if (this.videoStreamId >= 0) {
+        break;
+      }
+      retries--;
+      if (retries === 0) {
+        throw new Error("Failed to connect Video stream after multiple retries");
+      }
+      LoggerClientStream.warn(`[NativeStreamClient] Video stream connect failed, retrying... (${retries} left)`);
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+    }
+    
     LoggerClientStream.info(`[NativeStreamClient] Video Stream Connected (ID: ${this.videoStreamId})`);
 
     // 2. Audio Stream
@@ -291,7 +251,7 @@ export class NativeStreamClient {
                     const config = JSON.parse(data) as VideoConfig;
                     this.listener.onVideoConfig(config.width, config.height);
                 } catch (e) {
-                    LoggerClientStream.error('Parse video config failed:', e);
+                    LoggerClientStream.error('Parse video config failed:', JSON.stringify(e));
                 }
                 break;
             case 'clipboard':
@@ -315,7 +275,7 @@ export class NativeStreamClient {
     const audioSampleRate = 48000;
     const audioChannels = 2;
 
-    const res = libscrcpy.nativeStartStreams(
+        const res: number = libscrcpy.nativeStartStreams(
         this.adbId,
         this.videoStreamId,
         this.audioStreamId, // -1 if disabled
