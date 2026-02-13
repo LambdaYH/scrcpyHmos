@@ -58,7 +58,8 @@ export class ClientStream {
   // 为 Native 模式准备服务端：连接ADB，推送服务端，启动服务端，但不打开流
   async prepareServerForNative(
     context: Context, // 需要Context来获取AdbKeyManager
-    serverJarData: ArrayBuffer | null
+    serverJarData: ArrayBuffer | null,
+    onWaitAuth?: () => void
   ): Promise<boolean> {
     try {
       this.isClosing = false;
@@ -88,12 +89,12 @@ export class ClientStream {
 
       // 2. 连接ADB (Native)
       LoggerClientStream.info(`[ClientStream] Connecting to Native ADB at ${this.device.address}:${this.device.adbPort}`);
-      this.adbId = libscrcpy.adbCreate(this.device.address, this.device.adbPort);
+      this.adbId = await libscrcpy.adbCreate(this.device.address, this.device.adbPort);
       if (this.adbId < 0) {
           throw new Error('Native ADB Create failed');
       }
 
-      const connectRes: number = libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath);
+      const connectRes: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, onWaitAuth);
       if (connectRes !== 0) {
           throw new Error(`Native ADB Connect failed: ${connectRes}`);
       }

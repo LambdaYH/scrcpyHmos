@@ -32,6 +32,7 @@ export interface NativeStreamListener {
   onDisconnect: (reason: string) => void;
   onError: (error: string) => void;
   onClipboard: (text: string) => void;
+  onWaitAuth?: () => void;
 }
 
 export class NativeStreamClient {
@@ -63,7 +64,12 @@ export class NativeStreamClient {
 
       // 1. Prepare Server (ArkTS side)
       // This ensures scrcpy-server is running on the device
-      const ready = await this.clientStream.prepareServerForNative(this.context, serverJarData);
+      const ready = await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
+          LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from ClientStream');
+          if (this.listener && this.listener.onWaitAuth) {
+              this.listener.onWaitAuth();
+          }
+      });
       if (!ready) {
         throw new Error("Failed to prepare scrcpy server");
       }
@@ -144,7 +150,7 @@ export class NativeStreamClient {
 
     // Call native adbCreate with IP and Port directly
     // This avoids ArkTS socket ownership issues where data might be read away by the runtime
-    this.adbId = libscrcpy.adbCreate(ip, port);
+    this.adbId = await libscrcpy.adbCreate(ip, port);
     
     if (this.adbId < 0) {
         throw new Error(`Native ADB Create/Connect failed to ${ip}:${port}`);
@@ -176,8 +182,13 @@ export class NativeStreamClient {
 
         LoggerClientStream.info(`[NativeStreamClient] Keys written to temp: ${pubKeyPath}`);
 
-        // Call Native Connect
-        const res: number = libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath);
+        // Call Native Connect with onWaitAuth callback
+        const res: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, () => {
+            LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from native');
+            if (this.listener && this.listener.onWaitAuth) {
+                this.listener.onWaitAuth();
+            }
+        });
         
         // Clean up keys (optional, maybe keep them for debugging or next time?)
         // fs.unlinkSync(pubKeyPath);

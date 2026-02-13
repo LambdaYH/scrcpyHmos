@@ -254,6 +254,15 @@ struct ControlPage {
       },
       onClipboard: (text: string) => {
         this.syncClipboardToSystem(text);
+      },
+      onWaitAuth: () => {
+        LoggerControlPage.info('[ControlPage] Waiting for ADB Authorization...');
+        this.connectionStatus = this.getResString($r('app.string.adb_auth_waiting'));
+        try {
+             this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
+        } catch (e) {
+          LoggerControlPage.error('Show toast failed:', e);
+        }
       }
     };
 

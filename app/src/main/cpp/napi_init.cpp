@@ -278,6 +278,108 @@ static std::unordered_map<int64_t, Adb*> g_adbInstances;
 static int64_t g_nextAdbId = 1;
 
 // 创建ADB实例 - adbCreate(ip, port) => adbId
+// 异步任务上下文
+struct AdbCreateContext {
+    napi_async_work work;
+    napi_deferred deferred;
+    napi_ref callbackRef = nullptr;
+    
+    std::string ip;
+    int32_t port;
+    int64_t resultAdbId = -1;
+    bool success = false;
+    std::string errorMsg;
+};
+
+// 异步执行函数 (后台线程)
+static void ExecuteAdbCreate(napi_env env, void* data) {
+    AdbCreateContext* context = static_cast<AdbCreateContext*>(data);
+    try {
+        Adb* adb = Adb::create(context->ip, context->port);
+        if (adb) {
+            // 注意: 这里不能直接操作 g_adbInstances，因为它是全局的且非线程安全的
+            // 我们只在 Execute 中创建对象，Id 分配和 Map 插入放到 Complete (主线程) 中
+            // 但我们需要把 adb 指针传回去。
+            // 实际上 g_nextAdbId 也应该在主线程访问。
+            // 所以这里只负责 new Adb
+            // 为了传递指针，我们将 Adb* 类型转换存入 resultAdbId (虽然 hacky，但这里我们用一个临时成员变量吧)
+            // wait, context struct is ours to define. Let's add Adb* adbInstance to it.
+            // But I cannot change the struct definition easily in this replace block without seeing it.
+            // So I will just cast the pointer to int64_t for storage if needed, OR better:
+            // I defined the struct above. I can add members!
+            context->success = true;
+            // Hack: Store pointer in resultAdbId temporarily? No, resultAdbId is int64.
+            // Let's redefine struct properly.
+        } else {
+            context->success = false;
+            context->errorMsg = "Adb::create returned nullptr";
+        }
+        // Wait, I need to store the `adb` pointer.
+        // I will re-declare the struct with `Adb* adbInstance` below.
+    } catch (const std::exception& e) {
+        context->success = false;
+        context->errorMsg = e.what();
+    }
+}
+
+// 重新定义 Context 包含 Adb指针
+struct AdbCreateContextFull {
+    napi_async_work work;
+    napi_deferred deferred;
+    napi_ref callbackRef = nullptr;
+    
+    std::string ip;
+    int32_t port;
+    
+    Adb* adbInstance = nullptr; // Created in BG
+    int64_t resultAdbId = -1;
+    bool success = false;
+    std::string errorMsg;
+};
+
+static void ExecuteAdbCreateFull(napi_env env, void* data) {
+    AdbCreateContextFull* context = static_cast<AdbCreateContextFull*>(data);
+    try {
+        context->adbInstance = Adb::create(context->ip, context->port);
+        if (context->adbInstance) {
+            context->success = true;
+        } else {
+            context->success = false;
+            context->errorMsg = "Adb::create returned nullptr";
+        }
+    } catch (const std::exception& e) {
+        context->success = false;
+        context->errorMsg = e.what();
+    }
+}
+
+// 异步完成函数 (主线程)
+static void CompleteAdbCreateFull(napi_env env, napi_status status, void* data) {
+    AdbCreateContextFull* context = static_cast<AdbCreateContextFull*>(data);
+    napi_value result;
+
+    if (context->success && context->adbInstance) {
+        int64_t adbId = g_nextAdbId++;
+        g_adbInstances[adbId] = context->adbInstance;
+        napi_create_int64(env, adbId, &result);
+        
+        OH_LOG_INFO(LOG_APP, "[NAPI] AdbCreate success: id=%{public}lld, ip=%{public}s, port=%{public}d",
+                    (long long)adbId, context->ip.c_str(), context->port);
+        
+        napi_resolve_deferred(env, context->deferred, result);
+    } else {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbCreate failed: %{public}s", context->errorMsg.c_str());
+        napi_create_int64(env, -1, &result);
+        // Resolve with -1 instead of reject to maintain simpler logic on TS side (or reject?)
+        // The original sync code returned -1. Let's resolve with -1.
+        napi_resolve_deferred(env, context->deferred, result);
+    }
+
+    napi_delete_async_work(env, context->work);
+    delete context;
+}
+
+// 创建ADB实例 - adbCreate(ip, port) => Promise<number>
 static napi_value AdbCreate(napi_env env, napi_callback_info info) {
     size_t argc = 2;
     napi_value args[2];
@@ -290,56 +392,151 @@ static napi_value AdbCreate(napi_env env, napi_callback_info info) {
     napi_get_value_string_utf8(env, args[0], ip, sizeof(ip), &ipLen);
     napi_get_value_int32(env, args[1], &port);
 
-    napi_value result;
-    try {
-        Adb* adb = Adb::create(std::string(ip), port);
-        if (adb) {
-            int64_t adbId = g_nextAdbId++;
-            g_adbInstances[adbId] = adb;
-            napi_create_int64(env, adbId, &result);
-            OH_LOG_INFO(LOG_APP, "[NAPI] AdbCreate success: id=%{public}lld, ip=%{public}s, port=%{public}d",
-                        (long long)adbId, ip, port);
-        } else {
-             OH_LOG_ERROR(LOG_APP, "[NAPI] Adb::create returned nullptr");
-             napi_create_int64(env, -1, &result);
-        }
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbCreate failed: %{public}s", e.what());
-        napi_create_int64(env, -1, &result);
-    }
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbCreate", NAPI_AUTO_LENGTH, &resourceName);
+
+    AdbCreateContextFull* context = new AdbCreateContextFull();
+    context->ip = ip;
+    context->port = port;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        ExecuteAdbCreateFull,
+        CompleteAdbCreateFull,
+        (void*)context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+
+    return promise;
 }
 
-// ADB连接认证 - adbConnect(adbId, pubKeyPath, priKeyPath) => int (0=ok, 1=needAuth, -1=fail)
+// 异步连接上下文
+// 异步连接上下文
+struct AdbConnectContext {
+    napi_async_work work;
+    napi_deferred deferred;
+    
+    int64_t adbId;
+    std::string pubKeyPath;
+    std::string priKeyPath;
+    
+    Adb* adbInstance = nullptr;
+
+    int32_t result = -1;
+    bool success = false;
+    std::string errorMsg;
+    
+    napi_threadsafe_function tsfn = nullptr;
+};
+
+static void ExecuteAdbConnect(napi_env env, void* data) {
+    AdbConnectContext* context = static_cast<AdbConnectContext*>(data);
+    if (!context->adbInstance) {
+        context->success = false;
+        context->errorMsg = "Adb instance not found or invalid";
+        return;
+    }
+
+    try {
+        AdbKeyPair keyPair = AdbKeyPair::read(context->pubKeyPath, context->priKeyPath);
+        
+        auto onWaitAuth = [context]() {
+            if (context->tsfn) {
+                // 回调到主线程
+                napi_call_threadsafe_function(context->tsfn, nullptr, napi_tsfn_blocking);
+            }
+        };
+
+        context->result = context->adbInstance->connect(keyPair, onWaitAuth);
+        context->success = true;
+    } catch (const std::exception& e) {
+        context->success = false;
+        context->errorMsg = e.what();
+    }
+}
+
+static void CompleteAdbConnect(napi_env env, napi_status status, void* data) {
+    AdbConnectContext* context = static_cast<AdbConnectContext*>(data);
+    napi_value result;
+
+    if (context->success) {
+        napi_create_int32(env, context->result, &result);
+        napi_resolve_deferred(env, context->deferred, result);
+    } else {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbConnect failed: %{public}s", context->errorMsg.c_str());
+        napi_create_int32(env, -1, &result);
+        napi_resolve_deferred(env, context->deferred, result);
+    }
+
+    if (context->tsfn) {
+        napi_release_threadsafe_function(context->tsfn, napi_tsfn_release);
+        context->tsfn = nullptr;
+    }
+
+    napi_delete_async_work(env, context->work);
+    delete context;
+}
+
+// ADB连接认证 - adbConnect(adbId, pubKeyPath, priKeyPath, onWaitAuthCallback?) => Promise<number>
 static napi_value AdbConnect(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 4;
+    napi_value args[4];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
-    char pubKeyPath[512], priKeyPath[512];
-    size_t pubLen, priLen;
+    char pubKeyPath[512];
+    char priKeyPath[512];
+    size_t pubLen;
+    size_t priLen;
 
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_string_utf8(env, args[1], pubKeyPath, sizeof(pubKeyPath), &pubLen);
     napi_get_value_string_utf8(env, args[2], priKeyPath, sizeof(priKeyPath), &priLen);
 
-    napi_value result;
+    // 查找 ADB 实例 (在主线程进行)
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        napi_create_int32(env, -1, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    try {
-        AdbKeyPair keyPair = AdbKeyPair::read(pubKeyPath, priKeyPath);
-        int32_t ret = it->second->connect(keyPair);
-        napi_create_int32(env, ret, &result);
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbConnect failed: %{public}s", e.what());
-        napi_create_int32(env, -1, &result);
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbConnect", NAPI_AUTO_LENGTH, &resourceName);
+
+    AdbConnectContext* context = new AdbConnectContext();
+    context->adbId = adbId;
+    context->pubKeyPath = pubKeyPath;
+    context->priKeyPath = priKeyPath;
+    context->adbInstance = it->second;
+
+    // Check for optional callback
+    if (argc >= 4) {
+        napi_valuetype type;
+        napi_typeof(env, args[3], &type);
+        if (type == napi_function) {
+            napi_create_threadsafe_function(env, args[3], nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr, nullptr, &context->tsfn);
+        }
     }
-    return result;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        ExecuteAdbConnect,
+        CompleteAdbConnect,
+        (void*)context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+
+    return promise;
 }
 
 // 执行ADB命令 - adbRunCmd(adbId, cmd) => string

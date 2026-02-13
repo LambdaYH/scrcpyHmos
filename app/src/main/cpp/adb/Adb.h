@@ -21,9 +21,10 @@
 #include <queue> // Added missing include
 
 // 进度回调函数类型
-using ProcessCallback = std::function<void(int progress)>;
+    // 进度回调函数类型
+    using ProcessCallback = std::function<void(int progress)>;
+    using AuthCallback = std::function<void()>;
 
-// 内部流数据结构 (替代ArkTS的BufferStream)
 // 内部流数据结构 (替代ArkTS的BufferStream)
 struct AdbStream {
     int32_t localId = 0;
@@ -35,11 +36,6 @@ struct AdbStream {
     // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
     // 默认 4MB 容量
     RingBuffer readBuffer{4 * 1024 * 1024};
-
-    // 关闭前的累积数据 - 也可以考虑放入 RingBuffer 或保留
-    // 为了简单起见，RingBuffer 关闭后仍可读，所以不需要单独的 closedData
-    // 但如果 RingBuffer 满时关闭 ?? RingBuffer.close() 处理了
-    // std::vector<uint8_t> closedData; // Removed
     
     AdbStream() = default;
 };
@@ -51,17 +47,13 @@ public:
 
     // 通过fd创建并连接ADB实例
     // fd由ArkTS传入，不在C++中创建网络连接
-    // 通过fd创建并连接ADB实例
-    // fd由ArkTS传入，不在C++中创建网络连接
     static Adb* create(int fd);
 
     // 通过IP和端口创建并连接ADB实例 (C++直接创建Socket)
-    static Adb* create(const std::string& ip, int port);
-
-    // ADB认证连接
+    static Adb* create(const std::string& ip, int port);    // ADB认证连接
     // 如果需要认证，needAuth会被设置为true，此时需要ArkTS弹出授权对话框
     // 返回值: 0=成功, 1=需要用户授权(已发送公钥), -1=失败
-    int connect(AdbKeyPair& keyPair);
+    int connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth = nullptr);
 
     // 执行ADB命令
     std::string runAdbCmd(const std::string& cmd);

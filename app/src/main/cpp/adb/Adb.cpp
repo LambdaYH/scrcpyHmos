@@ -42,7 +42,7 @@ static AdbMessage readMessageFromChannel(AdbChannel* channel, int timeoutMs = -1
     return msg;
 }
 
-int Adb::connect(AdbKeyPair& keyPair) {
+int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     // 发送CONNECT消息
     OH_LOG_INFO(LOG_APP, "ADB: Sending CONNECT message...");
     auto connectMsg = AdbProtocol::generateConnect();
@@ -99,10 +99,22 @@ int Adb::connect(AdbKeyPair& keyPair) {
                                                         keyPair.getPublicKeyBytes().size());
             channel_->write(pubKeyMsg.data(), pubKeyMsg.size());
             OH_LOG_INFO(LOG_APP, "ADB: Public key sent, waiting for CNXN...");
-            // Wait longer for user confirmation (e.g. 10s or indefinite? Original used indefinite)
-            // But main thread... let's use indefinite or very long logic if we could.
-            // For now use default blocking read (indefinite) because user needs time to click "Allow".
-            message = readMessageFromChannel(channel_); 
+            
+            if (onWaitAuth) {
+                OH_LOG_INFO(LOG_APP, "ADB: Invoking onWaitAuth callback");
+                onWaitAuth();
+            }
+
+            // Wait longer for user confirmation (e.g. 30s)
+            // But if user cancels, TcpChannel::close() will unblock read() via shutdown().
+            try {
+                message = readMessageFromChannel(channel_, 30000); 
+            } catch (const std::exception& e) {
+                 OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN error/timeout: %{public}s", e.what());
+                 channel_->close();
+                 return -1;
+            }
+
             OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u",
                         message.command, message.arg0, message.arg1);
         }
