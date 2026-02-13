@@ -361,6 +361,416 @@ static napi_value DestroyBufferPool(napi_env env, napi_callback_info info) {
     return undefined;
 }
 
+// ============== ADB Module ==============
+
+#include "adb/Adb.h"
+#include "adb/AdbKeyPair.h"
+
+static std::unordered_map<int64_t, Adb*> g_adbInstances;
+static int64_t g_nextAdbId = 1;
+
+// 创建ADB实例 - adbCreate(fd) => adbId
+static napi_value AdbCreate(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int32_t fd;
+    napi_get_value_int32(env, args[0], &fd);
+
+    napi_value result;
+    try {
+        Adb* adb = Adb::create(fd);
+        int64_t adbId = g_nextAdbId++;
+        g_adbInstances[adbId] = adb;
+        napi_create_int64(env, adbId, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbCreate failed: %{public}s", e.what());
+        napi_create_int64(env, -1, &result);
+    }
+    return result;
+}
+
+// ADB连接认证 - adbConnect(adbId, pubKeyPath, priKeyPath) => int (0=ok, 1=needAuth, -1=fail)
+static napi_value AdbConnect(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char pubKeyPath[512], priKeyPath[512];
+    size_t pubLen, priLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], pubKeyPath, sizeof(pubKeyPath), &pubLen);
+    napi_get_value_string_utf8(env, args[2], priKeyPath, sizeof(priKeyPath), &priLen);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        AdbKeyPair keyPair = AdbKeyPair::read(pubKeyPath, priKeyPath);
+        int32_t ret = it->second->connect(keyPair);
+        napi_create_int32(env, ret, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbConnect failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+// 执行ADB命令 - adbRunCmd(adbId, cmd) => string
+static napi_value AdbRunCmd(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char cmd[4096];
+    size_t cmdLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], cmd, sizeof(cmd), &cmdLen);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_string_utf8(env, "", 0, &result);
+        return result;
+    }
+
+    try {
+        std::string output = it->second->runAdbCmd(cmd);
+        napi_create_string_utf8(env, output.c_str(), output.size(), &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbRunCmd failed: %{public}s", e.what());
+        napi_create_string_utf8(env, "", 0, &result);
+    }
+    return result;
+}
+
+// 推送文件 - adbPushFile(adbId, data, remotePath) => void
+static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    void* data;
+    size_t dataSize;
+    char remotePath[1024];
+    size_t pathLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
+    napi_get_value_string_utf8(env, args[2], remotePath, sizeof(remotePath), &pathLen);
+
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        try {
+            it->second->pushFile(static_cast<uint8_t*>(data), dataSize, remotePath);
+        } catch (const std::exception& e) {
+            OH_LOG_ERROR(LOG_APP, "[NAPI] AdbPushFile failed: %{public}s", e.what());
+        }
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
+// TCP端口转发 - adbTcpForward(adbId, port) => streamId
+static napi_value AdbTcpForward(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t port;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &port);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        int32_t streamId = it->second->tcpForward(port);
+        napi_create_int32(env, streamId, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbTcpForward failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+// 本地Socket转发 - adbLocalSocketForward(adbId, socketName) => streamId
+static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char socketName[256];
+    size_t nameLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        int32_t streamId = it->second->localSocketForward(socketName);
+        napi_create_int32(env, streamId, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbLocalSocketForward failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+// 从流读取 - adbStreamRead(adbId, streamId, size) => ArrayBuffer
+static napi_value AdbStreamRead(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t streamId, size;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &streamId);
+    napi_get_value_int32(env, args[2], &size);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        void* buf;
+        napi_create_arraybuffer(env, 0, &buf, &result);
+        return result;
+    }
+
+    try {
+        auto data = it->second->streamRead(streamId, static_cast<size_t>(size));
+        void* buf;
+        napi_create_arraybuffer(env, data.size(), &buf, &result);
+        if (!data.empty()) {
+            std::memcpy(buf, data.data(), data.size());
+        }
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbStreamRead failed: %{public}s", e.what());
+        void* buf;
+        napi_create_arraybuffer(env, 0, &buf, &result);
+    }
+    return result;
+}
+
+// 向流写入 - adbStreamWrite(adbId, streamId, data)
+static napi_value AdbStreamWrite(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t streamId;
+    void* data;
+    size_t dataSize;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &streamId);
+    napi_get_arraybuffer_info(env, args[2], &data, &dataSize);
+
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        try {
+            it->second->streamWrite(streamId, static_cast<uint8_t*>(data), dataSize);
+        } catch (const std::exception& e) {
+            OH_LOG_ERROR(LOG_APP, "[NAPI] AdbStreamWrite failed: %{public}s", e.what());
+        }
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
+// 关闭流 - adbStreamClose(adbId, streamId)
+static napi_value AdbStreamClose(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t streamId;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &streamId);
+
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        it->second->streamClose(streamId);
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
+// 关闭ADB - adbClose(adbId)
+static napi_value AdbClose(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    napi_get_value_int64(env, args[0], &adbId);
+
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        it->second->close();
+        delete it->second;
+        g_adbInstances.erase(it);
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
+// 生成密钥对 - adbGenerateKeyPair(pubKeyPath, priKeyPath)
+static napi_value AdbGenerateKeyPair(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char pubKeyPath[512], priKeyPath[512];
+    size_t pubLen, priLen;
+
+    napi_get_value_string_utf8(env, args[0], pubKeyPath, sizeof(pubKeyPath), &pubLen);
+    napi_get_value_string_utf8(env, args[1], priKeyPath, sizeof(priKeyPath), &priLen);
+
+    napi_value result;
+    try {
+        AdbKeyPair::generate(pubKeyPath, priKeyPath);
+        napi_create_int32(env, 0, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbGenerateKeyPair failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+// 检查ADB是否已连接 - adbIsConnected(adbId) => bool
+static napi_value AdbIsConnected(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    napi_get_value_int64(env, args[0], &adbId);
+
+    bool connected = false;
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        connected = !it->second->isAdbClosed();
+    }
+
+    napi_value result;
+    napi_get_boolean(env, connected, &result);
+    return result;
+}
+
+// 获取Shell - adbGetShell(adbId) => streamId
+static napi_value AdbGetShell(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    napi_get_value_int64(env, args[0], &adbId);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        int32_t streamId = it->second->getShell();
+        napi_create_int32(env, streamId, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbGetShell failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+// 切换TCP模式 - adbRestartOnTcpip(adbId, port) => string
+static napi_value AdbRestartOnTcpip(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t port;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &port);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_string_utf8(env, "", 0, &result);
+        return result;
+    }
+
+    try {
+        std::string output = it->second->restartOnTcpip(port);
+        napi_create_string_utf8(env, output.c_str(), output.size(), &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbRestartOnTcpip failed: %{public}s", e.what());
+        napi_create_string_utf8(env, "", 0, &result);
+    }
+    return result;
+}
+
+// 流是否已关闭 - adbIsStreamClosed(adbId, streamId) => bool
+static napi_value AdbIsStreamClosed(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t streamId;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &streamId);
+
+    bool closed = true;
+    auto it = g_adbInstances.find(adbId);
+    if (it != g_adbInstances.end()) {
+        closed = it->second->isStreamClosed(streamId);
+    }
+
+    napi_value result;
+    napi_get_boolean(env, closed, &result);
+    return result;
+}
+
 // ============== Module Registration ==============
 
 EXTERN_C_START
@@ -383,6 +793,23 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"allocNativeBuffer", nullptr, AllocNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseNativeBuffer", nullptr, ReleaseNativeBuffer, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"destroyBufferPool", nullptr, DestroyBufferPool, nullptr, nullptr, nullptr, napi_default, nullptr},
+
+        // ADB API
+        {"adbCreate", nullptr, AdbCreate, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbConnect", nullptr, AdbConnect, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbRunCmd", nullptr, AdbRunCmd, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbTcpForward", nullptr, AdbTcpForward, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbLocalSocketForward", nullptr, AdbLocalSocketForward, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbGetShell", nullptr, AdbGetShell, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbRestartOnTcpip", nullptr, AdbRestartOnTcpip, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbStreamRead", nullptr, AdbStreamRead, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbStreamWrite", nullptr, AdbStreamWrite, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbStreamClose", nullptr, AdbStreamClose, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbIsStreamClosed", nullptr, AdbIsStreamClosed, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbClose", nullptr, AdbClose, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbGenerateKeyPair", nullptr, AdbGenerateKeyPair, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbIsConnected", nullptr, AdbIsConnected, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
@@ -403,3 +830,4 @@ static napi_module demoModule = {
 extern "C" __attribute__((constructor)) void RegisterModule(void) {
     napi_module_register(&demoModule);
 }
+

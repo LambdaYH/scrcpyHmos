@@ -10,6 +10,11 @@ add_library(scrcpy_native SHARED
     audio_decoder_native.cpp
 
     native_buffer_pool.cpp
+    adb/AdbProtocol.cpp
+    adb/AdbBase64.cpp
+    adb/TcpChannel.cpp
+    adb/AdbKeyPair.cpp
+    adb/Adb.cpp
     napi_init.cpp
 )
 
@@ -22,4 +27,6 @@ target_link_libraries(scrcpy_native PUBLIC
     libnative_media_acodec.so
     libnative_window.so
     libohaudio.so
+    libohcrypto.so
 )
+
