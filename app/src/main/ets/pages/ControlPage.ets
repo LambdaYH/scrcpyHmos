@@ -62,6 +62,7 @@ struct ControlPage {
   }
 
   aboutToAppear() {
+    this.isPageActive = true;
     this.isExiting = false;
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
@@ -102,6 +103,7 @@ struct ControlPage {
   }
   
   aboutToDisappear() {
+    this.isPageActive = false;
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
 
     // 停止自动隐藏定时器
@@ -140,6 +142,7 @@ struct ControlPage {
 
   // 追踪是否正在退出，防止多重调用
   private isExiting: boolean = false;
+  private isPageActive: boolean = false;
 
   // 统一退出页面逻辑
   async exitPage() {
@@ -290,6 +293,10 @@ struct ControlPage {
       this.startAutoHideTimer();
       this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
     } catch (err) {
+      if (!this.isPageActive) {
+          LoggerControlPage.warn('[ControlPage] Error ignored, page inactive:', err);
+          return;
+      }
       this.isStarted = false;
       let errMsg = err instanceof Error ? err.message : String(err);
       
@@ -328,7 +335,9 @@ struct ControlPage {
           this.getUIContext().getPromptAction().showToast({ message: errMsg });
       } catch (e) {}
       setTimeout(() => {
-          this.exitPage();
+          if (this.isPageActive) {
+             this.exitPage();
+          }
       }, 2000);
     }
   }
