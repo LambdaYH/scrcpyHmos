@@ -481,6 +481,18 @@
       "value": "Connection timed out. Please ensure USB debugging is authorized on the device."
     },
     {
+      "name": "server_prepare_failed",
+      "value": "Failed to prepare server. Please check device connection."
+    },
+    {
+      "name": "adb_auth_failed",
+      "value": "ADB authentication failed. Please revoke USB debugging authorizations on device and try again."
+    },
+    {
+      "name": "adb_native_connect_failed",
+      "value": "Failed to establish native connection to device."
+    },
+    {
       "name": "adb_key_title",
       "value": "Global ADB Key"
     },

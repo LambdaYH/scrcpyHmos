@@ -10,6 +10,7 @@
 #include <netinet/tcp.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netdb.h> // for getaddrinfo
 #include <poll.h>
 #include <stdexcept>
 #include <hilog/log.h>
@@ -32,30 +33,46 @@ TcpChannel::TcpChannel(int fd) : fd_(fd) {
     OH_LOG_INFO(LOG_APP, "TcpChannel: created with fd=%{public}d", fd_);
 }
 
-TcpChannel::TcpChannel(const std::string& ip, int port) {
-    fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd_ < 0) {
-        throw std::runtime_error("Failed to create socket: " + std::to_string(errno));
-    }
+TcpChannel::TcpChannel(const std::string& host, int port) {
+    fd_ = -1;
     buffer_.resize(BUFFER_SIZE);
 
-    struct sockaddr_in addr;
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
+    struct addrinfo hints, *res, *p;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM;
+
+    std::string portStr = std::to_string(port);
     
-    if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
-        ::close(fd_);
-        throw std::runtime_error("Invalid IP address: " + ip);
+    OH_LOG_INFO(LOG_APP, "TcpChannel: Resolving %{public}s:%{public}s...", host.c_str(), portStr.c_str());
+
+    int status = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res);
+    if (status != 0) {
+        throw std::runtime_error("getaddrinfo failed: " + std::string(gai_strerror(status)));
     }
 
-    OH_LOG_INFO(LOG_APP, "TcpChannel: Connecting to %{public}s:%{public}d...", ip.c_str(), port);
+    // Iterate through results and try to connect
+    for (p = res; p != nullptr; p = p->ai_next) {
+        fd_ = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (fd_ < 0) {
+            continue;
+        }
 
-    // Default socket is blocking, so connect blocks.
-    if (connect(fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        int err = errno;
+        OH_LOG_INFO(LOG_APP, "TcpChannel: Type connecting...");
+
+        if (connect(fd_, p->ai_addr, p->ai_addrlen) == 0) {
+            // Success
+            break;
+        }
+
         ::close(fd_);
-        throw std::runtime_error("Failed to connect: errno=" + std::to_string(err));
+        fd_ = -1;
+    }
+
+    freeaddrinfo(res);
+
+    if (fd_ < 0) {
+        throw std::runtime_error("Failed to connect to " + host + ":" + portStr);
     }
 
     // Set TCP_NODELAY

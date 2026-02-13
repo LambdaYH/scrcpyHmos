@@ -64,15 +64,14 @@ export class NativeStreamClient {
 
       // 1. Prepare Server (ArkTS side)
       // This ensures scrcpy-server is running on the device
-      const ready = await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
+      // 1. Prepare Server (ArkTS side)
+      // This ensures scrcpy-server is running on the device
+      await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
           LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from ClientStream');
           if (this.listener && this.listener.onWaitAuth) {
               this.listener.onWaitAuth();
           }
       });
-      if (!ready) {
-        throw new Error("Failed to prepare scrcpy server");
-      }
 
       // 2. Connect Native ADB
       // Establish a dedicated connection for streaming
@@ -89,9 +88,7 @@ export class NativeStreamClient {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[NativeStreamClient] Start failed:', errMsg);
       this.stop(); // Cleanup
-      if (this.listener) {
-        this.listener.onError(errMsg);
-      }
+      // Don't call listener.onError here, let the caller handle the promise rejection
       throw (err instanceof Error) ? err : new Error(String(err));
     }
   }
@@ -194,14 +191,16 @@ export class NativeStreamClient {
         // fs.unlinkSync(pubKeyPath);
         // fs.unlinkSync(priKeyPath);
 
-        if (res !== 0 && res !== 1) { // 0=OK, 1=NeedAuth
-            throw new Error(`Native ADB Connect failed with code ${res}`);
+        if (res !== 0) { // 0=OK
+             if (res === -2) {
+                 throw new Error('app.string.connect_timeout_toast');
+             } else if (res === -3) {
+                 throw new Error('app.string.adb_auth_failed');
+             } else {
+                 throw new Error(`Native ADB Connect failed with code ${res}`);
+             }
         }
-        if (res === 1) {
-             LoggerClientStream.info('[NativeStreamClient] Authentication required (User confirmation needed on device)');
-        } else {
-             LoggerClientStream.info('[NativeStreamClient] Native ADB Authenticated');
-        }
+        LoggerClientStream.info('[NativeStreamClient] Native ADB Authenticated');
 
     } catch (err) {
         LoggerClientStream.error('[NativeStreamClient] Auth failed:', JSON.stringify(err));

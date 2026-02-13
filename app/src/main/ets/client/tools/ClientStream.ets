@@ -91,12 +91,19 @@ export class ClientStream {
       LoggerClientStream.info(`[ClientStream] Connecting to Native ADB at ${this.device.address}:${this.device.adbPort}`);
       this.adbId = await libscrcpy.adbCreate(this.device.address, this.device.adbPort);
       if (this.adbId < 0) {
-          throw new Error('Native ADB Create failed');
+          throw new Error('app.string.adb_native_connect_failed');
       }
 
       const connectRes: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, onWaitAuth);
       if (connectRes !== 0) {
-          throw new Error(`Native ADB Connect failed: ${connectRes}`);
+          if (connectRes === -2) {
+             throw new Error('app.string.connect_timeout_toast');
+          } else if (connectRes === -3) {
+             throw new Error('app.string.adb_auth_failed');
+          } else {
+             // -1 or other errors
+             throw new Error('app.string.adb_native_connect_failed');
+          }
       }
       LoggerClientStream.info('[ClientStream] Native ADB connected');
 
@@ -138,7 +145,7 @@ export class ClientStream {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[ClientStream] prepareServerForNative failed:', errMsg);
       this.close();
-      return false;
+      throw (err instanceof Error) ? err : new Error(String(err)); // Rethrow to let NativeStreamClient handle it
     }
   }
 

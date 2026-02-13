@@ -417,6 +417,18 @@
             "value": "连接超时。请确保在Android设备上点击了\"允许\"授权USB调试。"
         },
         {
+            "name": "server_prepare_failed",
+            "value": "准备服务端失败，请检查设备连接。"
+        },
+        {
+            "name": "adb_auth_failed",
+            "value": "ADB授权失败，请在设备上撤销USB调试授权后重试。"
+        },
+        {
+            "name": "adb_native_connect_failed",
+            "value": "无法建立连接"
+        },
+        {
             "name": "adb_key_title",
             "value": "全局ADB密钥"
         },

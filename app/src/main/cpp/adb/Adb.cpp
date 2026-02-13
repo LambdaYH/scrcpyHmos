@@ -112,20 +112,31 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
             } catch (const std::exception& e) {
                  OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN error/timeout: %{public}s", e.what());
                  channel_->close();
-                 return -1;
+                 // Return -2 to indicate timeout/auth wait failure specifically
+                 return -2; 
             }
-
-            OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u",
-                        message.command, message.arg0, message.arg1);
+            
+            // If we are here, we got a message. Check if it is CNXN.
+            if (message.command != AdbProtocol::CMD_CNXN) {
+                OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN but got 0x%{public}x", message.command);
+                channel_->close();
+                return -3;
+            }
         }
+    } else if (message.command != AdbProtocol::CMD_CNXN) {
+         OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN or AUTH but got 0x%{public}x", message.command);
+         channel_->close();
+         return -1;
     }
-
+    
+    // At this point, `message` should be CNXN.
     if (message.command != AdbProtocol::CMD_CNXN) {
-        OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN (0x%{public}x) but got 0x%{public}x, auth FAILED",
+        OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN (0x%{public}x) but got 0x%{public}x",
                      AdbProtocol::CMD_CNXN, message.command);
         channel_->close();
         return -1;
     }
+
 
     maxData_ = message.arg0;
     OH_LOG_INFO(LOG_APP, "ADB: connected, maxData=%{public}u", maxData_);

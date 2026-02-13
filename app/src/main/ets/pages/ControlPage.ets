@@ -291,10 +291,41 @@ struct ControlPage {
       this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
     } catch (err) {
       this.isStarted = false;
-      const errMsg = err instanceof Error ? err.message : String(err);
+      let errMsg = err instanceof Error ? err.message : String(err);
+      
+      // Check if it's a resource string key
+      if (errMsg.startsWith('app.string.')) {
+         try {
+             // Extract resource name
+             const resName = errMsg.replace('app.string.', '');
+             // Use context to get string
+             const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext; 
+             // We can't easily get ID by name dynamically in ArkTS without resource reflection or effective map.
+             // But wait, $r('app.string.name') works if we have the ID.
+             // Since we passed a string key, we have to look it up or just use a big switch/map if dynamic lookup isn't available.
+             // Actually, the easier way is to throw the object or a custom error code.
+             // But for now, let's just try to match common errors or use a helper if possible.
+             // A better approach: The Error message is just the key.
+             // We can try to finding it in a predefined map or just use English fallback if complex.
+             
+             // However, for this specific request, let's map the known keys.
+             if (errMsg === 'app.string.connect_timeout_toast') {
+                 errMsg = this.getResString($r('app.string.connect_timeout_toast'));
+             } else if (errMsg === 'app.string.adb_auth_failed') {
+                 errMsg = this.getResString($r('app.string.adb_auth_failed'));
+             } else if (errMsg === 'app.string.adb_native_connect_failed') {
+                 errMsg = this.getResString($r('app.string.adb_native_connect_failed'));
+             } else if (errMsg === 'app.string.server_prepare_failed') {
+                 errMsg = this.getResString($r('app.string.server_prepare_failed'));
+             }
+         } catch (e) {
+             LoggerControlPage.error('Failed to resolve error resource', e);
+         }
+      }
+
       LoggerControlPage.error('[ControlPage] Start session failed:', errMsg);
       try {
-          this.getUIContext().getPromptAction().showToast({ message: `Connection failed: ${errMsg}` });
+          this.getUIContext().getPromptAction().showToast({ message: errMsg });
       } catch (e) {}
       setTimeout(() => {
           this.exitPage();
