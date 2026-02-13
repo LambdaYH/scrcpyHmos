@@ -3,6 +3,7 @@
 // 不实现网络连接逻辑，fd由ArkTS传入
 #include "TcpChannel.h"
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdexcept>
 #include <hilog/log.h>
 
@@ -12,6 +13,13 @@
 TcpChannel::TcpChannel(int fd) : fd_(fd) {
     if (fd < 0) {
         throw std::runtime_error("TcpChannel: invalid fd");
+    }
+    // ArkTS TCPSocket sets the fd to non-blocking mode for its event loop.
+    // We need blocking I/O for synchronous read()/write(), so clear O_NONBLOCK.
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+        OH_LOG_INFO(LOG_APP, "TcpChannel: set fd=%{public}d to blocking mode (was flags=0x%{public}x)", fd, flags);
     }
     OH_LOG_INFO(LOG_APP, "TcpChannel: created with fd=%{public}d", fd);
 }

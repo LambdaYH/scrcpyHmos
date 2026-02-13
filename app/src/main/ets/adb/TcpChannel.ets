@@ -252,4 +252,18 @@ export class TcpChannel implements AdbChannel {
   isChannelConnected(): boolean {
     return this.isConnected && !this.isClosed;
   }
+
+  // 获取底层Socket的文件描述符
+  // 注意：getSocketFd() 返回 Promise<number>，需要 await
+  async getSocketFd(): Promise<number> {
+    if (!this.tcpSocket || !this.isConnected) {
+      throw new Error('Socket not connected');
+    }
+    // 尝试直接获取
+    const socket = this.tcpSocket as Object as Record<string, Object>;
+    if (typeof socket.getSocketFd === 'function') {
+      return await (socket.getSocketFd as Function)() as number;
+    }
+    throw new Error('getSocketFd not supported on this platform version');
+  }
 }

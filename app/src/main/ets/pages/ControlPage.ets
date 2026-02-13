@@ -1,11 +1,11 @@
 import { Device } from '../entity/Device';
-import { TouchAction, KeyCode } from '../client/tools/ControlPacket';
+import { TouchAction, KeyCode, ControlPacket } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
-import { WorkerMessageType, WorkerMessage } from '../workers/WorkerMessages';
+import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
 import { AdbKeyManager } from '../helper/AdbKeyManager';
 import { ServerManager } from '../helper/ServerManager';
-import { worker } from '@kit.ArkTS';
 import window from '@ohos.window';
+
 import { common } from '@kit.AbilityKit';
 import pasteboard from '@ohos.pasteboard';
 
@@ -33,8 +33,10 @@ struct ControlPage {
   @State fabY: number = 0; // 悬浮按钮Y位置
   @State checkFabPosition: boolean = false; // 是否需要初始化位置
 
-  // Worker 实例
-  private streamWorker?: worker.ThreadWorker;
+  // Native Client 实例
+  private nativeClient?: NativeStreamClient;
+  private serverJarData: ArrayBuffer | null = null;
+  private isStarted: boolean = false;
   private xComponentController: XComponentController = new XComponentController();
   private pointerDownTime: Map<number, number> = new Map();  // 存储毫秒时间戳
   private surfaceReady: boolean = false;
@@ -108,16 +110,15 @@ struct ControlPage {
       this.autoHideTimer = -1;
     }
 
-    // 关闭 Worker
-    if (this.streamWorker) {
-      LoggerControlPage.info('ControlPage: Closing Worker');
+    // 关闭 Native Client
+    if (this.nativeClient) {
+      LoggerControlPage.info('ControlPage: Closing Native Client');
       try {
-        this.streamWorker.postMessage({ type: WorkerMessageType.CLOSE } as WorkerMessage);
-        this.streamWorker.terminate();
+        this.nativeClient.stop();
       } catch (e) {
-        LoggerControlPage.error('Worker terminate failed:', e);
+        LoggerControlPage.error('Native stop failed:', e);
       }
-      this.streamWorker = undefined;
+      this.nativeClient = undefined;
     }
 
     // 恢复窗口状态
@@ -175,53 +176,33 @@ struct ControlPage {
     }
   }
   
-  // 发送按键事件到 Worker
+  // 发送按键事件到 Native
   private sendKeyToWorker(keyCode: KeyCode): void {
-    if (!this.streamWorker || !this.isConnected) return;
-    this.streamWorker.postMessage({
-      type: WorkerMessageType.SEND_KEY,
-      data: { keyCode: keyCode }
-    } as WorkerMessage);
+    if (!this.nativeClient || !this.isConnected) return;
+    const packets = ControlPacket.createKeyEventPair(keyCode);
+    packets.forEach(p => this.nativeClient!.sendControl(p));
   }
 
-  // 从已连接的客户端初始化（Worker 架构）
+  // 从已连接的客户端初始化（Native 架构）
   private async initFromExistingClient(): Promise<void> {
     if (!this.device || !this.context) return;
 
     try {
-      // 1. 在主线程预加载所有依赖 Context 的数据
-      LoggerControlPage.info('ControlPage: Pre-loading context-dependent data on main thread...');
+      LoggerControlPage.info('ControlPage: Initializing Native Client...');
 
-      // 预加载 ADB 密钥
-      const keyManager = AdbKeyManager.getInstance();
-      await keyManager.init(this.context);
-      const adbKeyData = keyManager.exportKeyData();
-      LoggerControlPage.info('ControlPage: ADB key data exported');
+      // 1. 预加载 server.jar
+      this.serverJarData = await ServerManager.loadServerFromRawfile(this.context);
+      LoggerControlPage.info('ControlPage: Server jar loaded, size:', this.serverJarData?.byteLength || 0);
 
-      // 预加载 server.jar
-      const serverJarData = await ServerManager.loadServerFromRawfile(this.context);
-      LoggerControlPage.info('ControlPage: Server jar pre-loaded, size:', serverJarData?.byteLength || 0);
+      // 2. 初始化 Native Client
+      this.initNativeClient();
 
-      // 2. 创建 Worker
-      this.createStreamWorker();
+      // 3. 尝试启动会话 (如果 Surface 还没准备好，会在 onLoad 中再次调用)
+      this.startNativeSession();
 
-      // 3. 发送可序列化的初始化数据到 Worker
-      // 注意：device 被 @State 装饰器包装为 Proxy，不能直接序列化
-      // 使用 JSON 深拷贝去除 Proxy 包装
-      if (this.streamWorker && this.device) {
-        const plainDevice = JSON.parse(JSON.stringify(this.device)) as Device;
-        this.streamWorker.postMessage({
-          type: WorkerMessageType.INIT,
-          data: {
-            device: plainDevice,
-            adbKeyData: adbKeyData,
-            serverJarData: serverJarData
-          }
-        } as WorkerMessage);
-      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('ControlPage: Pre-load failed:', errMsg);
+      LoggerControlPage.error('ControlPage: Init failed:', errMsg);
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
       } catch (e) {
@@ -233,144 +214,86 @@ struct ControlPage {
     }
   }
 
-  // 创建 Worker 并设置消息处理
-  private createStreamWorker(): void {
-    try {
-      this.streamWorker = new worker.ThreadWorker('app/ets/workers/StreamWorker.ets');
+  // 初始化 Native Client 并设置监听器
+  private initNativeClient(): void {
+    if (!this.context || !this.device) return;
 
-      this.streamWorker.onmessage = (e) => {
-        const message = e.data as WorkerMessage;
-        switch (message.type) {
-          case WorkerMessageType.CONNECTED:
-            LoggerControlPage.info('[ControlPage] Worker connected');
-            this.isConnected = true;
-            this.connectionStatus = this.getResString($r('app.string.control_connected'));
-            this.startAutoHideTimer();
-            // 如果 surface 已就绪，立即初始化解码器
-            if (this.surfaceReady && this.surfaceId) {
-              this.initVideoAndAudioDecoder();
-            }
-            break;
-
-          case WorkerMessageType.DISCONNECTED:
-            LoggerControlPage.warn('[ControlPage] Worker disconnected');
-            this.isConnected = false;
-            this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
-            try {
-              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
-            } catch (err) {
-              LoggerControlPage.error('Show toast failed:', err);
-            }
-            // 延迟退出，让用户看清提示
-            setTimeout(() => {
-              this.exitPage();
-            }, 1500);
-            break;
-
-          case WorkerMessageType.VIDEO_CONFIG:
-            const configData = message.data as Record<string, Object>;
-            const config = configData['config'] as Record<string, number>;
-            if (config) {
-              this.videoWidth = config['width'] || 1920;
-              this.videoHeight = config['height'] || 1080;
-              LoggerControlPage.info('[ControlPage] Video dimensions: ' + this.videoWidth + 'x' + this.videoHeight);
-              this.calcVideoDisplaySize();
-            }
-            break;
-
-          case WorkerMessageType.FIRST_FRAME:
-            LoggerControlPage.info('[ControlPage] First frame received');
-            this.showLoading = false;
-            break;
-
-          case WorkerMessageType.STATUS_UPDATE:
-            const statusData = message.data as Record<string, string>;
-            if (statusData && statusData['status']) {
-              // Worker 发送状态 key，在主线程解析为本地化字符串
-              const statusKey = statusData['status'];
-              if (statusKey === 'connecting') {
-                this.connectionStatus = this.getResString($r('app.string.connecting_status'));
-              } else if (statusKey === 'getting_video_config') {
-                this.connectionStatus = this.getResString($r('app.string.getting_video_config'));
-              } else {
-                this.connectionStatus = statusKey;
-              }
-            }
-            break;
-
-          case WorkerMessageType.ERROR:
-            const errorData = message.data as Record<string, string>;
-            const errMsg = errorData ? errorData['message'] : 'Unknown error';
-            LoggerControlPage.error('[ControlPage] Worker error:', errMsg);
-            // 如果是超时错误，在主线程显示对话框
-            if (errMsg.includes('Read timeout')) {
-              try {
-                const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-                this.getUIContext().getPromptAction().showDialog({
-                  title: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_title').id),
-                  message: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_message').id),
-                  buttons: [{
-                    text: ctx.resourceManager.getStringSync($r('app.string.timeout_dialog_button').id),
-                    color: '#007AFF'
-                  }]
-                }).then(() => {
-                  // 用户点击按钮后退出页面
-                  this.exitPage();
-                });
-              } catch (e) {
-                LoggerControlPage.error('Show timeout dialog failed:', e);
-                this.exitPage(); // 即使弹窗失败也退出
-              }
-            } else {
-              // 其他错误，显示 Toast 并稍后退出
-              try {
-                this.getUIContext().getPromptAction().showToast({ message: errMsg });
-              } catch (toastErr) {
-                LoggerControlPage.error('Show toast failed:', toastErr);
-              }
-              // 无论什么错误，最终都退出页面
-              setTimeout(() => {
-                this.exitPage();
-              }, 1500);
-            }
-            break;
-
-          case WorkerMessageType.AUTH_REQUIRED:
-            LoggerControlPage.info('[ControlPage] Auth required');
-            this.connectionStatus = this.getResString($r('app.string.auth_required_toast'));
-            try {
-              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
-            } catch (err) {
-              LoggerControlPage.error('Show toast failed:', err);
-            }
-            break;
-
-          case WorkerMessageType.CLIPBOARD_RECEIVED:
-            const clipData = message.data as Record<string, Object>;
-            if (clipData && clipData['text'] && clipData['autoSync']) {
-              this.syncClipboardToSystem(clipData['text'] as string);
-            }
-            break;
-        }
-      };
-
-      this.streamWorker.onerror = (err) => {
-        LoggerControlPage.error('[ControlPage] Worker error event:', err.message);
+    const listener: NativeStreamListener = {
+      onVideoConfig: (width: number, height: number) => {
+        this.videoWidth = width;
+        this.videoHeight = height;
+        LoggerControlPage.info(`[ControlPage] Video dimensions: ${width}x${height}`);
+        this.calcVideoDisplaySize();
+      },
+      onAudioConfig: (codec: string) => {
+        LoggerControlPage.info(`[ControlPage] Audio codec: ${codec}`);
+      },
+      onDisconnect: (reason: string) => {
+        LoggerControlPage.warn('[ControlPage] Client disconnected:', reason);
+        this.isConnected = false;
+        this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
         try {
-          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.init_control_page_error') });
-        } catch (e) {
-          LoggerControlPage.error('Show toast failed:', e);
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
+        } catch (err) {
+          LoggerControlPage.error('Show toast failed:', err);
         }
         setTimeout(() => {
           this.exitPage();
         }, 1500);
-      };
+      },
+      onError: (error: string) => {
+        LoggerControlPage.error('[ControlPage] Client error:', error);
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: error });
+        } catch (err) {
+          LoggerControlPage.error('Show toast failed:', err);
+        }
+        setTimeout(() => {
+           this.exitPage();
+        }, 1500);
+      },
+      onClipboard: (text: string) => {
+        this.syncClipboardToSystem(text);
+      }
+    };
 
+    this.nativeClient = new NativeStreamClient(this.context, this.device, listener);
+  }
+
+  // 尝试启动 Native 会话
+  private async startNativeSession(): Promise<void> {
+    if (this.isStarted) return;
+    if (!this.serverJarData || !this.surfaceReady || !this.surfaceId || !this.nativeClient) {
+      LoggerControlPage.debug('Wait for resources ready...');
+      return;
+    }
+
+    this.isStarted = true;
+    try {
+      LoggerControlPage.info('[ControlPage] Starting Native Session...');
+      this.connectionStatus = this.getResString($r('app.string.connecting_status')); // "正在连接..."
+      
+      // 启动会话 (异步)
+      await this.nativeClient.start(this.serverJarData, this.surfaceId);
+      
+      this.isConnected = true;
+      this.connectionStatus = this.getResString($r('app.string.control_connected'));
+      this.startAutoHideTimer();
+      this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
     } catch (err) {
+      this.isStarted = false;
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('Failed to create Worker:', errMsg);
+      LoggerControlPage.error('[ControlPage] Start session failed:', errMsg);
+      try {
+          this.getUIContext().getPromptAction().showToast({ message: `Connection failed: ${errMsg}` });
+      } catch (e) {}
+      setTimeout(() => {
+          this.exitPage();
+      }, 2000);
     }
   }
+
+// 已移除 createStreamWorker
 
   // 同步剪贴板到系统
   private async syncClipboardToSystem(text: string): Promise<void> {
@@ -384,13 +307,7 @@ struct ControlPage {
     }
   }
 
-  async initVideoAndAudioDecoder() {
-    this.initVideoDecoder();
-    // 初始化音频解码器 (如果启用)
-    if (this.device?.isAudio) {
-      this.initAudioDecoder();
-    }
-  }
+
 
   async setFullScreen() {
     try {
@@ -546,10 +463,8 @@ struct ControlPage {
               this.surfaceReady = true;
               LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
 
-              // 如果Worker已经就绪,立即初始化视频解码器
-              if (this.isConnected && this.streamWorker) {
-                this.initVideoAndAudioDecoder();
-              }
+              // 尝试启动 Native Session
+              this.startNativeSession();
             })
             .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
             .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
@@ -654,12 +569,10 @@ struct ControlPage {
                     }
                     const pasteData = await systemPasteboard.getData();
                     const text = pasteData.getPrimaryText();
-                    if (text && this.streamWorker) {
-                      // 发送到 Worker
-                      this.streamWorker.postMessage({
-                        type: WorkerMessageType.SEND_CLIPBOARD,
-                        data: { text: text, paste: true }
-                      } as WorkerMessage);
+                    if (text && this.nativeClient) {
+                      // 发送到 Native
+                      const packet = ControlPacket.createSetClipboard(text, 0n, true);
+                      this.nativeClient.sendControl(packet);
                       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_synced') });
                     } else {
                       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_no_text') });
@@ -681,12 +594,6 @@ struct ControlPage {
             .height(44)
             .borderRadius(22)
             .onClick(() => {
-              // 先关闭 Worker
-              if (this.streamWorker) {
-                this.streamWorker.postMessage({ type: WorkerMessageType.CLOSE } as WorkerMessage);
-                this.streamWorker.terminate();
-                this.streamWorker = undefined;
-              }
               this.exitPage();
             })
           }
@@ -824,14 +731,14 @@ struct ControlPage {
   }
   
   handleTap(event: GestureEvent) {
-    if (!this.streamWorker || !this.isConnected) return;
+    if (!this.nativeClient || !this.isConnected) return;
 
     // 如果正在滑动或刚滑动过（有MOVE事件），忽略 TAP 事件
-    // 这是因为 PanGesture 和 TapGesture 并行运行，滑动结束时 TAP 会错误触发
     if (this.isPanning || this.panMoveCount > 0) {
       return;
     }
 
+    if (event.fingerList.length === 0) return;
     const localX = event.fingerList[0].localX;
     const localY = event.fingerList[0].localY;
 
@@ -841,38 +748,24 @@ struct ControlPage {
 
     // 模拟点击（按下-抬起）
     // 发送 ACTION_DOWN
-    this.streamWorker.postMessage({
-      type: WorkerMessageType.SEND_TOUCH,
-      data: {
-        action: TouchAction.ACTION_DOWN,
-        pointerId: 0,
-        x: x,
-        y: y,
-        screenWidth: this.videoWidth,
-        screenHeight: this.videoHeight
-      }
-    } as WorkerMessage);
+    const packetDown = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_DOWN, BigInt(0), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
+    );
+    this.nativeClient.sendControl(packetDown);
 
     // 延迟发送 ACTION_UP
     setTimeout(() => {
-      if (this.streamWorker) {
-        this.streamWorker.postMessage({
-          type: WorkerMessageType.SEND_TOUCH,
-          data: {
-            action: TouchAction.ACTION_UP,
-            pointerId: 0,
-            x: x,
-            y: y,
-            screenWidth: this.videoWidth,
-            screenHeight: this.videoHeight
-          }
-        } as WorkerMessage);
+      if (this.nativeClient && this.isConnected) {
+        const packetUp = ControlPacket.createInjectTouchEvent(
+          TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
+        );
+        this.nativeClient.sendControl(packetUp);
       }
     }, 50);
   }
 
   handleTouchStart(event: GestureEvent) {
-    if (!this.streamWorker || !this.isConnected) return;
+    if (!this.nativeClient || !this.isConnected) return;
 
     // 标记开始滑动
     this.isPanning = true;
@@ -890,22 +783,15 @@ struct ControlPage {
 
       this.pointerDownTime.set(pointerId, eventTimestampMs);
 
-      this.streamWorker?.postMessage({
-        type: WorkerMessageType.SEND_TOUCH,
-        data: {
-          action: TouchAction.ACTION_DOWN,
-          pointerId: pointerId,
-          x: x,
-          y: y,
-          screenWidth: this.videoWidth,
-          screenHeight: this.videoHeight
-        }
-      } as WorkerMessage);
+      const packet = ControlPacket.createInjectTouchEvent(
+        TouchAction.ACTION_DOWN, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
+      );
+      this.nativeClient?.sendControl(packet);
     });
   }
 
   handleTouchMove(event: GestureEvent) {
-    if (!this.streamWorker || !this.isConnected) return;
+    if (!this.nativeClient || !this.isConnected) return;
 
     this.panMoveCount++;
 
@@ -917,22 +803,15 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
-      this.streamWorker?.postMessage({
-        type: WorkerMessageType.SEND_TOUCH,
-        data: {
-          action: TouchAction.ACTION_MOVE,
-          pointerId: pointerId,
-          x: x,
-          y: y,
-          screenWidth: this.videoWidth,
-          screenHeight: this.videoHeight
-        }
-      } as WorkerMessage);
+      const packet = ControlPacket.createInjectTouchEvent(
+        TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
+      );
+      this.nativeClient?.sendControl(packet);
     });
   }
 
   handleTouchEnd(event: GestureEvent) {
-    if (!this.streamWorker || !this.isConnected) return;
+    if (!this.nativeClient || !this.isConnected) return;
 
     this.isPanning = false;
     setTimeout(() => {
@@ -947,60 +826,13 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
-      this.streamWorker?.postMessage({
-        type: WorkerMessageType.SEND_TOUCH,
-        data: {
-          action: TouchAction.ACTION_UP,
-          pointerId: pointerId,
-          x: x,
-          y: y,
-          screenWidth: this.videoWidth,
-          screenHeight: this.videoHeight
-        }
-      } as WorkerMessage);
+      const packet = ControlPacket.createInjectTouchEvent(
+        TouchAction.ACTION_UP, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
+      );
+      this.nativeClient?.sendControl(packet);
 
       this.pointerDownTime.delete(pointerId);
     });
   }
 
-  
-  // 初始化视频解码器
-  private async initVideoDecoder(): Promise<void> {
-    if (!this.streamWorker || !this.surfaceId) {
-      LoggerControlPage.error('Cannot init video decoder: worker or surfaceId missing');
-      return;
-    }
-
-    try {
-      LoggerControlPage.debug('Initializing video decoder with surfaceId:', this.surfaceId);
-      this.streamWorker.postMessage({
-        type: WorkerMessageType.INIT_VIDEO_DECODER,
-        data: { surfaceId: this.surfaceId }
-      } as WorkerMessage);
-      LoggerControlPage.info('Video decoder init message sent to Worker');
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('Video decoder init failed:', errMsg);
-    }
-  }
-
-  // 初始化音频解码器
-  private async initAudioDecoder(): Promise<void> {
-    if (!this.streamWorker) {
-      LoggerControlPage.error('Cannot init audio decoder: worker missing');
-      return;
-    }
-
-    try {
-      LoggerControlPage.debug('Initializing audio decoder');
-      this.streamWorker.postMessage({
-        type: WorkerMessageType.INIT_AUDIO_DECODER,
-        data: { codecType: this.device?.audioCodec || 'opus', sampleRate: 48000, channelCount: 2 }
-      } as WorkerMessage);
-      LoggerControlPage.info('Audio decoder init message sent to Worker');
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerControlPage.error('Audio decoder init failed:', errMsg);
-    }
-  }
 }

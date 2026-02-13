@@ -55,6 +55,65 @@ export class ClientStream {
     this.device = device;
   }
 
+
+  // 为 Native 模式准备服务端：连接ADB，推送服务端，启动服务端，但不打开流
+  async prepareServerForNative(
+    context: Context, // 需要Context来获取AdbKeyManager
+    serverJarData: ArrayBuffer | null
+  ): Promise<boolean> {
+    try {
+      this.isClosing = false;
+      LoggerClientStream.info('[ClientStream] Preparing server for native mode...');
+
+      // 1. 初始化 ADB 密钥管理器
+      const keyManager = AdbKeyManager.getInstance();
+      await keyManager.init(context);
+
+      // 2. 通过ADB连接设备
+      LoggerClientStream.info(`[ClientStream] Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
+      const keyPair = keyManager.getAdbKeyPair();
+      if (!keyPair) {
+        throw new Error('Failed to get ADB key pair');
+      }
+
+      // 3. 连接ADB
+      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair);
+      LoggerClientStream.info('[ClientStream] ADB connected successfully');
+      this.adb = adb;
+
+      // 4. 检查并推送服务端
+      const serverExists = await ServerManager.checkServerExists(adb);
+      if (!serverExists) {
+        if (!serverJarData) {
+          throw new Error('Server not found on device and no server data provided');
+        }
+        const pushed = await ServerManager.pushServer(adb, serverJarData);
+        if (!pushed) {
+          throw new Error('Push server.jar failed');
+        }
+      }
+
+      // 5. 启动服务端
+      LoggerClientStream.info(`[ClientStream] Starting scrcpy server v${ServerManager.getVersion()}...`);
+      const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
+      this.shellStream = serverResult.shellStream;
+      this.currentScid = serverResult.scid;
+      
+      const socketName = `scrcpy_${this.currentScid}`;
+      LoggerClientStream.info(`[ClientStream] Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
+
+      // 启动 shell output 读取 (监控服务端是否挂掉)
+      this.readShellOutputAsync();
+      
+      this.isConnected = true;
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerClientStream.error('[ClientStream] prepareServerForNative failed:', errMsg);
+      return false;
+    }
+  }
+
   // Worker 线程中使用的连接方法（不需要 Context/UIContext）
   async connectInWorker(
     adbKeyData: AdbKeySerialData,

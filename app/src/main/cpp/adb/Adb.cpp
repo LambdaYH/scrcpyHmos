@@ -44,24 +44,33 @@ static AdbMessage readMessageFromChannel(AdbChannel* channel) {
 
 int Adb::connect(AdbKeyPair& keyPair) {
     // 发送CONNECT消息
+    OH_LOG_INFO(LOG_APP, "ADB: Sending CONNECT message...");
     auto connectMsg = AdbProtocol::generateConnect();
     channel_->write(connectMsg.data(), connectMsg.size());
+    OH_LOG_INFO(LOG_APP, "ADB: CONNECT sent, waiting for response...");
 
     AdbMessage message = readMessageFromChannel(channel_);
+    OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u payloadLen=%{public}u",
+                message.command, message.arg0, message.arg1, message.payloadLength);
     int authResult = 0; // 0=已授权/无需授权, 1=需要用户确认, -1=失败
 
     if (message.command == AdbProtocol::CMD_AUTH) {
+        OH_LOG_INFO(LOG_APP, "ADB: Got AUTH challenge, signing payload...");
         // 发送签名
         auto signature = keyPair.signPayload(message.payload.data(), message.payload.size());
+        OH_LOG_INFO(LOG_APP, "ADB: Signature generated, size=%{public}zu, sending AUTH_SIGNATURE...", signature.size());
         auto authMsg = AdbProtocol::generateAuth(AdbProtocol::AUTH_TYPE_SIGNATURE,
                                                   signature.data(), signature.size());
         channel_->write(authMsg.data(), authMsg.size());
 
+        OH_LOG_INFO(LOG_APP, "ADB: AUTH_SIGNATURE sent, waiting for response...");
         message = readMessageFromChannel(channel_);
+        OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u payloadLen=%{public}u",
+                    message.command, message.arg0, message.arg1, message.payloadLength);
 
         if (message.command == AdbProtocol::CMD_AUTH) {
             // 需要发送公钥
-            OH_LOG_DEBUG(LOG_APP, "ADB: Sending public key, size: %{public}zu",
+            OH_LOG_INFO(LOG_APP, "ADB: Still AUTH, sending public key, size: %{public}zu",
                          keyPair.getPublicKeyBytes().size());
 
             authResult = 1; // 需要用户在设备上确认授权
@@ -70,11 +79,16 @@ int Adb::connect(AdbKeyPair& keyPair) {
                                                         keyPair.getPublicKeyBytes().data(),
                                                         keyPair.getPublicKeyBytes().size());
             channel_->write(pubKeyMsg.data(), pubKeyMsg.size());
+            OH_LOG_INFO(LOG_APP, "ADB: Public key sent, waiting for CNXN...");
             message = readMessageFromChannel(channel_);
+            OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u",
+                        message.command, message.arg0, message.arg1);
         }
     }
 
     if (message.command != AdbProtocol::CMD_CNXN) {
+        OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN (0x%{public}x) but got 0x%{public}x, auth FAILED",
+                     AdbProtocol::CMD_CNXN, message.command);
         channel_->close();
         return -1;
     }

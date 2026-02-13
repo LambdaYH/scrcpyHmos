@@ -1,8 +1,7 @@
 {
   "apiType": "stageMode",
   "buildOption": {
-    "arkOptions": {
-    },
+    "arkOptions": {},
     "externalNativeOptions": {
       "path": "./src/main/cpp/CMakeLists.txt",
       "arguments": "",
@@ -18,9 +17,7 @@
       }
     },
     "sourceOption": {
-      "workers": [
-        './src/main/ets/workers/StreamWorker.ets'
-      ]
+      "workers": []
     }
   },
   "buildOptionSet": [
@@ -36,14 +33,14 @@
           }
         }
       }
-    },
+    }
   ],
   "targets": [
     {
       "name": "default"
     },
     {
-      "name": "ohosTest",
+      "name": "ohosTest"
     }
   ]
 }

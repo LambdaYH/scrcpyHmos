@@ -17,4 +17,37 @@ declare module 'libscrcpy_native.so' {
     export function allocNativeBuffer(size: number): ArrayBuffer | undefined;
     export function releaseNativeBuffer(buffer: ArrayBuffer): void;
     export function destroyBufferPool(): void;
+
+    // ADB Module
+    export function adbCreate(fd: number): number;
+    export function adbConnect(adbId: number, pubKeyPath: string, priKeyPath: string): number;
+    export function adbRunCmd(adbId: number, cmd: string): string;
+    export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): void;
+    export function adbTcpForward(adbId: number, port: number): number;
+    export function adbLocalSocketForward(adbId: number, socketName: string): number;
+    export function adbGetShell(adbId: number): number;
+    export function adbRestartOnTcpip(adbId: number, port: number): string;
+    export function adbStreamRead(adbId: number, streamId: number, size: number): ArrayBuffer;
+    export function adbStreamWrite(adbId: number, streamId: number, data: ArrayBuffer): void;
+    export function adbStreamClose(adbId: number, streamId: number): void;
+    export function adbIsStreamClosed(adbId: number, streamId: number): boolean;
+    export function adbClose(adbId: number): void;
+    export function adbGenerateKeyPair(pubKeyPath: string, priKeyPath: string): number;
+    export function adbIsConnected(adbId: number): boolean;
+
+    // Stream Manager
+    export function nativeStartStreams(
+        adbId: number,
+        videoStreamId: number,
+        audioStreamId: number,
+        controlStreamId: number,
+        surfaceId: string,
+        videoWidth: number,
+        videoHeight: number,
+        audioSampleRate: number,
+        audioChannelCount: number,
+        callback: (type: string, data: string) => void
+    ): number;
+    export function nativeStopStreams(): void;
+    export function nativeSendControl(data: ArrayBuffer): void;
 }

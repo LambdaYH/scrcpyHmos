@@ -18,7 +18,7 @@ public:
 
     // SIGNATURE_PADDING - 完全按照原版的PKCS1 v1.5 SHA1 padding
     static const uint8_t SIGNATURE_PADDING[];
-    static constexpr int SIGNATURE_PADDING_LEN = 243;
+    static constexpr int SIGNATURE_PADDING_LEN = 236; // 256 - 20(SHA1 token) = 236 for RSA2048
 
     AdbKeyPair();
     ~AdbKeyPair();

@@ -771,6 +771,168 @@ static napi_value AdbIsStreamClosed(napi_env env, napi_callback_info info) {
     return result;
 }
 
+// ============== ScrcpyStreamManager Module ==============
+
+#include "ScrcpyStreamManager.h"
+
+static ScrcpyStreamManager* g_streamManager = nullptr;
+static napi_threadsafe_function g_streamCallback = nullptr;
+
+// 事件数据结构（传给 threadsafe function）
+struct StreamEventData {
+    std::string type;
+    std::string data;
+};
+
+// JS 侧执行的回调函数
+static void StreamEventCallToJS(napi_env env, napi_value jsCb, void* context, void* data) {
+    StreamEventData* eventData = static_cast<StreamEventData*>(data);
+    if (!eventData || !env || !jsCb) {
+        delete eventData;
+        return;
+    }
+
+    napi_value argv[2];
+    napi_create_string_utf8(env, eventData->type.c_str(), eventData->type.size(), &argv[0]);
+    napi_create_string_utf8(env, eventData->data.c_str(), eventData->data.size(), &argv[1]);
+
+    napi_value global;
+    napi_get_global(env, &global);
+    napi_call_function(env, global, jsCb, 2, argv, nullptr);
+
+    delete eventData;
+}
+
+// nativeStartStreams(adbId, videoStreamId, audioStreamId, controlStreamId,
+//                   surfaceId, videoWidth, videoHeight,
+//                   audioSampleRate, audioChannelCount, callback)
+static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
+    size_t argc = 10;
+    napi_value args[10];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t videoStreamId, audioStreamId, controlStreamId;
+    char surfaceId[128];
+    size_t surfaceIdLen;
+    int32_t videoWidth, videoHeight;
+    int32_t audioSampleRate, audioChannelCount;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &videoStreamId);
+    napi_get_value_int32(env, args[2], &audioStreamId);
+    napi_get_value_int32(env, args[3], &controlStreamId);
+    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), &surfaceIdLen);
+    napi_get_value_int32(env, args[5], &videoWidth);
+    napi_get_value_int32(env, args[6], &videoHeight);
+    napi_get_value_int32(env, args[7], &audioSampleRate);
+    napi_get_value_int32(env, args[8], &audioChannelCount);
+
+    // 创建 threadsafe function
+    napi_value callbackName;
+    napi_create_string_utf8(env, "streamCallback", NAPI_AUTO_LENGTH, &callbackName);
+
+    if (g_streamCallback) {
+        napi_release_threadsafe_function(g_streamCallback, napi_tsfn_abort);
+        g_streamCallback = nullptr;
+    }
+
+    napi_status status = napi_create_threadsafe_function(
+        env, args[9], nullptr, callbackName,
+        64, // max queue size
+        1,  // initial thread count
+        nullptr, nullptr, nullptr,
+        StreamEventCallToJS,
+        &g_streamCallback
+    );
+
+    if (status != napi_ok) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to create threadsafe function");
+        napi_value result;
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    // 查找 ADB 实例
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] ADB instance not found: %{public}lld", (long long)adbId);
+        napi_value result;
+        napi_create_int32(env, -2, &result);
+        return result;
+    }
+
+    // 清理旧的 stream manager
+    if (g_streamManager) {
+        g_streamManager->stop();
+        delete g_streamManager;
+        g_streamManager = nullptr;
+    }
+
+    // 配置
+    ScrcpyStreamManager::Config config;
+    config.videoStreamId = videoStreamId;
+    config.audioStreamId = audioStreamId;
+    config.controlStreamId = controlStreamId;
+    config.surfaceId = surfaceId;
+    config.videoWidth = videoWidth;
+    config.videoHeight = videoHeight;
+    config.audioSampleRate = audioSampleRate;
+    config.audioChannelCount = audioChannelCount;
+
+    // 创建并启动
+    g_streamManager = new ScrcpyStreamManager();
+
+    napi_threadsafe_function tsfn = g_streamCallback;
+    auto eventCallback = [tsfn](const std::string& type, const std::string& data) {
+        StreamEventData* eventData = new StreamEventData{type, data};
+        napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
+    };
+
+    int32_t ret = g_streamManager->start(it->second, config, eventCallback);
+
+    napi_value result;
+    napi_create_int32(env, ret, &result);
+    return result;
+}
+
+// nativeStopStreams()
+static napi_value NativeStopStreams(napi_env env, napi_callback_info info) {
+    if (g_streamManager) {
+        g_streamManager->stop();
+        delete g_streamManager;
+        g_streamManager = nullptr;
+    }
+
+    if (g_streamCallback) {
+        napi_release_threadsafe_function(g_streamCallback, napi_tsfn_release);
+        g_streamCallback = nullptr;
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
+// nativeSendControl(data: ArrayBuffer)
+static napi_value NativeSendControl(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    void* data;
+    size_t dataSize;
+    napi_get_arraybuffer_info(env, args[0], &data, &dataSize);
+
+    if (g_streamManager && dataSize > 0) {
+        g_streamManager->sendControl(static_cast<uint8_t*>(data), dataSize);
+    }
+
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
 // ============== Module Registration ==============
 
 EXTERN_C_START
@@ -810,6 +972,11 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"adbClose", nullptr, AdbClose, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbGenerateKeyPair", nullptr, AdbGenerateKeyPair, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbIsConnected", nullptr, AdbIsConnected, nullptr, nullptr, nullptr, napi_default, nullptr},
+
+        // Stream Manager API
+        {"nativeStartStreams", nullptr, NativeStartStreams, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeStopStreams", nullptr, NativeStopStreams, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeSendControl", nullptr, NativeSendControl, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
