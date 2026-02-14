@@ -155,6 +155,9 @@ private:
     std::mutex waitMutex_;
     std::condition_variable waitCv_;
 
+    // Optimization cache for handleInLoop
+    AdbStream* lastStream_ = nullptr;
+
     // channel写入锁 (由sendLoop管理)
     // std::mutex channelWriteMutex_; // Removed, managed by sendLoop
 
