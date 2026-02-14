@@ -385,7 +385,7 @@ static napi_value AdbCreate(napi_env env, napi_callback_info info) {
     napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-    char ip[64];
+    char ip[256];
     size_t ipLen;
     int32_t port;
 

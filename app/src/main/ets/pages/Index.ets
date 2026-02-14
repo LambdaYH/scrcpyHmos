@@ -1,5 +1,6 @@
 import { Device } from '../entity/Device';
 import { PreferencesHelper } from '../helper/PreferencesHelper';
+import { ClientSessionManager } from '../helper/ClientSessionManager';
 
 import { Logger, LoggerIndex } from '../helper/Logger';
 
@@ -35,6 +36,8 @@ struct Index {
   }
   
   onPageShow() {
+    // 每次显示首页时，确保清理掉可能存在的后台会话
+    ClientSessionManager.getInstance().stopAll();
     this.loadDevices();
   }
   

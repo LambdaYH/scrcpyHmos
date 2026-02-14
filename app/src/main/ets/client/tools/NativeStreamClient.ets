@@ -99,32 +99,36 @@ export class NativeStreamClient {
       LoggerClientStream.info('[NativeStreamClient] Stopping session...');
       
       // Stop native streams
-      libscrcpy.nativeStopStreams();
+      try {
+        libscrcpy.nativeStopStreams();
+      } catch (e) {
+        LoggerClientStream.error('[NativeStreamClient] nativeStopStreams failed:', e);
+      }
 
       // Close native ADB connection
       if (this.adbId >= 0) {
-        libscrcpy.adbClose(this.adbId);
+        try {
+          libscrcpy.adbClose(this.adbId);
+        } catch (e) {
+          LoggerClientStream.error('[NativeStreamClient] adbClose failed:', e);
+        }
         this.adbId = -1;
       }
 
       // Close socket
-      if (this.nativeSocket) {
-        // 关闭socket
-        /*
-        try {
-          this.nativeSocket.close(); // AdbNative close might already close FD?
-        } catch (e) {}
-        */
-        // Note: libscrcpy.adbClose closes the FD. 
-        // We should just release the ArkTS object reference.
-        this.nativeSocket = undefined;
-      }
+      this.nativeSocket = undefined;
 
       // Stop ArkTS client stream (closes shell stream)
-      this.clientStream.close();
+      if (this.clientStream) {
+        try {
+          this.clientStream.close();
+        } catch (e) {
+          LoggerClientStream.error('[NativeStreamClient] clientStream close failed:', e);
+        }
+      }
 
     } catch (err) {
-      LoggerClientStream.error('[NativeStreamClient] Stop error:', err);
+      LoggerClientStream.error('[NativeStreamClient] Stop global error:', err);
     }
   }
 

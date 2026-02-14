@@ -4,6 +4,7 @@ import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
 import { AdbKeyManager } from '../helper/AdbKeyManager';
 import { ServerManager } from '../helper/ServerManager';
+import { ClientSessionManager } from '../helper/ClientSessionManager';
 import window from '@ohos.window';
 
 import { common } from '@kit.AbilityKit';
@@ -98,6 +99,9 @@ struct ControlPage {
       }, 1000);
     }
 
+    // 确保没有残留的会话
+    ClientSessionManager.getInstance().stopAll();
+
     // 设置全屏并隐藏导航条
     this.setFullScreen();
   }
@@ -112,16 +116,10 @@ struct ControlPage {
       this.autoHideTimer = -1;
     }
 
-    // 关闭 Native Client
-    if (this.nativeClient) {
-      LoggerControlPage.info('ControlPage: Closing Native Client');
-      try {
-        this.nativeClient.stop();
-      } catch (e) {
-        LoggerControlPage.error('Native stop failed:', e);
-      }
-      this.nativeClient = undefined;
-    }
+    // 关闭 Native Client (使用 SessionManager 统一管理)
+    LoggerControlPage.info('ControlPage: aboutToDisappear - calling stopAll');
+    ClientSessionManager.getInstance().stopAll();
+    this.nativeClient = undefined;
 
     // 恢复窗口状态
     this.restoreWindow();
@@ -270,6 +268,8 @@ struct ControlPage {
     };
 
     this.nativeClient = new NativeStreamClient(this.context, this.device, listener);
+    // 注册到 SessionManager
+    ClientSessionManager.getInstance().register(this.nativeClient);
   }
 
   // 尝试启动 Native 会话
