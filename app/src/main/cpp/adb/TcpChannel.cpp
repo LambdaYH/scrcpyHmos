@@ -91,7 +91,6 @@ void TcpChannel::write(const uint8_t* data, size_t len) {
         throw std::runtime_error("TcpChannel: write on closed channel");
     }
 
-    std::lock_guard<std::mutex> lock(writeMutex_);
     size_t offset = 0;
     while (offset < len) {
         // Use send with MSG_NOSIGNAL to avoid SIGPIPE if the socket is closed by peer

@@ -25,7 +25,6 @@ public:
 private:
     int fd_;
     std::atomic<bool> closed_{false};
-    std::mutex writeMutex_;
 
     // Buffered I/O
     static const size_t BUFFER_SIZE = 65536; // 64KB
