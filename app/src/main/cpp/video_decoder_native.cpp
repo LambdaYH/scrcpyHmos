@@ -114,8 +114,9 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_WIDTH, width);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_HEIGHT, height);
     OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
-    OH_AVFormat_SetIntValue(format, OH_MD_KEY_FRAME_RATE, 60);
-    OH_AVFormat_SetIntValue(format, "video_enable_low_latency", 1);
+    OH_AVFormat_SetIntValue(format, OH_MD_KEY_FRAME_RATE, 120);
+    OH_AVFormat_SetIntValue(format, OH_MD_KEY_VIDEO_ENABLE_LOW_LATENCY, 1);
+    OH_AVFormat_SetIntValue(format, OH_MD_KEY_MAX_INPUT_SIZE, 10 * 1024 * 1024); // 10MB (Safe for 4K 120fps high bitrate)
 
     int32_t ret = OH_VideoDecoder_Configure(decoder_, format);
     OH_AVFormat_Destroy(format);
