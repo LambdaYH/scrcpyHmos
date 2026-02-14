@@ -183,9 +183,6 @@ void Adb::handleInLoop() {
 
             // 3. Handle Payload
             AdbStream* stream = nullptr;
-            bool isNeedNotify = false; // Moved here
-            
-            // Optimization: check cache first without lock
             if (lastStream_ != nullptr && lastStream_->localId == static_cast<int32_t>(arg1) && !lastStream_->closed) {
                  stream = lastStream_;
             } else {
@@ -195,13 +192,13 @@ void Adb::handleInLoop() {
                     stream = it->second;
                     lastStream_ = stream; // Update cache
                 } else {
-                    isNeedNotify = true;
                     OH_LOG_DEBUG(LOG_APP, "[ADB] New connection: localId=%{public}u, remoteId=%{public}u",
                                  arg1, arg0);
                     stream = createNewStream(static_cast<int32_t>(arg1),
                                              static_cast<int32_t>(arg0),
                                              static_cast<int32_t>(arg1) > 0);
                     lastStream_ = stream; // Update cache
+                    notifyAll(); // Wake up any threads waiting for this stream (e.g. open())
                 }
             }
 
