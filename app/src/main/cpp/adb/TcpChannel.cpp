@@ -58,11 +58,57 @@ TcpChannel::TcpChannel(const std::string& host, int port) {
             continue;
         }
 
-        OH_LOG_INFO(LOG_APP, "TcpChannel: Type connecting...");
+        // Set non-blocking
+        int flags = fcntl(fd_, F_GETFL, 0);
+        fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
 
-        if (connect(fd_, p->ai_addr, p->ai_addrlen) == 0) {
-            // Success
-            break;
+        OH_LOG_INFO(LOG_APP, "TcpChannel: Connecting (non-blocking)...");
+        int res = connect(fd_, p->ai_addr, p->ai_addrlen);
+        
+        if (res == 0) {
+            // Success immediately
+             fcntl(fd_, F_SETFL, flags); // Restore blocking
+             break;
+        } else if (res < 0 && errno == EINPROGRESS) {
+            // Waiting for connection
+            struct pollfd pfd;
+            pfd.fd = fd_;
+            pfd.events = POLLOUT;
+            
+            // Timeout: 30 seconds (30000 ms)
+            int pollRes = poll(&pfd, 1, 30000);
+            
+            if (pollRes > 0) {
+                int error = 0;
+                socklen_t len = sizeof(error);
+                if (getsockopt(fd_, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
+                     // Connection failed
+                     OH_LOG_ERROR(LOG_APP, "TcpChannel: Connect failed with error: %{public}d", error);
+                     ::close(fd_);
+                     fd_ = -1;
+                     continue;
+                }
+                // Success
+                OH_LOG_INFO(LOG_APP, "TcpChannel: Connected via poll");
+                fcntl(fd_, F_SETFL, flags); // Restore blocking
+                break;
+            } else if (pollRes == 0) {
+                 OH_LOG_ERROR(LOG_APP, "TcpChannel: Connect TIMEOUT (30s)");
+                 ::close(fd_);
+                 fd_ = -1;
+                 continue; // Try next address?
+            } else {
+                 OH_LOG_ERROR(LOG_APP, "TcpChannel: Poll error");
+                 ::close(fd_);
+                 fd_ = -1;
+                 continue;
+            }
+        } else {
+             // Immediate failure
+             OH_LOG_ERROR(LOG_APP, "TcpChannel: Connect immediate fail: %{public}s", strerror(errno));
+             ::close(fd_);
+             fd_ = -1;
+             continue;
         }
 
         ::close(fd_);
