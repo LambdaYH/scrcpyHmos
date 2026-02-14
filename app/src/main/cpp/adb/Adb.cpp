@@ -213,18 +213,29 @@ void Adb::handleInLoop() {
                     auto writeInfo = stream->readBuffer.getWritePtr();
                     if (writeInfo.second == 0) {
                         // Buffer full!
-                        // Strategy: Drop? Block?
+                        // Strategy: Retry for a short duration to allow consumer to catch up.
                         // For video, blocking might cause lag but dropping causes artifacts.
-                        // Since we are in a read loop, blocking here STOPS reading other streams (Control/Audio).
-                        // Ideally RingBuffer should be large enough (4MB is plenty).
-                        OH_LOG_WARN(LOG_APP, "[ADB] Stream %{public}d buffer FULL! Dropping %{public}zu bytes", arg1, remaining);
-                        
-                        // Drain socket to temp buffer to keep sync
-                        size_t toDrop = std::min(remaining, (size_t)4096);
-                        if (tempPayload.size() < toDrop) tempPayload.resize(toDrop);
-                        channel_->readWithTimeout(tempPayload.data(), toDrop, -1);
-                        remaining -= toDrop;
-                        continue;
+                        // We retry for up to ~20ms (10 * 2ms).
+                        bool spaceAvailable = false;
+                        for (int i = 0; i < 10; ++i) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                            writeInfo = stream->readBuffer.getWritePtr();
+                            if (writeInfo.second > 0) {
+                                spaceAvailable = true;
+                                break;
+                            }
+                        }
+
+                        if (!spaceAvailable) {
+                            OH_LOG_WARN(LOG_APP, "[ADB] Stream %{public}d buffer FULL after retry! Dropping %{public}zu bytes", arg1, remaining);
+                            
+                            // Drain socket to temp buffer to keep sync
+                            size_t toDrop = std::min(remaining, (size_t)4096);
+                            if (tempPayload.size() < toDrop) tempPayload.resize(toDrop);
+                            channel_->readWithTimeout(tempPayload.data(), toDrop, -1);
+                            remaining -= toDrop;
+                            continue;
+                        }
                     }
 
                     size_t toRead = std::min(remaining, writeInfo.second);
