@@ -336,9 +336,6 @@ struct ControlPage {
       // Check if it's a resource string key
       if (errMsg.startsWith('app.string.')) {
          try {
-             const resName = errMsg.replace('app.string.', '');
-             const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext; 
-             
              if (errMsg === 'app.string.connect_timeout_toast') {
                  errMsg = this.getResString($r('app.string.connect_timeout_toast'));
              } else if (errMsg === 'app.string.adb_auth_failed') {
@@ -347,6 +344,10 @@ struct ControlPage {
                  errMsg = this.getResString($r('app.string.adb_native_connect_failed'));
              } else if (errMsg === 'app.string.server_prepare_failed') {
                  errMsg = this.getResString($r('app.string.server_prepare_failed'));
+             } else if (errMsg === 'app.string.adb_connect_timeout') {
+                 errMsg = this.getResString($r('app.string.adb_connect_timeout'));
+             } else if (errMsg === 'app.string.adb_auth_timeout') {
+                 errMsg = this.getResString($r('app.string.adb_auth_timeout'));
              }
          } catch (e) {
              LoggerControlPage.error('Failed to resolve error resource', e);
