@@ -38,7 +38,25 @@ void VideoDecoderNative::OnError(OH_AVCodec* codec, int32_t errorCode, void* use
 }
 
 void VideoDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format, void* userData) {
-    OH_LOG_INFO(LOG_APP, "[Native] Stream format changed");
+    if (format == nullptr) {
+        OH_LOG_WARN(LOG_APP, "[Native] Stream format changed but format is null");
+        return;
+    }
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t pixelFormat = 0;
+    OH_AVFormat_GetIntValue(format, OH_MD_KEY_WIDTH, &width);
+    OH_AVFormat_GetIntValue(format, OH_MD_KEY_HEIGHT, &height);
+    OH_AVFormat_GetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, &pixelFormat);
+    
+    // Also try video specific keys if generic ones fail or different
+    int32_t videoWidth = 0;
+    int32_t videoHeight = 0;
+    OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_WIDTH, &videoWidth);
+    OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_HEIGHT, &videoHeight);
+
+    OH_LOG_INFO(LOG_APP, "[Native] Stream format changed: %{public}dx%{public}d (video: %{public}dx%{public}d), fmt=%{public}d", 
+                width, height, videoWidth, videoHeight, pixelFormat);
 }
 
 void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
