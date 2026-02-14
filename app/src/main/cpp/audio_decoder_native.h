@@ -67,8 +67,9 @@ private:
     static constexpr size_t PCM_POOL_SIZE = 32;
     // std::queue<PcmFrame> pcmPool_; // Replaced
     // std::mutex pcmMutex_; // Replaced
-    moodycamel::BlockingConcurrentQueue<PcmFrame> pcmQueue_;
-    PcmFrame currentFrame_; // To hold partially consumed frame
+    moodycamel::BlockingConcurrentQueue<PcmFrame*> pcmQueue_;
+    moodycamel::BlockingConcurrentQueue<PcmFrame*> freePcmFrames_; // Pool for raw mode
+    PcmFrame* currentFrame_ = nullptr; // To hold partially consumed frame
 };
 
 #endif // AUDIO_DECODER_NATIVE_H
