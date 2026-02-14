@@ -348,6 +348,8 @@ struct ControlPage {
                  errMsg = this.getResString($r('app.string.adb_connect_timeout'));
              } else if (errMsg === 'app.string.adb_auth_timeout') {
                  errMsg = this.getResString($r('app.string.adb_auth_timeout'));
+             } else if (errMsg === 'app.string.adb_auth_disconnected') {
+                 errMsg = this.getResString($r('app.string.adb_auth_disconnected'));
              } else if (errMsg === 'app.string.connection_cancelled') {
                  // User cancelled, do not show error
                  LoggerControlPage.info('Connection cancelled by user');
@@ -359,14 +361,29 @@ struct ControlPage {
       }
 
       LoggerControlPage.error('[ControlPage] Start session failed:', errMsg);
-      try {
-          this.getUIContext().getPromptAction().showToast({ message: errMsg });
-      } catch (e) {}
-      setTimeout(() => {
-          if (this.isPageActive) {
-             this.exitPage();
-          }
-      }, 2000);
+      
+      // Use Dialog instead of Toast for critical connection errors so the user has time to read it
+      // before calculations/cleanup closes the page.
+      if (this.isPageActive) {
+        try {
+            this.getUIContext().getPromptAction().showDialog({
+                title: $r('app.string.error_title'), // "Error" / "提示"
+                message: errMsg,
+                buttons: [
+                    {
+                        text: $r('app.string.confirm'), // "Confirm" / "确定"
+                        color: '#007DFF' // Standard Blue, works in both modes
+                    }
+                ]
+            }).then(() => {
+                this.exitPage();
+            });
+        } catch (e) {
+            // Fallback if dialog fails (shouldn't happen)
+            this.getUIContext().getPromptAction().showToast({ message: errMsg });
+            setTimeout(() => { this.exitPage(); }, 3000);
+        }
+      }
     }
   }
 

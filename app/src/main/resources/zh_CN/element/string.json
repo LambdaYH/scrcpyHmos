@@ -807,6 +807,14 @@
         {
             "name": "auth_required_toast",
             "value": "请在被控设备上点击允许授权"
+        },
+        {
+            "name": "error_title",
+            "value": "提示"
+        },
+        {
+            "name": "adb_auth_disconnected",
+            "value": "授权过程中设备断开连接，请检查USB/网络或重启ADB。"
         }
     ]
 }

@@ -611,6 +611,14 @@
         {
             "name": "auth_required_toast",
             "value": "Please authorize on the device"
+        },
+        {
+            "name": "error_title",
+            "value": "Error"
+        },
+        {
+            "name": "adb_auth_disconnected",
+            "value": "Device disconnected during authorization. Please check connection."
         }
     ]
 }
