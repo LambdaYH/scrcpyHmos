@@ -18,7 +18,8 @@
 #include <thread>
 #include <atomic>
 #include <functional>
-#include <queue> // Added missing include
+#include <queue> 
+#include "concurrentqueue/blockingconcurrentqueue.h"
 
 // 进度回调函数类型
     // 进度回调函数类型
@@ -147,9 +148,7 @@ private:
     // Asynchronous Send
     std::thread sendThread_;
     std::atomic<bool> sendRunning_{false};
-    std::queue<std::vector<uint8_t>> sendQueue_;
-    std::mutex sendMutex_;          // Protects sendQueue_
-    std::condition_variable sendCv_;
+    moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> sendQueue_;
     const size_t MAX_SEND_QUEUE_SIZE = 50 * 1024 * 1024; // 50MB limit
 
     // 等待通知

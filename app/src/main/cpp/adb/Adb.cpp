@@ -681,7 +681,8 @@ void Adb::close() {
     handleInRunning_.store(false);
 
     sendRunning_.store(false);
-    sendCv_.notify_all();
+    // Send poison pill (empty vector) to wake up thread
+    sendQueue_.enqueue(std::vector<uint8_t>());
     if (sendThread_.joinable()) {
         if (std::this_thread::get_id() != sendThread_.get_id()) {
             sendThread_.join();
@@ -726,50 +727,34 @@ void Adb::close() {
 void Adb::writeToChannel(const std::vector<uint8_t>& data) {
     if (isClosed_.load()) return;
 
-    {
-        std::lock_guard<std::mutex> lock(sendMutex_);
-        if (sendQueue_.size() * data.size() > MAX_SEND_QUEUE_SIZE) { // Rough estimation
-             // Or better: sum of sizes. For now, just size check or count check.
-             // If we assume avg packet is small, count check is fast.
-             // But data payloads can be large.
-             // Let's protect against count for now to avoid O(N) size calc.
-             if (sendQueue_.size() > 5000) {
-                 OH_LOG_WARN(LOG_APP, "[ADB] Send queue full (%{public}zu), dropping packet", sendQueue_.size());
-                 return;
-             }
-        }
-        sendQueue_.push(data);
+    // Use approx size check for queue limit (BlockingConcurrentQueue size_approx is fast)
+    if (sendQueue_.size_approx() > 5000) {
+         OH_LOG_WARN(LOG_APP, "[ADB] Send queue full, dropping packet");
+         return;
     }
-    sendCv_.notify_one();
+    sendQueue_.enqueue(data);
 }
 
 void Adb::sendLoop() {
     OH_LOG_INFO(LOG_APP, "[ADB] Send thread started");
     while (sendRunning_.load()) {
         std::vector<uint8_t> data;
-        {
-            std::unique_lock<std::mutex> lock(sendMutex_);
-            sendCv_.wait(lock, [this] {
-                return !sendQueue_.empty() || !sendRunning_.load();
-            });
+        
+        // Blocking wait for data
+        // Uses internal semaphore for efficient sleep/wake
+        sendQueue_.wait_dequeue(data);
 
-            if (!sendRunning_.load() && sendQueue_.empty()) break;
-            
-            if (!sendQueue_.empty()) {
-                data = std::move(sendQueue_.front());
-                sendQueue_.pop();
-            }
-        }
+        // Check for Poison Pill (empty data) or stopped flag
+        if (!sendRunning_.load()) break;
+        if (data.empty()) continue; // Should not happen usually unless used as wake-up signal
 
-        if (!data.empty()) {
-            try {
-                // Blocking Write
-                channel_->write(data.data(), data.size());
-            } catch (const std::exception& e) {
-                OH_LOG_ERROR(LOG_APP, "[ADB] Send error: %{public}s", e.what());
-                close();
-                break;
-            }
+        try {
+            // Blocking Write
+            channel_->write(data.data(), data.size());
+        } catch (const std::exception& e) {
+            OH_LOG_ERROR(LOG_APP, "[ADB] Send error: %{public}s", e.what());
+            close();
+            break;
         }
     }
     OH_LOG_INFO(LOG_APP, "[ADB] Send thread exited");

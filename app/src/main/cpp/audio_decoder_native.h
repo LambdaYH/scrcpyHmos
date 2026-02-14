@@ -5,17 +5,21 @@
 #include <queue>
 #include <mutex>
 #include <array>
+#include "concurrentqueue/blockingconcurrentqueue.h"
 #include "multimedia/player_framework/native_avcodec_audiocodec.h"
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "ohaudio/native_audiorenderer.h"
-
-
 
 struct PcmFrame {
     std::array<uint8_t, 32 * 1024> data{};
     size_t size = 0;
     size_t offset = 0;
     size_t remaining() const { return size - offset; }
+};
+
+struct AudioInputBufferInfo {
+    uint32_t index;
+    OH_AVBuffer* buffer;
 };
 
 class AudioDecoderNative {
@@ -61,8 +65,10 @@ private:
 
     struct AudioDecoderContext* context_;
     static constexpr size_t PCM_POOL_SIZE = 32;
-    std::queue<PcmFrame> pcmPool_;
-    std::mutex pcmMutex_;
+    // std::queue<PcmFrame> pcmPool_; // Replaced
+    // std::mutex pcmMutex_; // Replaced
+    moodycamel::BlockingConcurrentQueue<PcmFrame> pcmQueue_;
+    PcmFrame currentFrame_; // To hold partially consumed frame
 };
 
 #endif // AUDIO_DECODER_NATIVE_H

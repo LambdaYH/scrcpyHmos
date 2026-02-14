@@ -4,11 +4,15 @@
 #include <string>
 #include <queue>
 #include <mutex>
+#include "concurrentqueue/blockingconcurrentqueue.h"
 #include "multimedia/player_framework/native_avcodec_videodecoder.h"
 #include "multimedia/player_framework/native_avbuffer.h"
 #include "native_window/external_window.h"
 
-
+struct VideoInputBufferInfo {
+    uint32_t index;
+    OH_AVBuffer* buffer;
+};
 
 class VideoDecoderNative {
 public:

@@ -13,13 +13,12 @@
 #define LOG_TAG "VideoDecoderNative"
 #define LOG_DOMAIN 0x3200
 
-// DecoderContext - 使用 queue（EasyControl 风格）
+// DecoderContext - 使用 BlockingConcurrentQueue
 struct DecoderContext {
     VideoDecoderNative* decoder = nullptr;
-    std::queue<uint32_t> inputBufferQueue;  // 只存索引
-    std::queue<OH_AVBuffer*> inputBuffers;  // 存 buffer 指针
-    std::mutex queueMutex;
-    std::condition_variable queueCv; // For blocking GetInputBuffer
+    moodycamel::BlockingConcurrentQueue<VideoInputBufferInfo> inputQueue;
+    // std::mutex queueMutex; // Removed
+    // std::condition_variable queueCv; // Removed
     bool isDecFirstFrame = true;
     int32_t outputWidth = 0;
     int32_t outputHeight = 0;
@@ -46,11 +45,8 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
     DecoderContext* ctx = static_cast<DecoderContext*>(userData);
     if (ctx == nullptr || buffer == nullptr) return;
 
-    std::lock_guard<std::mutex> lock(ctx->queueMutex);
-    ctx->inputBufferQueue.push(index);
-    ctx->inputBuffers.push(buffer);
+    ctx->inputQueue.enqueue({index, buffer});
     ctx->isDecFirstFrame = false;
-    ctx->queueCv.notify_all();
 }
 
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
@@ -160,11 +156,8 @@ int32_t VideoDecoderNative::Start() {
 
         int waitCount = 0;
         while (waitCount < 200) {
-            {
-                std::lock_guard<std::mutex> lock(context_->queueMutex);
-                if (!context_->inputBufferQueue.empty()) {
-                    return ret;
-                }
+            if (context_->inputQueue.size_approx() > 0) {
+                return ret;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             waitCount++;
@@ -179,21 +172,13 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         return -1;
     }
 
-    uint32_t bufferIndex = 0;
-    OH_AVBuffer* buffer = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(context_->queueMutex);
-        if (context_->inputBufferQueue.empty()) {
-            return -2;
-        }
-        bufferIndex = context_->inputBufferQueue.front();
-        context_->inputBufferQueue.pop();
-        buffer = context_->inputBuffers.front();
-        context_->inputBuffers.pop();
+    VideoInputBufferInfo bufInfo;
+    if (!context_->inputQueue.try_dequeue(bufInfo)) {
+         return -2;
     }
 
-    if (buffer == nullptr) return -2;
+    OH_AVBuffer* buffer = bufInfo.buffer;
+    if (buffer == nullptr) return -2; // Should not happen
 
     uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
     int32_t bufferSize = OH_AVBuffer_GetCapacity(buffer);
@@ -207,7 +192,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         attr.offset = 0;
         attr.flags = 0;
         OH_AVBuffer_SetBufferAttr(buffer, &attr);
-        OH_VideoDecoder_PushInputBuffer(decoder_, bufferIndex);
+        OH_VideoDecoder_PushInputBuffer(decoder_, bufInfo.index);
         return -1;
     }
 
@@ -221,7 +206,7 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
 
     OH_AVBuffer_SetBufferAttr(buffer, &attr);
 
-    int32_t ret = OH_VideoDecoder_PushInputBuffer(decoder_, bufferIndex);
+    int32_t ret = OH_VideoDecoder_PushInputBuffer(decoder_, bufInfo.index);
     if (ret != AV_ERR_OK) {
         OH_LOG_ERROR(LOG_APP, "[Native] PushInputBuffer failed: %{public}d", ret);
         return -1;
@@ -234,22 +219,24 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
 int32_t VideoDecoderNative::GetInputBuffer(uint32_t* outIndex, uint8_t** outData, int32_t* outCapacity, void** outHandle, int32_t timeoutMs) {
     if (!isStarted_ || decoder_ == nullptr || context_ == nullptr) return -1;
 
-    std::unique_lock<std::mutex> lock(context_->queueMutex);
-    if (!context_->queueCv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] {
-        return !context_->inputBufferQueue.empty();
-    })) {
+    VideoInputBufferInfo bufInfo;
+    bool success;
+    
+    if (timeoutMs < 0) {
+         context_->inputQueue.wait_dequeue(bufInfo);
+         success = true;
+    } else {
+         success = context_->inputQueue.wait_dequeue_timed(bufInfo, std::chrono::milliseconds(timeoutMs));
+    }
+
+    if (!success) {
         return -2; // Timeout/Empty
     }
 
-    *outIndex = context_->inputBufferQueue.front();
-    context_->inputBufferQueue.pop();
-    
-    OH_AVBuffer* buffer = context_->inputBuffers.front();
-    context_->inputBuffers.pop();
-    
-    *outHandle = buffer;
-    *outData = OH_AVBuffer_GetAddr(buffer);
-    *outCapacity = OH_AVBuffer_GetCapacity(buffer);
+    *outIndex = bufInfo.index;
+    *outHandle = bufInfo.buffer;
+    *outData = OH_AVBuffer_GetAddr(bufInfo.buffer);
+    *outCapacity = OH_AVBuffer_GetCapacity(bufInfo.buffer);
     
     return 0;
 }
@@ -312,7 +299,5 @@ int32_t VideoDecoderNative::Release() {
 
 bool VideoDecoderNative::HasAvailableBuffer() const {
     if (context_ == nullptr) return false;
-
-    std::lock_guard<std::mutex> lock(context_->queueMutex);
-    return !context_->inputBufferQueue.empty();
+    return context_->inputQueue.size_approx() > 0;
 }
