@@ -207,7 +207,7 @@ void Adb::handleInLoop() {
                                              static_cast<int32_t>(arg0),
                                              static_cast<int32_t>(arg1) > 0);
                     lastStream_ = stream; // Update cache
-                    notifyAll(); // Wake up any threads waiting for this stream (e.g. open())
+                    // notifyAll(); // Moved to after command processing to avoid race condition (e.g. notify before CLSE handled)
                 }
             }
 
@@ -264,25 +264,8 @@ void Adb::handleInLoop() {
                 // Handle other commands
                 if (cmd == AdbProtocol::CMD_OKAY) {
                     if (stream) {
-                         // stream->canWrite = true; // RingBuffer doesn't use this? 
-                         // For Write (Outbound) flow control.
-                         // Yes, this is for US sending TO device.
                          stream->canWrite = true; 
-                         // We need to notify logic that waits for write?
-                         // RingBuffer is for READ.
-                         // We need a separate cond var for Write? 
-                         // Old AdbStream had `canWrite` bool.
-                         // `handleInLoop` notifies `readCv` in old code.
-                         // But `readCv` is now in RingBuffer.
-                         // RingBuffer CV is for READ availability.
-                         // We need `writeCv` for outbound?
-                         // Reuse RingBuffer CV? No.
-                         // Let's add `writeCv` to AdbStream if needed.
-                         // Wait, `streamWrite` does blocking write?
-                         // `streamWriteRaw` writes directly to channel. It doesn't wait for OKAY.
-                         // Scrcpy protocol ignores OKAY for performance usually?
-                         // Actually `Adb.cpp` `streamWrite` does NOT wait for `canWrite`.
-                         // So we can ignore OKAY logic or just log it.
+                         notifyAll(); // Notify open() that stream is ready
                     }
                 } else if (cmd == AdbProtocol::CMD_CLSE) {
                     OH_LOG_DEBUG(LOG_APP, "[ADB] Connection closed: localId=%{public}u", arg1);
@@ -290,29 +273,15 @@ void Adb::handleInLoop() {
                         stream->closed = true;
                         stream->readBuffer.close();
                     }
-                    // isNeedNotify = true;
-                    notifyAll();
+                    notifyAll(); // Notify open() or read() that stream is closed
                 } else if (cmd == AdbProtocol::CMD_WRTE && !stream) {
-                     // New connection logic?
-                     // In Scrcpy, we connect TO device. Device sends WRTE to OUR id.
-                     // If stream not found, maybe it was closed locally.
-                     // Send CLSE back?
+                     // ...
+                } else if (cmd == AdbProtocol::CMD_OPEN && !stream) {
+                    // Reverse connection?
                 }
-                
-                // Handle New Connection (OPEN from device - rare for Scrcpy but possible for reverse tunnel?)
-                // Original code:
-                /*
-                } else {
-                    isNeedNotify = true;
-                    stream = createNewStream(...);
-                }
-                */
-               // We need to restore that logic if we want to support reverse connections.
-               // Check if arg1 is not in connectionStreams_
-               if (!stream && cmd == AdbProtocol::CMD_OPEN) { // 0x4e45504f
-                    // ... create stream logic
-               }
             }
+                
+
         }
         OH_LOG_INFO(LOG_APP, "[ADB] handleIn loop exited normally");
     } catch (const std::exception& e) {
@@ -358,8 +327,8 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
     // Check if the stream was closed immediately (Connection Refused)
     {
         // std::lock_guard<std::mutex> lock(stream->readMutex); // usage removed
-        if (stream->closed) {
-            OH_LOG_ERROR(LOG_APP, "[ADB] Stream opened but subsequently CLOSED (refused?): localId=%{public}d", localId);
+        if (stream->closed || stream->remoteId == 0) {
+            OH_LOG_ERROR(LOG_APP, "[ADB] Stream opened but closed/refused (remoteId=%{public}d): localId=%{public}d", stream->remoteId, localId);
             // Cleanup
             {
                 std::lock_guard<std::mutex> slock(streamsMutex_);
