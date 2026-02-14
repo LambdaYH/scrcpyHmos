@@ -34,8 +34,8 @@ struct AdbStream {
     bool canWrite = false;
 
     // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
-    // 默认 4MB 容量
-    RingBuffer readBuffer{4 * 1024 * 1024};
+    // 默认 16MB 容量 (50MB/s -> ~320ms buffer)
+    RingBuffer readBuffer{16 * 1024 * 1024};
     
     AdbStream() = default;
 };
