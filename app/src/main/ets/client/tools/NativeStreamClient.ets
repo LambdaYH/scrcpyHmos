@@ -200,6 +200,10 @@ export class NativeStreamClient {
                  throw new Error('app.string.connect_timeout_toast');
              } else if (res === -3) {
                  throw new Error('app.string.adb_auth_failed');
+             } else if (res === -4) {
+                 throw new Error('app.string.adb_connect_timeout');
+             } else if (res === -5) {
+                 throw new Error('app.string.adb_auth_timeout');
              } else {
                  throw new Error(`Native ADB Connect failed with code ${res}`);
              }

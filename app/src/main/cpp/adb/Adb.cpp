@@ -55,7 +55,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "ADB: CONNECT response timeout or error: %{public}s", e.what());
         channel_->close();
-        return -1;
+        return -4; // Connect Timeout/Error
     }
 
     OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u payloadLen=%{public}u",
@@ -112,8 +112,8 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
             } catch (const std::exception& e) {
                  OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN error/timeout: %{public}s", e.what());
                  channel_->close();
-                 // Return -2 to indicate timeout/auth wait failure specifically
-                 return -2; 
+                 // Return -5 to indicate timeout/auth wait failure specifically
+                 return -5; 
             }
             
             // If we are here, we got a message. Check if it is CNXN.
@@ -145,7 +145,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     handleInRunning_.store(true);
     handleInThread_ = std::thread(&Adb::handleInLoop, this);
 
-    return authResult;
+    return 0;
 }
 
 void Adb::handleInLoop() {

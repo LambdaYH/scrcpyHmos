@@ -429,6 +429,14 @@
             "value": "无法建立连接"
         },
         {
+            "name": "adb_connect_timeout",
+            "value": "连接超时，请检查网络或设备状态"
+        },
+        {
+            "name": "adb_auth_timeout",
+            "value": "授权验证超时，请在设备上确认\"允许USB调试\""
+        },
+        {
             "name": "adb_key_title",
             "value": "全局ADB密钥"
         },

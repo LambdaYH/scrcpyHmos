@@ -493,6 +493,14 @@
       "value": "Failed to establish native connection to device."
     },
     {
+      "name": "adb_connect_timeout",
+      "value": "Connection timed out. Please check network or device status."
+    },
+    {
+      "name": "adb_auth_timeout",
+      "value": "Authorization timed out. Please confirm 'Allow USB debugging' on the device."
+    },
+    {
       "name": "adb_key_title",
       "value": "Global ADB Key"
     },

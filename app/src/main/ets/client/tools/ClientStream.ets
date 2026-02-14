@@ -97,12 +97,17 @@ export class ClientStream {
       const connectRes: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, onWaitAuth);
       if (connectRes !== 0) {
           if (connectRes === -2) {
+             // Deprecated legacy code, now -5
              throw new Error('app.string.connect_timeout_toast');
           } else if (connectRes === -3) {
              throw new Error('app.string.adb_auth_failed');
+          } else if (connectRes === -4) {
+             throw new Error('app.string.adb_connect_timeout'); // New: Initial connection timeout
+          } else if (connectRes === -5) {
+             throw new Error('app.string.adb_auth_timeout');   // New: Auth wait timeout
           } else {
              // -1 or other errors
-             throw new Error('app.string.adb_native_connect_failed');
+             throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);
           }
       }
       LoggerClientStream.info('[ClientStream] Native ADB connected');
