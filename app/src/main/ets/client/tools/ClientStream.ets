@@ -1,12 +1,13 @@
 // ClientStream - 客户端流管理
 import { Device } from '../../entity/Device';
-import { Adb } from '../../adb/Adb';
-import { BufferStream } from '../../buffer/BufferStream';
-import { AdbKeyManager, AdbKeySerialData } from '../../helper/AdbKeyManager';
-import { ServerManager, ServerStartResult } from '../../helper/ServerManager';
+// import { Adb } from '../../adb/Adb'; 
+// import { BufferStream } from '../../buffer/BufferStream';
+import { AdbKeyManager } from '../../helper/AdbKeyManager';
+import { ServerManager } from '../../helper/ServerManager';
 import { LoggerClientStream } from '../../helper/Logger';
 import { buffer, util } from '@kit.ArkTS';
-
+import * as libscrcpy from 'libscrcpy_native.so';
+import fs from '@ohos.file.fs';
 
 // Video configuration from handshake
 export interface VideoConfig {
@@ -35,17 +36,15 @@ export interface AudioFrame {
 }
 
 export class ClientStream {
-  // Correctly mapped streams
-  private vidStream?: BufferStream; // 1st connection: Video
-  private audStream?: BufferStream; // 2nd connection: Audio
-  private msgStream?: BufferStream; // 3rd connection: Control
-
-  private shellStream?: BufferStream;
+  // Native ADB ID
+  private adbId: number = -1;
+  private shellStreamId: number = -1;
+  
   private currentScid: string = '';
   private isConnected: boolean = false;
   private isClosing: boolean = false;
   private device: Device;
-  private adb?: Adb;
+  // private adb?: Adb; // Removed
   // Handshake data
   private deviceName: string = '';
   private videoConfig?: VideoConfig;
@@ -55,571 +54,147 @@ export class ClientStream {
     this.device = device;
   }
 
-  // Worker 线程中使用的连接方法（不需要 Context/UIContext）
-  async connectInWorker(
-    adbKeyData: AdbKeySerialData,
+
+  // 为 Native 模式准备服务端：连接ADB，推送服务端，启动服务端，但不打开流
+  async prepareServerForNative(
+    context: Context, // 需要Context来获取AdbKeyManager
     serverJarData: ArrayBuffer | null,
-    onAuth?: () => void,
-    onError?: (message: string) => void
-  ): Promise<boolean> {
+    onWaitAuth?: () => void
+  ): Promise<number> {
     try {
       this.isClosing = false;
-      LoggerClientStream.info('[Worker] Starting device connection...');
+      LoggerClientStream.info('[ClientStream] Preparing server for native mode (Native ADB)...');
 
-      // 0. 从序列化数据初始化 ADB 密钥管理器（不需要 Context）
+      // 1. 初始化 ADB 密钥管理器
       const keyManager = AdbKeyManager.getInstance();
-      await keyManager.initFromKeyData(adbKeyData);
-      LoggerClientStream.info('[Worker] ADB key manager initialized from serialized data');
+      await keyManager.init(context);
 
-      // 1. 通过ADB连接设备
-      LoggerClientStream.info(`[Worker] Connecting to ADB at ${this.device.address}:${this.device.adbPort}`);
+      // 导出密钥到临时文件
+      const tempDir = context.tempDir;
+      const pubKeyPath = tempDir + '/scrcpy_adbkey.pub';
+      const priKeyPath = tempDir + '/scrcpy_adbkey';
+      
+      // Write Public Key
+      const pubKeyBytes = keyManager.getPublicKeyBytes();
+      const pubFile = fs.openSync(pubKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      fs.writeSync(pubFile.fd, pubKeyBytes as ArrayBuffer);
+      fs.closeSync(pubFile);
 
-      const keyPair = keyManager.getAdbKeyPair();
-      if (!keyPair) {
-        throw new Error('Failed to get ADB key pair');
-      }
-      // 不传 uiContext，使用 onAuth 回调
-      const adb = await Adb.connectTcp(this.device.address, this.device.adbPort, keyPair, undefined, onAuth);
-      LoggerClientStream.info('[Worker] ADB connected successfully');
+      // Write Private Key (PEM)
+      const priKeyBase64 = keyManager.getPrivateKeyBase64();
+      const pemContent = "-----BEGIN PRIVATE KEY-----\n" + priKeyBase64 + "\n-----END PRIVATE KEY-----";
+      const priFile = fs.openSync(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      fs.writeSync(priFile.fd, pemContent);
+      fs.closeSync(priFile);
 
-      // 保存adb实例
-      this.adb = adb;
-
-      // 2. 检查并推送服务端
-      const serverExists = await ServerManager.checkServerExists(adb);
-      if (!serverExists) {
-        if (!serverJarData) {
-          throw new Error('Server not found on device and no server data provided');
-        }
-        // 使用主线程预加载的 server.jar 数据
-        const pushed = await ServerManager.pushServer(adb, serverJarData);
-        if (!pushed) {
-          throw new Error('Push server.jar failed');
-        }
+      // 2. 连接ADB (Native)
+      LoggerClientStream.info(`[ClientStream] Connecting to Native ADB at ${this.device.address}:${this.device.adbPort}`);
+      this.adbId = await libscrcpy.adbCreate(this.device.address, this.device.adbPort);
+      if (this.adbId < 0) {
+          throw new Error('app.string.adb_native_connect_failed');
       }
 
-      // 后续连接逻辑复用
-      return await this.connectStreams(adb);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.error('[Worker] ClientStream connect failed:', errMsg);
-
-      await new Promise<void>(resolve => setTimeout(resolve, 200));
-
-      if (onError) {
-        onError(errMsg);
-      }
-      return false;
-    }
-  }
-
-  // 连接服务端流的共用逻辑（从 connect 和 connectInWorker 复用）
-  private async connectStreams(adb: Adb): Promise<boolean> {
-    try {
-      // 3. 启动服务端
-      LoggerClientStream.info(`Starting scrcpy server v${ServerManager.getVersion()}...`);
-
-      const serverResult: ServerStartResult = await ServerManager.startServer(adb, this.device);
-      this.shellStream = serverResult.shellStream;
-      this.currentScid = serverResult.scid;
-      this.adb = adb;
-
-      // 构建socket名称
-      const socketName = `scrcpy_${this.currentScid}`;
-      LoggerClientStream.info(`Server started with SCID: ${this.currentScid}, socket name: ${socketName}`);
-
-      // 4. 等待服务器启动并连接
-      LoggerClientStream.info('Waiting for server to start...');
-      await new Promise<void>(resolve => setTimeout(resolve, 50));
-
-      // 重试连接服务器（参考easycontrol原版）
-      const reTry = 40;
-      const reTryTime = 15000 / reTry;
-
-      for (let i = 0; i < reTry; i++) {
-        if (this.isClosing) {
-          LoggerClientStream.info('Connection cancelled during retry loop');
-          return false;
-        }
-
-        try {
-          // Sequential Connection & Handshake logic matching official client
-          // Server sends dummy byte ONLY on the FIRST accepted socket (DesktopConnection.java:68-88)
-          // So we only read from Video stream, not Audio or Control.
-
-          // 1. Connect Video -> Read Dummy (FIRST socket, gets dummy byte)
-          LoggerClientStream.info('Connecting Video Stream...');
-          this.vidStream = await adb.localSocketForward(socketName);
-          LoggerClientStream.debug('Reading video dummy byte...');
-          await this.vidStream.readByteArray(1);
-
-          // Auto-detect audio support (Android 11+ required)
-          if (this.device.isAudio) {
-            try {
-              const sdkStr = await adb.runAdbCmd('shell getprop ro.build.version.sdk');
-              const sdk = parseInt(sdkStr.trim());
-              if (!isNaN(sdk) && sdk < 30) {
-                console.warn(`Device SDK ${sdk} < 30 (Android 11), disabling audio automatically.`);
-                this.device.isAudio = false;
-              }
-            } catch (e) {
-              LoggerClientStream.warn('Failed to check Android version, assuming audio supported:', e);
-            }
-          }
-
-          // 2. Connect Audio
-          if (this.device.isAudio) {
-            LoggerClientStream.info('Connecting Audio Stream...');
-            this.audStream = await adb.localSocketForward(socketName);
-            // No dummy byte read - server only sends on first socket
-          }
-
-          // 3. Connect Control
-          LoggerClientStream.info('Connecting Control Stream...');
-          this.msgStream = await adb.localSocketForward(socketName);
-          // No dummy byte read - server only sends on first socket
-
-          break;
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-
-          if (errMsg === 'error forward') {
-            // "error forward" usually means the server socket is not ready yet (Connection Refused)
-            // This is normal during the startup phase.
-            LoggerClientStream.info(`Server socket not ready (attempt ${i + 1}/${reTry}), waiting...`);
+      const connectRes: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, onWaitAuth);
+      if (connectRes !== 0) {
+          if (connectRes === -2) {
+             // Deprecated legacy code, now -5
+             throw new Error('app.string.connect_timeout_toast');
+          } else if (connectRes === -3) {
+             throw new Error('app.string.adb_auth_failed');
+          } else if (connectRes === -4) {
+             throw new Error('app.string.adb_connect_timeout'); // New: Initial connection timeout
+          } else if (connectRes === -5) {
+             throw new Error('app.string.adb_auth_timeout');   // New: Auth wait timeout
+          } else if (connectRes === -6) {
+             throw new Error('app.string.connection_cancelled'); // New: Cancelled by user
+          } else if (connectRes === -7) {
+             throw new Error('app.string.adb_auth_disconnected'); // New: Device closed connection
           } else {
-            LoggerClientStream.warn(`Server connection attempt ${i + 1}/${reTry} failed:`, errMsg);
-
-            // If server crashed (EOF or closed), we might see it in shellStream
-            // Only read output for unexpected errors
-            if (this.shellStream && !this.shellStream.isStreamClosed() && !this.shellStream.isEmpty()) {
-              try {
-                const data = await this.shellStream.readAllBytes();
-                if (data.byteLength > 0) {
-                  const text = buffer.from(data).toString('utf-8');
-                  LoggerClientStream.error('Server output during connection failure:', text);
-                }
-              } catch (e) {
-                // ignore
-              }
-            }
+             // -1 or other errors
+             throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);
           }
+      }
+      LoggerClientStream.info('[ClientStream] Native ADB connected');
 
-          this.vidStream = undefined;
-          this.audStream = undefined;
-          this.msgStream = undefined;
-          if (i < reTry - 1) {
-            await new Promise<void>(resolve => setTimeout(resolve, reTryTime));
-          }
-        }
+      // 3. 推送服务端
+      const serverPath = `/data/local/tmp/scrcpy-server-${ServerManager.getVersion()}`;
+      if (serverJarData && serverJarData.byteLength > 0) {
+          LoggerClientStream.info(`[ClientStream] Pushing server to ${serverPath}...`);
+          libscrcpy.adbPushFile(this.adbId, serverJarData, serverPath);
+      } else {
+          LoggerClientStream.warn('[ClientStream] No server jar data, skipping push');
       }
 
-      if (!this.vidStream || (this.device.isAudio && !this.audStream) || !this.msgStream) {
-        // Try one last read of server output
-        if (this.shellStream) {
-          try {
-            const data = await this.shellStream.readAllBytes();
-            if (data.byteLength > 0) {
-              LoggerClientStream.error('Final server output:',
-                buffer.from(data).toString('utf-8'));
-            }
-          } catch (e) {
-          }
-        }
-        throw new Error('Failed to connect to server streams after all retries');
+      // 4. 启动服务端
+      const args = ServerManager.buildServerArgs(this.device);
+      // Ensure SCID is generated (ServerManager generates it during buildServerArgs if not present, but better to check)
+      // Actually buildServerArgs calls generateScid.
+      this.currentScid = ServerManager.getLastScid();
+      const socketName = `scrcpy_${this.currentScid}`;
+      
+      const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
+      LoggerClientStream.info(`[ClientStream] Starting server with command: ${cmd}`);
+      
+      this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
+      if (this.shellStreamId < 0) {
+          throw new Error('Native ADB Get Shell failed');
       }
+      
+      const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
+      libscrcpy.adbStreamWrite(this.adbId, this.shellStreamId, cmdBytes.buffer);
 
-      // 5. Perform Handshake (Rest)
-      LoggerClientStream.info('Performing handshake (Device Name, Codec)...');
-      await this.performHandshakeRest();
+      LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
 
-      // 连接成功后才开始读取shell输出
+      // 5. Monitor output
       this.readShellOutputAsync();
-
+      
       this.isConnected = true;
-      LoggerClientStream.info('Connection established successfully');
-      return true;
+      return this.adbId;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.error('connectStreams failed:', errMsg);
-      return false;
+      LoggerClientStream.error('[ClientStream] prepareServerForNative failed:', errMsg);
+      this.close();
+      throw (err instanceof Error) ? err : new Error(String(err)); // Rethrow to let NativeStreamClient handle it
     }
   }
 
-  private readShellOutputAsync(): void {
-    if (!this.shellStream) {
-      return;
-    }
-
-    const stream = this.shellStream;
-
-    // 异步读取shell输出
-    const readLoop = async () => {
-      try {
-        let count = 0;
-        while (!stream.isStreamClosed() && count < 100) { // 限制最多读100次
-          if (this.isClosing) {
-            break;
-          }
-
-          try {
-            if (!stream.isEmpty()) {
-              const data = await stream.readAllBytes();
-              if (data.byteLength > 0) {
-                const text = buffer.from(data).toString('utf-8');
-                LoggerClientStream.debug('=== Server shell output ===');
-                LoggerClientStream.debug(text);
-                LoggerClientStream.debug('===========================');
-                count++;
-              }
+  // 异步读取Shell输出
+  private async readShellOutputAsync() {
+    try {
+        const decoder = util.TextDecoder.create('utf-8');
+        while (!this.isClosing && this.adbId >= 0 && this.shellStreamId >= 0) {
+            // Check if closed
+            const isClosed: boolean = libscrcpy.adbIsStreamClosed(this.adbId, this.shellStreamId);
+            if (isClosed) {
+                LoggerClientStream.info('[ClientStream] Shell stream closed by remote');
+                break;
+            }
+            
+            // Read
+            const data: ArrayBuffer = libscrcpy.adbStreamRead(this.adbId, this.shellStreamId, 1024);
+            if (data.byteLength > 0) {
+                const text = decoder.decodeToString(new Uint8Array(data));
+                LoggerClientStream.info('[ServerOutput] ' + text.trim());
             } else {
-              // 空数据，等待一下再继续
-              await this.delay(200);
+                await new Promise<void>(resolve => setTimeout(resolve, 100));
             }
-          } catch (readErr) {
-            const errMsg = readErr instanceof Error ? readErr.message : String(readErr);
-            if (!errMsg.includes('timeout')) {
-              LoggerClientStream.error('Shell read error:', errMsg);
-              break;
-            }
-            // 超时是正常的，继续
-            await this.delay(100);
-          }
         }
-        LoggerClientStream.info('Shell output reading finished');
-      } catch (err) {
-        LoggerClientStream.error('Shell read loop error:', err);
+    } catch (e) {
+        LoggerClientStream.error('[ClientStream] Read shell output failed', JSON.stringify(e));
+    }
+    this.close();
+  }
+
+  close() {
+      if (this.isClosing) return;
+      this.isClosing = true;
+      LoggerClientStream.info('[ClientStream] Closing...');
+      
+      if (this.adbId >= 0) {
+          libscrcpy.adbClose(this.adbId);
+          this.adbId = -1;
+          this.shellStreamId = -1;
       }
-    };
-
-    // 启动读取循环（不阻塞主流程）
-    readLoop();
-  }
-
-  // Remaining Handshake implementation (Device Name, Codec Meta)
-  private async performHandshakeRest(): Promise<void> {
-    if (!this.vidStream) {
-      throw new Error('Video stream not connected');
-    }
-
-    // Dummy bytes already read in connect()
-
-    // 2. Read Device Name (64 bytes) from Video Stream
-    LoggerClientStream.debug('Reading device name...');
-    const deviceNameData = await this.vidStream.readByteArray(64);
-    const decoder = util.TextDecoder.create('utf-8');
-    this.deviceName = decoder.decodeToString(new Uint8Array(deviceNameData)).replace(/\0/g, '');
-    LoggerClientStream.info(`Device Name: ${this.deviceName}`);
-
-    // 3. Read Codec Metadata (12 bytes) from Video Stream
-    LoggerClientStream.debug('Reading codec metadata...');
-    const codecData = await this.vidStream.readByteArray(12);
-    const view = new DataView(codecData);
-    const codecId = view.getInt32(0, false);
-    const width = view.getInt32(4, false);
-    const height = view.getInt32(8, false);
-
-    this.videoConfig = {
-      codecId: codecId,
-      width: width,
-      height: height
-    };
-    LoggerClientStream.info(`Video Config: Codec=${codecId}, Size=${width}x${height}`);
-  }
-
-  getVideoConfig(): VideoConfig | undefined {
-    return this.videoConfig;
-  }
-
-  // Audio codec ID constants (4-byte ASCII representation in big-endian)
-  private static readonly AUDIO_CODEC_OPUS: number = 0x6F707573; // "opus"
-  private static readonly AUDIO_CODEC_AAC: number = 0x00616163; // "aac\0"
-  private static readonly AUDIO_CODEC_FLAC: number = 0x666C6163; // "flac"
-  private static readonly AUDIO_CODEC_RAW: number = 0x00726177; // "raw\0"
-
-  // Get the actual audio codec configuration
-  getAudioConfig(): AudioConfig | undefined {
-    return this.audioConfig;
-  }
-
-  // Convert codec ID to codec name
-  private codecIdToName(codecId: number): string {
-    switch (codecId) {
-      case ClientStream.AUDIO_CODEC_OPUS:
-        return 'opus';
-      case ClientStream.AUDIO_CODEC_AAC:
-        return 'aac';
-      case ClientStream.AUDIO_CODEC_FLAC:
-        return 'flac';
-      case ClientStream.AUDIO_CODEC_RAW:
-        return 'raw';
-      default:
-        LoggerClientStream.warn(`[ClientStream] Unknown audio codec ID: 0x${codecId.toString(16)}, fallback to opus`);
-        return 'opus';
-    }
-  }
-
-  // Read audio codec header from server (4 bytes)
-  // This must be called after connecting to audio stream
-  async readAudioCodecHeader(): Promise<boolean> {
-    if (!this.audStream) {
-      LoggerClientStream.error('[ClientStream] Audio stream not connected');
-      return false;
-    }
-
-    try {
-      // Read 4-byte codec ID
-      const codecBytes = await this.readBytesFromAudio(4);
-      const view = new DataView(codecBytes);
-      const codecId = view.getInt32(0, false); // big-endian
-
-      // Check for audio disabled (codecId == 0) or error (codecId == 1)
-      if (codecId === 0) {
-        LoggerClientStream.info('[ClientStream] Audio stream disabled by server');
-        this.audioConfig = { codecId: 0, codecName: 'disabled' };
-        return true;
-      }
-
-      if (codecId === 1) {
-        LoggerClientStream.error('[ClientStream] Audio stream configuration error');
-        return false;
-      }
-
-      const codecName = this.codecIdToName(codecId);
-      this.audioConfig = { codecId, codecName };
-
-      LoggerClientStream.info(`[ClientStream] Audio codec: ${codecName} (0x${codecId.toString(16).toUpperCase()})`);
-      return true;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      LoggerClientStream.error('[ClientStream] Failed to read audio codec header:', errMsg);
-      return false;
-    }
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  async writeMain(data: ArrayBuffer): Promise<void> {
-    if (!this.msgStream) {
-      throw new Error('Control stream not connected');
-    }
-    try {
-      await this.msgStream.write(data);
-    } catch (err) {
-      LoggerClientStream.error('Write to control stream failed:', err);
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw error;
-    }
-  }
-
-  // 从main stream读取一个字节
-  async readByteFromMain(): Promise<number> {
-    const data: ArrayBuffer = await this.readBytesFromMain(1);
-    return new Uint8Array(data)[0];
-  }
-
-  // 从main stream读取4字节整数（big-endian）
-  async readIntFromMain(): Promise<number> {
-    const data: ArrayBuffer = await this.readBytesFromMain(4);
-    const view = new DataView(data);
-    return view.getInt32(0, false); // big-endian
-  }
-
-  // 从main stream读取指定长度的字节
-  async readBytesFromMain(length: number): Promise<ArrayBuffer> {
-    if (!this.msgStream) {
-      throw new Error('Message stream not connected');
-    }
-    return await this.msgStream.readByteArray(length);
-  }
-
-  // 从video stream读取一个字节
-  async readByteFromVideo(): Promise<number> {
-    const data = await this.readBytesFromVideo(1);
-    return new Uint8Array(data)[0];
-  }
-
-  // 从video stream读取4字节整数（big-endian）
-  async readIntFromVideo(): Promise<number> {
-    const data = await this.readBytesFromVideo(4);
-    const view = new DataView(data);
-    return view.getInt32(0, false); // big-endian
-  }
-
-  // 从video stream读取指定长度的字节
-  async readBytesFromVideo(length: number): Promise<ArrayBuffer> {
-    if (!this.vidStream) {
-      throw new Error('Video stream not connected');
-    }
-
-    // 从BufferStream读取
-    return await this.vidStream.readByteArray(length);
-  }
-
-  // 读取一帧视频数据（Scrcpy V2协议：PTS(8) + Size(4) + Data）
-  async readFrameFromVideo(): Promise<VideoFrame> {
-    if (this.isClosing) {
-      throw new Error('Client is closing');
-    }
-
-    // console.debug('[ClientStream] Reading frame header...');
-
-    // 1. Read PTS (8 bytes)
-    const ptsBytes = await this.readBytesFromVideo(8);
-    const view = new DataView(ptsBytes);
-    const pts = view.getBigInt64(0, false);
-
-    // Check Config Packet flag (bit 63)
-    const PACKET_FLAG_CONFIG = 1n << 63n;
-    const isConfig = (pts & PACKET_FLAG_CONFIG) !== 0n;
-
-    // Clean PTS (remove flag)
-    const cleanPts = pts & ~PACKET_FLAG_CONFIG;
-
-    let flags = 0;
-    if (isConfig) {
-      LoggerClientStream.info('[ClientStream] Received Configuration Packet (SPS/PPS)');
-      flags = 8; // AVCODEC_BUFFER_FLAGS_CODEC_DATA
-    }
-
-    // DEBUG: Log raw PTS for diagnosis (已禁用，避免每帧日志影响性能)
-    // LoggerClientStream.debug(`[ClientStream] Raw PTS: 0x${pts.toString(16)}, cleanPTS: ${Number(cleanPts)}`);
-
-    // 2. Read Size (4 bytes)
-    const frameSize = await this.readIntFromVideo();
-    // console.debug(`[ClientStream] Frame size: ${frameSize} bytes`);
-
-    if (frameSize <= 0 || frameSize > 20 * 1024 * 1024) { // Increase limit to 20MB for I-frames
-      throw new Error(`Invalid frame size: ${frameSize}`);
-    }
-
-    // 3. Read Data
-    // console.debug(`[ClientStream] Reading frame data (${frameSize} bytes)...`);
-    // const frameData = await this.readBytesFromVideo(frameSize);
-    
-    // 使用 Native 缓冲池读取视频帧数据（零拷贝优化）
-    if (!this.vidStream) {
-       throw new Error('Video stream not connected during frame read');
-    }
-    const frameData = await this.vidStream.readToNativeBuffer(frameSize);
-    
-    // console.debug(`[ClientStream] Frame data read complete`);
-
-    // Convert BigInt PTS to number
-    // Note: cleanPts can be > 2^53 when bit 63 was set (config frames), causing Number() overflow
-    // If Number() overflows, the result is negative, so we need to recovery the unsigned value
-    const UINT64_MAX_PLUS_1 = 18446744073709551616n;
-    let ptsNumber = Number(cleanPts);
-    if (ptsNumber < 0) {
-      // Recover the unsigned 64-bit value: unsigned = 2^64 + signed
-      ptsNumber = Number(UINT64_MAX_PLUS_1 + cleanPts);
-    }
-
-    const frame: VideoFrame = { data: frameData, pts: ptsNumber, flags: flags };
-    return frame;
-  }
-
-  // 从audio stream读取指定长度的字节
-  async readBytesFromAudio(length: number): Promise<ArrayBuffer> {
-    if (!this.audStream) {
-      throw new Error('Audio stream not connected');
-    }
-    return await this.audStream.readByteArray(length);
-  }
-
-  // 读取一帧音频数据
-  // Scrcpy V2 audio format: [8 bytes PTS] [4 bytes size] [N bytes audio data]
-  // Reference: scrcpy/app/src/demuxer.c sc_demuxer_recv_packet()
-  async readFrameFromAudio(): Promise<AudioFrame> {
-    if (this.isClosing) {
-      throw new Error('Client is closing');
-    }
-
-    // Constants for packet flags (same as video)
-    const PACKET_FLAG_CONFIG = 1n << 63n;
-    const PACKET_FLAG_KEY_FRAME = 1n << 62n;
-    const PTS_MASK = PACKET_FLAG_KEY_FRAME - 1n;
-
-    // 1. Read PTS (8 bytes, big-endian)
-    const ptsBytes = await this.readBytesFromAudio(8);
-    const ptsView = new DataView(ptsBytes);
-    const ptsRaw = ptsView.getBigInt64(0, false);
-
-    // Check if this is a config packet (for opus/flac, the config data comes as a packet with special PTS)
-    const isConfig = (ptsRaw & PACKET_FLAG_CONFIG) !== 0n;
-    const cleanPts = Number(ptsRaw & PTS_MASK); // Convert to microseconds
-
-    // 2. Read Size (4 bytes, big-endian)
-    const sizeBytes = await this.readBytesFromAudio(4);
-    const sizeView = new DataView(sizeBytes);
-    const frameSize = sizeView.getInt32(0, false);
-
-    if (frameSize <= 0 || frameSize > 1024 * 1024) { // 1MB limit
-      throw new Error(`Invalid audio frame size: ${frameSize}`);
-    }
-
-    // 3. Read Audio Data
-    const frameData = await this.readBytesFromAudio(frameSize);
-
-    // Log config packet reception
-    if (isConfig) {
-      LoggerClientStream.info(`[ClientStream] Audio config packet received: ${frameSize} bytes`);
-    }
-
-    const frame: AudioFrame = { data: frameData, pts: cleanPts };
-    return frame;
-  }
-
-
-  async close(): Promise<void> {
-    this.isClosing = true;
-
-    // 关闭ADB转发streams
-    if (this.vidStream) {
-      try {
-        this.vidStream.close();
-      } catch (err) {
-        LoggerClientStream.error('Close video stream failed:', err);
-      }
-      this.vidStream = undefined;
-    }
-    if (this.audStream) {
-      try {
-        this.audStream.close();
-      } catch (err) {
-        LoggerClientStream.error('Close audio stream failed:', err);
-      }
-      this.audStream = undefined;
-    }
-    if (this.msgStream) {
-      try {
-        this.msgStream.close();
-      } catch (err) {
-        LoggerClientStream.error('Close msg stream failed:', err);
-      }
-      this.msgStream = undefined;
-    }
-    if (this.shellStream) {
-      try {
-        this.shellStream.close();
-      } catch (err) {
-        LoggerClientStream.error('Close shell stream failed:', err);
-      }
-      this.shellStream = undefined;
-    }
-
-    // 关闭ADB连接
-    if (this.adb) {
-      this.adb.close();
-      this.adb = undefined;
-    }
-
-    this.isConnected = false;
-  }
-
-  isStreamConnected(): boolean {
-    return this.isConnected;
+      this.isConnected = false;
   }
 }

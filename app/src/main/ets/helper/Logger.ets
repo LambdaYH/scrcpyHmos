@@ -289,3 +289,4 @@ export const LoggerPreferences = new Logger('Preferences');
 export const LoggerClient = new Logger('Client');
 export const LoggerClientStream = new Logger('ClientStream');
 export const LoggerAdb = new Logger('Adb');
+export const LoggerClientSession = new Logger('ClientSessionManager');

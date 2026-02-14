@@ -12,18 +12,28 @@
 #define LOG_TAG "AudioDecoderNative"
 #define LOG_DOMAIN 0x3200
 
+struct InputBufferInfo {
+    uint32_t index;
+    OH_AVBuffer* buffer;
+};
+
 struct AudioDecoderContext {
     AudioDecoderNative* decoder = nullptr;
-    std::queue<uint32_t> inputBufferQueue;
-    std::queue<OH_AVBuffer*> inputBuffers;
-    std::mutex inputMutex;
+    moodycamel::BlockingConcurrentQueue<InputBufferInfo> inputQueue;
+    // std::mutex inputMutex;
+    // std::condition_variable inputCv;
 };
 
 AudioDecoderNative::AudioDecoderNative()
     : decoder_(nullptr), renderer_(nullptr), builder_(nullptr),
       isStarted_(false), isRaw_(false),
       sampleRate_(48000), channelCount_(2), frameCount_(0),
-      codecType_("opus"), context_(nullptr) {
+      codecType_("opus"), context_(nullptr), currentFrame_(nullptr) {
+    
+    // Fill pool with initial frames
+    for (size_t i = 0; i < PCM_POOL_SIZE; ++i) {
+        freePcmFrames_.enqueue(new PcmFrame());
+    }
 }
 
 AudioDecoderNative::~AudioDecoderNative() {
@@ -40,10 +50,8 @@ void AudioDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
 
 void AudioDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     AudioDecoderContext* ctx = static_cast<AudioDecoderContext*>(userData);
-    if (buffer != nullptr) {
-        std::lock_guard<std::mutex> lock(ctx->inputMutex);
-        ctx->inputBufferQueue.push(index);
-        ctx->inputBuffers.push(buffer);
+    if (buffer != nullptr && ctx != nullptr) {
+        ctx->inputQueue.enqueue({index, buffer});
     }
 }
 
@@ -55,18 +63,32 @@ void AudioDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     if (OH_AVBuffer_GetBufferAttr(buffer, &attr) == AV_ERR_OK && attr.size > 0) {
         uint8_t* data = OH_AVBuffer_GetAddr(buffer);
 
-        std::lock_guard<std::mutex> lock(ctx->decoder->pcmMutex_);
         PcmFrame frame;
         size_t copySize = std::min(static_cast<size_t>(attr.size), sizeof(frame.data));
         std::memcpy(frame.data.data(), data, copySize);
         frame.size = copySize;
         frame.offset = 0;
 
-        if (ctx->decoder->pcmPool_.size() < PCM_POOL_SIZE) {
-            ctx->decoder->pcmPool_.push(std::move(frame));
+        // Simple size check to avoid unlimited growth
+        if (ctx->decoder->pcmQueue_.size_approx() < PCM_POOL_SIZE) {
+            // Decoding mode: we still need to copy from AVBuffer to PcmFrame
+            // Get a free frame
+            PcmFrame* frame = nullptr;
+            if (!ctx->decoder->freePcmFrames_.try_dequeue(frame)) {
+                 frame = new PcmFrame();
+            }
+            
+            size_t copySize = std::min(static_cast<size_t>(attr.size), sizeof(frame->data));
+            std::memcpy(frame->data.data(), data, copySize);
+            frame->size = copySize;
+            frame->offset = 0;
+            
+            ctx->decoder->pcmQueue_.enqueue(frame);
         } else {
-            ctx->decoder->pcmPool_.pop();
-            ctx->decoder->pcmPool_.push(std::move(frame));
+             // Drop frame if queue full, but we must recycle logic?
+             // Actually if decoder is fast but renderer slow, we drop.
+             // But we don't have a frame to recycle unless we dequeued it.
+             // Just do nothing -> frame dropped.
         }
     }
 
@@ -78,23 +100,33 @@ int32_t AudioDecoderNative::OnAudioRendererWriteData(OH_AudioRenderer* renderer,
                                                       void* buffer,
                                                       int32_t length) {
     AudioDecoderNative* self = static_cast<AudioDecoderNative*>(userData);
-    std::lock_guard<std::mutex> lock(self->pcmMutex_);
+    // No lock needed for pcmQueue_ (thread-safe)
+    // But currentFrame_ is accessed only by this thread (renderer callback), so it's safe.
 
     int32_t written = 0;
     uint8_t* outBuffer = static_cast<uint8_t*>(buffer);
 
-    while (written < length && !self->pcmPool_.empty()) {
-        PcmFrame& frame = self->pcmPool_.front();
-        size_t offset = frame.offset;
-        size_t remaining = frame.remaining();
-        int32_t toCopy = std::min(static_cast<int32_t>(remaining), length - written);
-        std::memcpy(outBuffer + written, frame.data.data() + offset, toCopy);
-        written += toCopy;
-        frame.offset += toCopy;
-
-        if (frame.remaining() == 0) {
-            self->pcmPool_.pop();
+    while (written < length) {
+        // If current frame empty/exhausted, get next one
+        if (self->currentFrame_ == nullptr || self->currentFrame_->remaining() == 0) {
+             // Recycle used frame
+             if (self->currentFrame_ != nullptr) {
+                 self->freePcmFrames_.enqueue(self->currentFrame_);
+                 self->currentFrame_ = nullptr;
+             }
+             
+             if (!self->pcmQueue_.try_dequeue(self->currentFrame_)) {
+                 break; // No more data
+             }
         }
+
+        size_t offset = self->currentFrame_->offset;
+        size_t remaining = self->currentFrame_->remaining();
+        int32_t toCopy = std::min(static_cast<int32_t>(remaining), length - written);
+        
+        std::memcpy(outBuffer + written, self->currentFrame_->data.data() + offset, toCopy);
+        written += toCopy;
+        self->currentFrame_->offset += toCopy;
     }
 
     if (written < length) {
@@ -264,12 +296,9 @@ int32_t AudioDecoderNative::Start() {
         int waitCount = 0;
         constexpr int MAX_WAIT_COUNT = 200;  // 200 * 10ms = 2000ms
         while (waitCount < MAX_WAIT_COUNT) {
-            {
-                std::lock_guard<std::mutex> lock(context_->inputMutex);
-                if (!context_->inputBufferQueue.empty()) {
-                    OH_LOG_INFO(LOG_APP, "[AudioNative] Initial input buffer available after %{public}dx10ms", waitCount);
-                    break;
-                }
+            if (context_->inputQueue.size_approx() > 0) {
+                 OH_LOG_INFO(LOG_APP, "[AudioNative] Initial input buffer available after %{public}dx10ms", waitCount);
+                 break;
             }
             // 使用nanosleep替代sleep_for
             struct timespec ts = {0, 10000000};  // 10ms
@@ -277,7 +306,7 @@ int32_t AudioDecoderNative::Start() {
             waitCount++;
         }
         if (waitCount >= MAX_WAIT_COUNT) {
-            OH_LOG_WARN(LOG_APP, "[AudioNative] Timeout waiting for initial input buffers (queue still empty after %{public}ms)",
+                OH_LOG_WARN(LOG_APP, "[AudioNative] Timeout waiting for initial input buffers (queue still empty after %{public}dms)",
                        waitCount * 10);
         }
     }
@@ -287,24 +316,110 @@ int32_t AudioDecoderNative::Start() {
     return 0;
 }
 
+int32_t AudioDecoderNative::GetInputBuffer(uint32_t* outIndex, uint8_t** outData, int32_t* outCapacity, void** outHandle, int32_t timeoutMs) {
+    if (!isStarted_) return -1;
+
+    // RAW 模式特殊处理：伪造一个 buffer
+    if (isRaw_) {
+        // Raw mode: Get frame from pool
+        PcmFrame* frame = nullptr;
+        if (!freePcmFrames_.try_dequeue(frame)) {
+             frame = new PcmFrame();
+        }
+
+        *outIndex = 0; // Dummy
+        // We use the frame pointer as the handle
+        *outHandle = frame; 
+        
+        *outData = frame->data.data();
+        *outCapacity = static_cast<int32_t>(frame->data.size());
+        
+        return 0;
+    }
+
+    if (decoder_ == nullptr || context_ == nullptr) return -1;
+
+    InputBufferInfo bufInfo;
+    bool success;
+    if (timeoutMs < 0) {
+        context_->inputQueue.wait_dequeue(bufInfo);
+        success = true;
+    } else {
+        success = context_->inputQueue.wait_dequeue_timed(bufInfo, std::chrono::milliseconds(timeoutMs));
+    }
+
+    if (!success) return -2; // Timeout
+
+    *outIndex = bufInfo.index;
+    *outHandle = bufInfo.buffer;
+    *outData = OH_AVBuffer_GetAddr(bufInfo.buffer);
+    *outCapacity = OH_AVBuffer_GetCapacity(bufInfo.buffer);
+
+    return 0;
+}
+
+int32_t AudioDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int64_t pts, int32_t size, uint32_t flags) {
+    if (!isStarted_) {
+        // 如果停止了，Raw模式需要释放内存
+        if (isRaw_ && handle) {
+            delete[] static_cast<uint8_t*>(handle);
+        }
+        return -1;
+    }
+
+    if (isRaw_) {
+        // Raw Mode: handle is PcmFrame*
+        PcmFrame* frame = static_cast<PcmFrame*>(handle);
+        if (frame) {
+            frame->size = size;
+            frame->offset = 0;
+            pcmQueue_.enqueue(frame);
+            frameCount_++;
+        }
+        return 0;
+    }
+
+    if (decoder_ == nullptr) return -1;
+
+    OH_AVBuffer* buffer = static_cast<OH_AVBuffer*>(handle);
+
+    OH_AVCodecBufferAttr attr;
+    attr.pts = pts;
+    attr.size = size;
+    attr.offset = 0;
+    attr.flags = flags;
+
+    OH_AVBuffer_SetBufferAttr(buffer, &attr);
+
+    int32_t ret = OH_AudioCodec_PushInputBuffer(decoder_, index);
+    if (ret != AV_ERR_OK) {
+        OH_LOG_ERROR(LOG_APP, "[AudioNative] SubmitInputBuffer failed: %{public}d", ret);
+        return -1;
+    }
+
+    frameCount_++;
+    return 0;
+}
+
 int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
     if (!isStarted_) {
         OH_LOG_ERROR(LOG_APP, "[AudioNative] PushData: not started");
         return -1;
     }
 
-    // RAW模式直接放入PCM队列（优化：单一队列）
+    // RAW模式直接放入PCM队列
     if (isRaw_) {
-        std::lock_guard<std::mutex> lock(pcmMutex_);
-
-        if (pcmPool_.size() < PCM_POOL_SIZE) {
-            PcmFrame frame;
-            size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame.data));
-            std::memcpy(frame.data.data(), data, copySize);
-            frame.size = copySize;
-            frame.offset = 0;
-            pcmPool_.push(std::move(frame));
+        PcmFrame* frame = nullptr;
+        if (!freePcmFrames_.try_dequeue(frame)) {
+             frame = new PcmFrame();
         }
+
+        size_t copySize = std::min(static_cast<size_t>(size), sizeof(frame->data));
+        std::memcpy(frame->data.data(), data, copySize);
+        frame->size = copySize;
+        frame->offset = 0;
+        
+        pcmQueue_.enqueue(frame);
         frameCount_++;
         return 0;
     }
@@ -315,21 +430,14 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         return -1;
     }
 
-    // 获取输入buffer
-    uint32_t bufferIndex = 0;
-    OH_AVBuffer* buffer = nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(context_->inputMutex);
-        if (context_->inputBufferQueue.empty() || context_->inputBuffers.empty()) {
-            OH_LOG_DEBUG(LOG_APP, "[AudioNative] PushData: no available input buffer");
-            return -2;
-        }
-        bufferIndex = context_->inputBufferQueue.front();
-        context_->inputBufferQueue.pop();
-        buffer = context_->inputBuffers.front();
-        context_->inputBuffers.pop();
+    InputBufferInfo bufInfo;
+    if (!context_->inputQueue.try_dequeue(bufInfo)) {
+        OH_LOG_DEBUG(LOG_APP, "[AudioNative] PushData: no available input buffer");
+        return -2;
     }
+    
+    OH_AVBuffer* buffer = bufInfo.buffer;
+    uint32_t bufferIndex = bufInfo.index;
 
     // 复制数据
     uint8_t* bufferAddr = OH_AVBuffer_GetAddr(buffer);
@@ -394,6 +502,8 @@ int32_t AudioDecoderNative::Stop() {
 }
 
 int32_t AudioDecoderNative::Release() {
+    if (decoder_ == nullptr && renderer_ == nullptr && context_ == nullptr) return 0;
+    
     Stop();
 
     if (decoder_ != nullptr) {
@@ -416,12 +526,13 @@ int32_t AudioDecoderNative::Release() {
         context_ = nullptr;
     }
 
-    // 清空buffer池（优化：单一队列只需清空一个）
-    {
-        std::lock_guard<std::mutex> lock(pcmMutex_);
-        while (!pcmPool_.empty()) {
-            pcmPool_.pop();
-        }
+    // 清空buffer池
+    PcmFrame* frame;
+    while (pcmQueue_.try_dequeue(frame)) { delete frame; }
+    while (freePcmFrames_.try_dequeue(frame)) { delete frame; }
+    if (currentFrame_) {
+        delete currentFrame_;
+        currentFrame_ = nullptr;
     }
 
     OH_LOG_INFO(LOG_APP, "[AudioNative] Released, total frames: %{public}u", frameCount_);
@@ -430,7 +541,5 @@ int32_t AudioDecoderNative::Release() {
 
 bool AudioDecoderNative::HasAvailableBuffer() const {
     if (context_ == nullptr) return false;
-
-    std::lock_guard<std::mutex> lock(context_->inputMutex);
-    return !context_->inputBufferQueue.empty();
+    return context_->inputQueue.size_approx() > 0;
 }

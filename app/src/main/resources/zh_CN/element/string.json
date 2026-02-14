@@ -417,6 +417,26 @@
             "value": "连接超时。请确保在Android设备上点击了\"允许\"授权USB调试。"
         },
         {
+            "name": "server_prepare_failed",
+            "value": "准备服务端失败，请检查设备连接。"
+        },
+        {
+            "name": "adb_auth_failed",
+            "value": "ADB授权失败，请在设备上撤销USB调试授权后重试。"
+        },
+        {
+            "name": "adb_native_connect_failed",
+            "value": "无法建立连接"
+        },
+        {
+            "name": "adb_connect_timeout",
+            "value": "连接超时，请检查网络或设备状态"
+        },
+        {
+            "name": "adb_auth_timeout",
+            "value": "授权验证超时，请在设备上确认\"允许USB调试\""
+        },
+        {
             "name": "adb_key_title",
             "value": "全局ADB密钥"
         },
@@ -787,6 +807,14 @@
         {
             "name": "auth_required_toast",
             "value": "请在被控设备上点击允许授权"
+        },
+        {
+            "name": "error_title",
+            "value": "提示"
+        },
+        {
+            "name": "adb_auth_disconnected",
+            "value": "授权过程中设备断开连接，请检查USB/网络或重启ADB。"
         }
     ]
 }

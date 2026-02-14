@@ -3,7 +3,7 @@ import cryptoFramework from '@ohos.security.cryptoFramework';
 import { util } from '@kit.ArkTS';
 import { buffer } from '@kit.ArkTS';
 
-import { AdbKeyPair } from '../adb/AdbKeyPair';
+
 import { LoggerAdbKeyManager } from './Logger';
 // RSA公钥解析结果
 class RsaKeyParams {
@@ -44,6 +44,14 @@ export class AdbKeyManager {
   private cachedKeyPair?: cryptoFramework.KeyPair; // 缓存生成的KeyPair
   private keyGeneration: number = 0; // 密钥代数，用于检测是否需要重新生成
   
+  public getPrivateKeyBase64(): string {
+    return this.privateKeyBase64;
+  }
+
+  public getAdbPublicKeyBase64(): string {
+    return this.adbPublicKeyBase64;
+  }
+
   private constructor() {}
   
   static getInstance(): AdbKeyManager {
@@ -214,16 +222,7 @@ export class AdbKeyManager {
     }
   }
 
-  getAdbKeyPair(): AdbKeyPair | null {
-    if (!this.cachedKeyPair) {
-      return null;
-    }
-    const publicKeyBytes = this.getPublicKeyBytes();
-    if (publicKeyBytes.byteLength === 0) {
-      return null;
-    }
-    return new AdbKeyPair(this.cachedKeyPair.priKey!, new Uint8Array(publicKeyBytes), this.cachedKeyPair);
-  }
+
   
   // 将RSA公钥转换为ADB格式（524字节）
   private convertRsaPublicKeyToAdbFormat(): ArrayBuffer | null {
