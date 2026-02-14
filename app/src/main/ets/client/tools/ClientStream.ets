@@ -105,6 +105,8 @@ export class ClientStream {
              throw new Error('app.string.adb_connect_timeout'); // New: Initial connection timeout
           } else if (connectRes === -5) {
              throw new Error('app.string.adb_auth_timeout');   // New: Auth wait timeout
+          } else if (connectRes === -6) {
+             throw new Error('app.string.connection_cancelled'); // New: Cancelled by user
           } else {
              // -1 or other errors
              throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);

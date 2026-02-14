@@ -110,10 +110,13 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
             try {
                 message = readMessageFromChannel(channel_, 30000); 
             } catch (const std::exception& e) {
+                 if (channel_->isClosed()) {
+                     OH_LOG_INFO(LOG_APP, "ADB: Connect/Auth cancelled (channel closed)");
+                     return -6; // Cancelled
+                 }
                  OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN error/timeout: %{public}s", e.what());
                  channel_->close();
-                 // Return -5 to indicate timeout/auth wait failure specifically
-                 return -5; 
+                 return -5; // Timeout/Error
             }
             
             // If we are here, we got a message. Check if it is CNXN.

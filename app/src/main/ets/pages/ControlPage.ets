@@ -348,6 +348,10 @@ struct ControlPage {
                  errMsg = this.getResString($r('app.string.adb_connect_timeout'));
              } else if (errMsg === 'app.string.adb_auth_timeout') {
                  errMsg = this.getResString($r('app.string.adb_auth_timeout'));
+             } else if (errMsg === 'app.string.connection_cancelled') {
+                 // User cancelled, do not show error
+                 LoggerControlPage.info('Connection cancelled by user');
+                 return;
              }
          } catch (e) {
              LoggerControlPage.error('Failed to resolve error resource', e);
