@@ -52,6 +52,32 @@ struct ControlPage {
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
   
+  @State stepTime: number = 0;
+  private stepTimer: number = -1;
+
+  // Start the step timer (resets count)
+  private startStepTimer() {
+    this.stopStepTimer();
+    this.stepTime = 0;
+    this.stepTimer = setInterval(() => {
+      this.stepTime++;
+    }, 1000);
+  }
+
+  // Stop the step timer
+  private stopStepTimer() {
+    if (this.stepTimer !== -1) {
+      clearInterval(this.stepTimer);
+      this.stepTimer = -1;
+    }
+  }
+
+  // Helper to update status and restart timer
+  private updateConnectionStatus(status: string) {
+    this.connectionStatus = status;
+    this.startStepTimer();
+  }
+
   // 辅助方法：将 Resource 引用解析为字符串
   private getResString(res: Resource): string {
     try {
@@ -74,7 +100,9 @@ struct ControlPage {
         if (params['clientReady'] === true) {
           // 客户端已连接，从缓存获取
           this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-          this.connectionStatus = this.getResString($r('app.string.connecting_status'));
+          // Note: Index already started connecting, so we might want to sync state if possible
+          // But for now, just show "Connecting..."
+          this.updateConnectionStatus(this.getResString($r('app.string.connecting_status')));
           this.initFromExistingClient();
         } else {
           try {
@@ -108,6 +136,7 @@ struct ControlPage {
   
   aboutToDisappear() {
     this.isPageActive = false;
+    this.stopStepTimer(); // Clean up timer
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
 
     // 停止自动隐藏定时器
@@ -230,6 +259,7 @@ struct ControlPage {
         LoggerControlPage.info(`[ControlPage] Audio codec: ${codec}`);
       },
       onDisconnect: (reason: string) => {
+        this.stopStepTimer(); // Stop timer on disconnect
         LoggerControlPage.warn('[ControlPage] Client disconnected:', reason);
         this.isConnected = false;
         this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
@@ -243,6 +273,7 @@ struct ControlPage {
         }, 1500);
       },
       onError: (error: string) => {
+        this.stopStepTimer(); // Stop timer on error
         LoggerControlPage.error('[ControlPage] Client error:', error);
         try {
           this.getUIContext().getPromptAction().showToast({ message: error });
@@ -250,7 +281,7 @@ struct ControlPage {
           LoggerControlPage.error('Show toast failed:', err);
         }
         setTimeout(() => {
-           this.exitPage();
+            this.exitPage();
         }, 1500);
       },
       onClipboard: (text: string) => {
@@ -258,7 +289,7 @@ struct ControlPage {
       },
       onWaitAuth: () => {
         LoggerControlPage.info('[ControlPage] Waiting for ADB Authorization...');
-        this.connectionStatus = this.getResString($r('app.string.adb_auth_waiting'));
+        this.updateConnectionStatus(this.getResString($r('app.string.adb_auth_waiting')));
         try {
              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
         } catch (e) {
@@ -283,16 +314,18 @@ struct ControlPage {
     this.isStarted = true;
     try {
       LoggerControlPage.info('[ControlPage] Starting Native Session...');
-      this.connectionStatus = this.getResString($r('app.string.connecting_status')); // "正在连接..."
+      this.updateConnectionStatus(this.getResString($r('app.string.connecting_status'))); // "正在连接..."
       
       // 启动会话 (异步)
       await this.nativeClient.start(this.serverJarData, this.surfaceId);
       
       this.isConnected = true;
+      this.stopStepTimer(); // Connection successful, stop timer
       this.connectionStatus = this.getResString($r('app.string.control_connected'));
       this.startAutoHideTimer();
       this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
     } catch (err) {
+      this.stopStepTimer(); // Stop timer on failure
       if (!this.isPageActive) {
           LoggerControlPage.warn('[ControlPage] Error ignored, page inactive:', err);
           return;
@@ -303,19 +336,9 @@ struct ControlPage {
       // Check if it's a resource string key
       if (errMsg.startsWith('app.string.')) {
          try {
-             // Extract resource name
              const resName = errMsg.replace('app.string.', '');
-             // Use context to get string
              const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext; 
-             // We can't easily get ID by name dynamically in ArkTS without resource reflection or effective map.
-             // But wait, $r('app.string.name') works if we have the ID.
-             // Since we passed a string key, we have to look it up or just use a big switch/map if dynamic lookup isn't available.
-             // Actually, the easier way is to throw the object or a custom error code.
-             // But for now, let's just try to match common errors or use a helper if possible.
-             // A better approach: The Error message is just the key.
-             // We can try to finding it in a predefined map or just use English fallback if complex.
              
-             // However, for this specific request, let's map the known keys.
              if (errMsg === 'app.string.connect_timeout_toast') {
                  errMsg = this.getResString($r('app.string.connect_timeout_toast'));
              } else if (errMsg === 'app.string.adb_auth_failed') {
@@ -477,7 +500,7 @@ struct ControlPage {
               .color($r('sys.color.ohos_id_color_text_primary'))
 
             // 连接状态文字
-            Text(this.connectionStatus)
+            Text(`${this.connectionStatus} (${this.stepTime}s)`)
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
               .fontColor($r('sys.color.ohos_id_color_text_primary'))

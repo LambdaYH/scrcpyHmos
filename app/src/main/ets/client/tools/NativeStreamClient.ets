@@ -62,25 +62,21 @@ export class NativeStreamClient {
     try {
       LoggerClientStream.info('[NativeStreamClient] Starting session...');
 
-      // 1. Prepare Server (ArkTS side)
-      // This ensures scrcpy-server is running on the device
-      // 1. Prepare Server (ArkTS side)
-      // This ensures scrcpy-server is running on the device
-      await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
+      // 1. Prepare Server (ArkTS side) & Get Shared ADB ID
+      // This ensures scrcpy-server is running on the device and gives us the connected ADB ID
+      this.adbId = await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
           LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from ClientStream');
           if (this.listener && this.listener.onWaitAuth) {
               this.listener.onWaitAuth();
           }
       });
+      
+      LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
-      // 2. Connect Native ADB
-      // Establish a dedicated connection for streaming
-      await this.connectNativeAdb();
-
-      // 3. Open Streams (Video, Audio, Control)
+      // 2. Open Streams (Video, Audio, Control)
       await this.openNativeStreams();
 
-      // 4. Start Native Processing
+      // 3. Start Native Processing
       this.startNativeProcessing(surfaceId);
 
       LoggerClientStream.info('[NativeStreamClient] Session started successfully');
@@ -105,20 +101,14 @@ export class NativeStreamClient {
         LoggerClientStream.error('[NativeStreamClient] nativeStopStreams failed:', e);
       }
 
-      // Close native ADB connection
-      if (this.adbId >= 0) {
-        try {
-          libscrcpy.adbClose(this.adbId);
-        } catch (e) {
-          LoggerClientStream.error('[NativeStreamClient] adbClose failed:', e);
-        }
-        this.adbId = -1;
-      }
+      // We do NOT close this.adbId here directly because it is owned by this.clientStream.
+      // this.clientStream.close() below will close it.
+      this.adbId = -1;
 
       // Close socket
       this.nativeSocket = undefined;
 
-      // Stop ArkTS client stream (closes shell stream)
+      // Stop ArkTS client stream (closes shell stream and the shared ADB connection)
       if (this.clientStream) {
         try {
           this.clientStream.close();
@@ -138,81 +128,6 @@ export class NativeStreamClient {
       libscrcpy.nativeSendControl(data);
     } catch (err) {
       LoggerClientStream.error('[NativeStreamClient] Send control failed:', err);
-    }
-  }
-
-  private async connectNativeAdb(): Promise<void> {
-    LoggerClientStream.info('[NativeStreamClient] Establishing native ADB connection...');
-
-    const ip = this.device.address;
-    const port = this.device.adbPort;
-
-    LoggerClientStream.info(`[NativeStreamClient] Connecting to ${ip}:${port} via Native C++...`);
-
-    // Call native adbCreate with IP and Port directly
-    // This avoids ArkTS socket ownership issues where data might be read away by the runtime
-    this.adbId = await libscrcpy.adbCreate(ip, port);
-    
-    if (this.adbId < 0) {
-        throw new Error(`Native ADB Create/Connect failed to ${ip}:${port}`);
-    }
-    
-    LoggerClientStream.info(`[NativeStreamClient] Native ADB instance created: ${this.adbId}`);
-
-    // 2. Authenticate
-    // We need to write keys to temp files for native layer to read
-    const keyManager = AdbKeyManager.getInstance();
-    const tempDir = this.context.tempDir;
-    const pubKeyPath = tempDir + '/temp_adbkey.pub';
-    const priKeyPath = tempDir + '/temp_adbkey';
-
-    try {
-        // Write Public Key (ADB Format + Comment)
-        const pubKeyBytes = keyManager.getPublicKeyBytes();
-        const pubFile = fs.openSync(pubKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-        fs.writeSync(pubFile.fd, pubKeyBytes as ArrayBuffer);
-        fs.closeSync(pubFile);
-
-        // Write Private Key (PEM Format)
-        const priKeyBase64 = keyManager.getPrivateKey();
-        const pemContent = "-----BEGIN PRIVATE KEY-----\n" + priKeyBase64 + "\n-----END PRIVATE KEY-----";
-
-        const priFile = fs.openSync(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-        fs.writeSync(priFile.fd, pemContent);
-        fs.closeSync(priFile);
-
-        LoggerClientStream.info(`[NativeStreamClient] Keys written to temp: ${pubKeyPath}`);
-
-        // Call Native Connect with onWaitAuth callback
-        const res: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, () => {
-            LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from native');
-            if (this.listener && this.listener.onWaitAuth) {
-                this.listener.onWaitAuth();
-            }
-        });
-        
-        // Clean up keys (optional, maybe keep them for debugging or next time?)
-        // fs.unlinkSync(pubKeyPath);
-        // fs.unlinkSync(priKeyPath);
-
-        if (res !== 0) { // 0=OK
-             if (res === -2) {
-                 throw new Error('app.string.connect_timeout_toast');
-             } else if (res === -3) {
-                 throw new Error('app.string.adb_auth_failed');
-             } else if (res === -4) {
-                 throw new Error('app.string.adb_connect_timeout');
-             } else if (res === -5) {
-                 throw new Error('app.string.adb_auth_timeout');
-             } else {
-                 throw new Error(`Native ADB Connect failed with code ${res}`);
-             }
-        }
-        LoggerClientStream.info('[NativeStreamClient] Native ADB Authenticated');
-
-    } catch (err) {
-        LoggerClientStream.error('[NativeStreamClient] Auth failed:', JSON.stringify(err));
-        throw (err instanceof Error) ? err : new Error(String(err));
     }
   }
 

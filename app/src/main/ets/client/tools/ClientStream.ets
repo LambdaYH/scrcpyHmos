@@ -60,7 +60,7 @@ export class ClientStream {
     context: Context, // 需要Context来获取AdbKeyManager
     serverJarData: ArrayBuffer | null,
     onWaitAuth?: () => void
-  ): Promise<boolean> {
+  ): Promise<number> {
     try {
       this.isClosing = false;
       LoggerClientStream.info('[ClientStream] Preparing server for native mode (Native ADB)...');
@@ -145,7 +145,7 @@ export class ClientStream {
       this.readShellOutputAsync();
       
       this.isConnected = true;
-      return true;
+      return this.adbId;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[ClientStream] prepareServerForNative failed:', errMsg);
