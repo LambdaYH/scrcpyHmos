@@ -10,11 +10,11 @@
     },
     {
       "name": "ScrcpyHmosAbility_label",
-      "value": "scrcpy mobile"
+      "value": "ScrcpyMobile"
     },
     {
       "name": "app_name",
-      "value": "scrcpy mobile"
+      "value": "ScrcpyMobile"
     },
     {
       "name": "main_device_type_network",
@@ -602,7 +602,7 @@
     },
     {
       "name": "about_scrcpy_name",
-      "value": "scrcpy mobile"
+      "value": "ScrcpyMobile"
     },
     {
       "name": "about_client_section",

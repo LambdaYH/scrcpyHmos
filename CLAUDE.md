@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-scrcpy mobile is a HarmonyOS remote control application for Android devices, inspired by scrcpy and EasyControl. It allows HarmonyOS devices (phones/tablets) to remotely control Android devices over ADB via network connection.
+ScrcpyMobile is a HarmonyOS remote control application for Android devices, inspired by scrcpy and EasyControl. It allows HarmonyOS devices (phones/tablets) to remotely control Android devices over ADB via network connection.
 
 **Bundle Name:** com.lambdayh.scrcpyHmos
 **Target SDK:** HarmonyOS API 9+ (6.0.0)
