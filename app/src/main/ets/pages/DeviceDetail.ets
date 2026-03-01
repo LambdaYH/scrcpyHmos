@@ -20,6 +20,14 @@ struct DeviceDetail {
     { value: 'h265' }
   ];
 
+  // 旋转角度选项
+  private rotationOptions: SelectOption[] = [
+    { value: $r('app.string.rotation_0') },
+    { value: $r('app.string.rotation_90') },
+    { value: $r('app.string.rotation_180') },
+    { value: $r('app.string.rotation_270') }
+  ];
+
   // 音频编码选项
   private audioCodecOptions: SelectOption[] = [
     { value: 'opus' },
@@ -260,6 +268,28 @@ struct DeviceDetail {
                 .onChange((value: string) => {
                   const num = parseInt(value);
                   this.device.displayId = isNaN(num) ? 0 : num;
+                })
+            }
+            .width('100%')
+
+            Row() {
+              Column() {
+                Text($r('app.string.config_screen_rotation_title'))
+                  .width('100%')
+                Text($r('app.string.config_screen_rotation_desc'))
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_tertiary'))
+                  .width('100%')
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Select(this.rotationOptions)
+                .selected(this.getRotationIndex())
+                .value(this.getRotationString(this.device.captureOrientation))
+                .onSelect((index: number) => {
+                  const orientations = [-1, 90, 180, 270];
+                  this.device.captureOrientation = orientations[index];
                 })
             }
             .width('100%')
@@ -644,6 +674,19 @@ struct DeviceDetail {
   getVideoCodecIndex(): number {
     const index = this.videoCodecOptions.findIndex(opt => opt.value === this.device.videoCodec);
     return index >= 0 ? index : 0;
+  }
+
+  getRotationIndex(): number {
+    const orientations = [-1, 90, 180, 270];
+    const index = orientations.indexOf(this.device.captureOrientation);
+    return index >= 0 ? index : 0;
+  }
+
+  getRotationString(orientation: number): ResourceStr {
+    if (orientation === 90) return $r('app.string.rotation_90');
+    if (orientation === 180) return $r('app.string.rotation_180');
+    if (orientation === 270) return $r('app.string.rotation_270');
+    return $r('app.string.rotation_0');
   }
 
   getAudioCodecIndex(): number {

@@ -196,6 +196,17 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
         // 4. 初始化视频解码器
         videoDecoder_ = new VideoDecoderNative();
+
+        videoDecoder_->SetSizeChangeCallback([this, codecId, codecType, deviceName](int32_t w, int32_t h) {
+            std::ostringstream oss;
+            oss << "{\"codecId\":" << codecId
+                << ",\"width\":" << w
+                << ",\"height\":" << h
+                << ",\"codecType\":\"" << codecType << "\""
+                << ",\"deviceName\":\"" << deviceName << "\"}";
+            this->emitEvent("video_size_changed", oss.str());
+        });
+
         int32_t initRet = videoDecoder_->Init(codecType.c_str(), config_.surfaceId.c_str(), width, height);
         if (initRet != 0) {
             OH_LOG_ERROR(LOG_APP, "[VideoThread] Decoder init failed: %{public}d", initRet);

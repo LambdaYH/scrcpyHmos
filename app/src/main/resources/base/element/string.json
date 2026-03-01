@@ -265,6 +265,30 @@
       "value": "Crop"
     },
     {
+      "name": "config_screen_rotation_title",
+      "value": "Screen Rotation"
+    },
+    {
+      "name": "config_screen_rotation_desc",
+      "value": "Rotate the video stream (0, 90, 180, 270 degrees)"
+    },
+    {
+      "name": "rotation_0",
+      "value": "0° (Default)"
+    },
+    {
+      "name": "rotation_90",
+      "value": "90°"
+    },
+    {
+      "name": "rotation_180",
+      "value": "180°"
+    },
+    {
+      "name": "rotation_270",
+      "value": "270°"
+    },
+    {
       "name": "display_id",
       "value": "Display ID"
     },
@@ -867,6 +891,10 @@
     {
       "name": "adb_auth_disconnected",
       "value": "Device disconnected during authorization. Please check connection."
+    },
+    {
+      "name": "rotate_screen",
+      "value": "Rotate Screen"
     }
   ]
 }

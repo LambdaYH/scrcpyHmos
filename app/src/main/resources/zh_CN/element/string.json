@@ -217,6 +217,30 @@
             "value": "裁剪区域"
         },
         {
+            "name": "config_screen_rotation_title",
+            "value": "屏幕旋转"
+        },
+        {
+            "name": "config_screen_rotation_desc",
+            "value": "旋转视频流 (0, 90, 180, 270 度)"
+        },
+        {
+            "name": "rotation_0",
+            "value": "0° (默认)"
+        },
+        {
+            "name": "rotation_90",
+            "value": "90°"
+        },
+        {
+            "name": "rotation_180",
+            "value": "180°"
+        },
+        {
+            "name": "rotation_270",
+            "value": "270°"
+        },
+        {
             "name": "display_id",
             "value": "显示器ID"
         },
@@ -815,6 +839,10 @@
         {
             "name": "adb_auth_disconnected",
             "value": "授权过程中设备断开连接，请检查USB/网络或重启ADB。"
+        },
+        {
+            "name": "rotate_screen",
+            "value": "旋转屏幕"
         }
     ]
 }

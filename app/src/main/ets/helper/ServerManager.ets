@@ -88,6 +88,9 @@ export class ServerManager {
     if (device.displayId !== 0) {
       addArg('display_id', device.displayId);
     }
+    if (device.captureOrientation !== undefined && device.captureOrientation >= 0) {
+      addArg('capture_orientation', `${device.captureOrientation}`);
+    }
 
     // 音频参数
     // audio=true is default, remove. Only send if false.

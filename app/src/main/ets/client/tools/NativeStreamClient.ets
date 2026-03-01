@@ -179,12 +179,16 @@ export class NativeStreamClient {
 
         switch (type) {
             case 'video_config':
+            case 'video_size_changed':
                 try {
                     interface VideoConfig { width: number; height: number; }
                     const config = JSON.parse(data) as VideoConfig;
+                    if (type === 'video_size_changed') {
+                        LoggerClientStream.info(`[NativeStreamClient] Dynamic Video Size Changed: ${config.width}x${config.height}`);
+                    }
                     this.listener.onVideoConfig(config.width, config.height);
                 } catch (e) {
-                    LoggerClientStream.error('Parse video config failed:', JSON.stringify(e));
+                    LoggerClientStream.error('Parse video config/size failed:', JSON.stringify(e));
                 }
                 break;
             case 'clipboard':
