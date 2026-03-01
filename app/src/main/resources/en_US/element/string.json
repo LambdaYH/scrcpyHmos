@@ -643,6 +643,10 @@
         {
             "name": "adb_auth_disconnected",
             "value": "Device disconnected during authorization. Please check connection."
+        },
+        {
+            "name": "rotate_screen",
+            "value": "Rotate Screen"
         }
     ]
 }

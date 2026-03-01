@@ -24,6 +24,9 @@ struct ControlPage {
   @State displayXComponentWidth: number = 0; // 计算后的显示宽度
   @State displayXComponentHeight: number = 0; // 计算后的显示高度
 
+  // 手动横竖屏状态
+  @State isLandscape: boolean = false;
+
   @State isConnected: boolean = false;
   @State connectionStatus: string = '';
   @State showLoading: boolean = true;
@@ -413,8 +416,8 @@ struct ControlPage {
       await windowClass.setWindowLayoutFullScreen(true);
       // 隐藏状态栏和导航栏
       await windowClass.setWindowSystemBarEnable([]);
-      // 允许根据传感器自动旋转，支持横屏
-      await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION);
+      // 允许根据传感器自动旋转，支持横屏，但受限于系统的旋转锁定
+      await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
     } catch (err) {
       LoggerControlPage.error('Set fullscreen failed:', err);
     }
@@ -649,6 +652,34 @@ struct ControlPage {
             .borderRadius(22)
             .onClick(() => {
               this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
+            })
+
+            // 旋转屏幕按钮
+            Button() {
+              SymbolGlyph($r('sys.symbol.rectangle_portrait_rotate')) // 用户要求的旋转图标
+                .fontSize(22)
+                .fontColor(['#FFFFFF'])
+            }
+            .width(44)
+            .height(44)
+            .backgroundColor('#80000000')
+            .borderRadius(22)
+            .onClick(async () => {
+              try {
+                const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+                const windowClass = await window.getLastWindow(ctx);
+                this.isLandscape = !this.isLandscape;
+                if (this.isLandscape) {
+                  // 手动横屏
+                  await windowClass.setPreferredOrientation(window.Orientation.LANDSCAPE_INVERTED);
+                } else {
+                  // 恢复自动（受限于系统锁定）
+                  await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
+                }
+                this.getUIContext().getPromptAction().showToast({ message: $r('app.string.rotate_screen') });
+              } catch (err) {
+                LoggerControlPage.error('Save rotation failed', err);
+              }
             })
             
             // 剪贴板同步按钮 - 使用安全控件

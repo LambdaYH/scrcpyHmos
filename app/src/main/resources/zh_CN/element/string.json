@@ -839,6 +839,10 @@
         {
             "name": "adb_auth_disconnected",
             "value": "授权过程中设备断开连接，请检查USB/网络或重启ADB。"
+        },
+        {
+            "name": "rotate_screen",
+            "value": "旋转屏幕"
         }
     ]
 }
