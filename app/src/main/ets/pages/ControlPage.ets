@@ -36,6 +36,7 @@ struct ControlPage {
   @State fabX: number = 0; // 悬浮按钮X位置
   @State fabY: number = 0; // 悬浮按钮Y位置
   @State checkFabPosition: boolean = false; // 是否需要初始化位置
+  @State fabDockedLeft: boolean = false; // 悬浮按钮是否吸附在左侧
 
   // Native Client 实例
   private nativeClient?: NativeStreamClient;
@@ -546,7 +547,9 @@ struct ControlPage {
     this.autoHideTimer = setTimeout(() => {
       if (!this.showControlPanel && this.containerWidth > 0) {
         // 贴边隐藏：只露出一半
-        const hiddenX = this.containerWidth - this.FAB_SIZE / 2;
+        const hiddenX = this.fabDockedLeft
+          ? -this.FAB_SIZE / 2           // 左侧藏起来
+          : this.containerWidth - this.FAB_SIZE / 2;  // 右侧藏起来
         this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
           this.fabX = hiddenX;
         })
@@ -565,7 +568,9 @@ struct ControlPage {
   // 显示悬浮按钮
   showFab() {
     if (this.containerWidth > 0) {
-      const visibleX = this.containerWidth - this.FAB_SIZE - 20; // 离右边20px
+      const visibleX = this.fabDockedLeft
+        ? 20                                          // 左侧显示位置
+        : this.containerWidth - this.FAB_SIZE - 20;    // 右侧显示位置
       this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
         this.fabX = visibleX;
       })
@@ -576,7 +581,9 @@ struct ControlPage {
   // 切换控制面板
   toggleControlPanel() {
     // 如果当前是隐藏状态(靠边)，先显示出来
-    if (this.containerWidth > 0 && this.fabX > this.containerWidth - this.FAB_SIZE) {
+    const isHiddenRight = this.fabX > this.containerWidth - this.FAB_SIZE;
+    const isHiddenLeft = this.fabX < 0;
+    if (this.containerWidth > 0 && (isHiddenRight || isHiddenLeft)) {
         this.showFab();
         return;
     }
@@ -730,7 +737,7 @@ struct ControlPage {
         
         // 悬浮控制按钮
       if (this.containerWidth > this.containerHeight) {
-        // 横屏模式：面板在按钮左侧展开（Row布局）
+        // 横屏模式：面板在按钮侧边展开（Row布局）
         Row() {
           // 展开的控制面板
           if (this.showControlPanel) {
@@ -740,11 +747,8 @@ struct ControlPage {
             .padding(8)
             .backgroundColor('#40000000')
             .borderRadius(12)
-            .margin({ right: 8 })
-            // 防止面板捕获拖动手势
-            .gesture(TapGesture().onAction(()=>{
-               // 吞噬点击
-            }))
+            .margin(this.fabDockedLeft ? { left: 8 } : { right: 8 })
+            .gesture(TapGesture().onAction(() => {}))
           }
 
           // 悬浮触发按钮 - 白色小圆圈
@@ -753,23 +757,17 @@ struct ControlPage {
             .height(this.FAB_SIZE)
             .backgroundColor(this.showControlPanel ? '#FFFFFF' : '#B0FFFFFF')
             .borderRadius(this.FAB_SIZE / 2)
-            .border({
-              width: 2,
-              color: '#80FFFFFF'
-            })
-            .shadow({
-              radius: 6,
-              color: '#40000000',
-              offsetX: 1,
-              offsetY: 1
-            })
-            .onClick(() => {
-              this.toggleControlPanel();
-            })
+            .border({ width: 2, color: '#80FFFFFF' })
+            .shadow({ radius: 6, color: '#40000000', offsetX: 1, offsetY: 1 })
+            .onClick(() => { this.toggleControlPanel(); })
         }
+        .direction(this.fabDockedLeft ? Direction.Rtl : Direction.Ltr)
         .alignItems(VerticalAlign.Center)
-        .position({ x: this.fabX + this.FAB_SIZE / 2, y: this.fabY + this.FAB_SIZE / 2 })
-        .markAnchor({ x: '100%', y: '50%' })
+        .position({
+          x: this.fabDockedLeft ? this.fabX : this.fabX + this.FAB_SIZE,
+          y: this.fabY + this.FAB_SIZE / 2
+        })
+        .markAnchor({ x: this.fabDockedLeft ? '0%' : '100%', y: '50%' })
         .zIndex(200)
         .gesture(
             PanGesture({ fingers: 1, direction: PanDirection.All })
@@ -788,16 +786,17 @@ struct ControlPage {
                  }
               })
               .onActionEnd((_: GestureEvent) => {
-                 // 拖动结束，吸附到右侧
                  if (this.containerWidth > 0) {
-                   const dockX = this.containerWidth - this.FAB_SIZE - 20;
+                   const midX = this.containerWidth / 2;
+                   const isLeft = this.fabX < midX;
+                   const dockX = isLeft ? 20 : this.containerWidth - this.FAB_SIZE - 20;
                    
-                   // 限制Y轴防止跑出屏幕，考虑底部安全区域
                    let targetY = this.fabY;
                    if (targetY < 50) targetY = 50;
                    const maxY = this.containerHeight - this.FAB_SIZE - this.BOTTOM_SAFE_AREA;
                    if (targetY > maxY) targetY = maxY;
 
+                   this.fabDockedLeft = isLeft;
                    this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
                       this.fabX = dockX;
                       this.fabY = targetY;
@@ -866,17 +865,18 @@ struct ControlPage {
                  }
               })
               .onActionEnd((_: GestureEvent) => {
-                 // 拖动结束，吸附到右侧
                  if (this.containerWidth > 0) {
-                   const dockX = this.containerWidth - this.FAB_SIZE - 20;
+                   const midX = this.containerWidth / 2;
+                   const isLeft = this.fabX < midX;
+                   const dockX = isLeft ? 20 : this.containerWidth - this.FAB_SIZE - 20;
                    
-                   // 限制Y轴防止跑出屏幕，考虑底部安全区域
                    let targetY = this.fabY;
                    if (targetY < 50) targetY = 50;
                    const maxY = this.containerHeight - this.FAB_SIZE - this.BOTTOM_SAFE_AREA;
                    if (targetY > maxY) targetY = maxY;
 
                    this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
+                      this.fabDockedLeft = isLeft;
                       this.fabX = dockX;
                       this.fabY = targetY;
                    });
