@@ -162,6 +162,8 @@ struct ControlPage {
       await windowClass.setWindowSystemBarEnable(['status', 'navigation']);
       // 保持全屏布局，避免跳动，因为主页也是全屏布局
       await windowClass.setWindowLayoutFullScreen(true);
+      // 恢复为正常方向
+      await windowClass.setPreferredOrientation(window.Orientation.PORTRAIT);
     } catch (err) {
       LoggerControlPage.error('Restore window failed:', err);
     }
@@ -411,6 +413,8 @@ struct ControlPage {
       await windowClass.setWindowLayoutFullScreen(true);
       // 隐藏状态栏和导航栏
       await windowClass.setWindowSystemBarEnable([]);
+      // 允许根据传感器自动旋转，支持横屏
+      await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION);
     } catch (err) {
       LoggerControlPage.error('Set fullscreen failed:', err);
     }

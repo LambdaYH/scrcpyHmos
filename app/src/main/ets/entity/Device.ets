@@ -19,6 +19,7 @@ export class Device {
   maxVideoBit: number = 0; // bps
   crop: string = ''; // 格式: "width:height:x:y"
   displayId: number = 0;
+  captureOrientation: number = -1; // -1 for auto/default, or 0, 90, 180, 270
 
   // 显示设置
   showBottomNavBar: boolean = true; // 底部显示导航栏

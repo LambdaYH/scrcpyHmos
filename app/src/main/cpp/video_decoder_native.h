@@ -4,6 +4,7 @@
 #include <string>
 #include <queue>
 #include <mutex>
+#include <functional>
 #include "concurrentqueue/blockingconcurrentqueue.h"
 #include "multimedia/player_framework/native_avcodec_videodecoder.h"
 #include "multimedia/player_framework/native_avbuffer.h"
@@ -35,6 +36,10 @@ public:
     int32_t Stop();
     int32_t Release();
     bool HasAvailableBuffer() const;
+
+    using VideoSizeChangeCallback = std::function<void(int32_t width, int32_t height)>;
+    void SetSizeChangeCallback(VideoSizeChangeCallback callback);
+    VideoSizeChangeCallback sizeChangeCallback_;
 
 private:
     static void OnError(OH_AVCodec* codec, int32_t errorCode, void* userData);

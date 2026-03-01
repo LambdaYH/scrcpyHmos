@@ -33,6 +33,10 @@ VideoDecoderNative::~VideoDecoderNative() {
     Release();
 }
 
+void VideoDecoderNative::SetSizeChangeCallback(VideoSizeChangeCallback callback) {
+    sizeChangeCallback_ = callback;
+}
+
 void VideoDecoderNative::OnError(OH_AVCodec* codec, int32_t errorCode, void* userData) {
     OH_LOG_ERROR(LOG_APP, "[Native] Decoder error: %{public}d", errorCode);
 }
@@ -57,6 +61,19 @@ void VideoDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
 
     OH_LOG_INFO(LOG_APP, "[Native] Stream format changed: %{public}dx%{public}d (video: %{public}dx%{public}d), fmt=%{public}d", 
                 width, height, videoWidth, videoHeight, pixelFormat);
+
+    DecoderContext* ctx = static_cast<DecoderContext*>(userData);
+    if (ctx != nullptr && ctx->decoder != nullptr && ctx->decoder->sizeChangeCallback_) {
+        // Use video dimensions if available, otherwise fallback to container dimensions
+        int32_t finalW = (videoWidth > 0) ? videoWidth : width;
+        int32_t finalH = (videoHeight > 0) ? videoHeight : height;
+        if (finalW > 0 && finalH > 0 && (finalW != ctx->decoder->width_ || finalH != ctx->decoder->height_)) {
+            OH_LOG_INFO(LOG_APP, "[Native] Notifying app of size change: %{public}dx%{public}d", finalW, finalH);
+            ctx->decoder->width_ = finalW;
+            ctx->decoder->height_ = finalH;
+            ctx->decoder->sizeChangeCallback_(finalW, finalH);
+        }
+    }
 }
 
 void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
