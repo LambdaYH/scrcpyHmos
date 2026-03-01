@@ -61,10 +61,127 @@ struct ControlPage {
   // Start the step timer (resets count)
   private startStepTimer() {
     this.stopStepTimer();
+
     this.stepTime = 0;
     this.stepTimer = setInterval(() => {
       this.stepTime++;
     }, 1000);
+  }
+
+  @Builder fabButtons() {
+    // 返回上一页（Android返回键）
+    Button() {
+      SymbolGlyph($r('sys.symbol.arrow_left'))
+        .fontSize(24)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(() => {
+      this.sendKeyToWorker(KeyCode.KEYCODE_BACK);
+    })
+
+    // 主页（Android Home键）
+    Button() {
+      SymbolGlyph($r('sys.symbol.house'))
+        .fontSize(22)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(() => {
+      this.sendKeyToWorker(KeyCode.KEYCODE_HOME);
+    })
+
+    // 多任务界面（Android Recent Apps键）
+    Button() {
+      SymbolGlyph($r('sys.symbol.square'))
+        .fontSize(22)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(() => {
+      this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
+    })
+
+    // 旋转屏幕按钮
+    Button() {
+      SymbolGlyph($r('sys.symbol.rectangle_portrait_rotate')) // 用户要求的旋转图标
+        .fontSize(22)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(async () => {
+      try {
+        const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const windowClass = await window.getLastWindow(ctx);
+        this.isLandscape = !this.isLandscape;
+        if (this.isLandscape) {
+          // 手动横屏
+          await windowClass.setPreferredOrientation(window.Orientation.LANDSCAPE_INVERTED);
+        } else {
+          // 恢复自动（受限于系统锁定）
+          await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
+        }
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.rotate_screen') });
+      } catch (err) {
+        LoggerControlPage.error('Save rotation failed', err);
+      }
+    })
+    
+    // 剪贴板同步按钮 - 使用安全控件
+    PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Circle })
+      .width(44)
+      .height(44)
+      .backgroundColor('#80000000')
+      .onClick(async (_event: ClickEvent, result: PasteButtonOnClickResult) => {
+        if (result === PasteButtonOnClickResult.SUCCESS) {
+          try {
+            const systemPasteboard = pasteboard.getSystemPasteboard();
+            const hasData = await systemPasteboard.hasData();
+            if (!hasData) {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_empty') });
+              return;
+            }
+            const pasteData = await systemPasteboard.getData();
+            const text = pasteData.getPrimaryText();
+            if (text && this.nativeClient) {
+              // 发送到 Native
+              const packet = ControlPacket.createSetClipboard(text, 0n, true);
+              this.nativeClient.sendControl(packet);
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_synced') });
+            } else {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_no_text') });
+            }
+          } catch (err) {
+            LoggerControlPage.error('Paste failed:', err);
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.paste_failed') });
+          }
+        }
+      })
+    
+    // 断开连接并返回
+    Button() {
+      SymbolGlyph($r('sys.symbol.xmark'))
+        .fontSize(22)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .borderRadius(22)
+    .onClick(() => {
+      this.exitPage();
+    })
   }
 
   // Stop the step timer
@@ -477,7 +594,11 @@ struct ControlPage {
     if (this.containerWidth > 0 && this.containerHeight > 0 && !this.checkFabPosition) {
        this.fabX = this.containerWidth - this.FAB_SIZE - 20; // 默认右侧
        // 考虑底部安全区域，FAB放在容器中部偏下位置
-       this.fabY = this.containerHeight - 150 - this.BOTTOM_SAFE_AREA;
+       let targetY = this.containerHeight / 2; // 默认放在中间
+       if (targetY < 50) targetY = 50;
+       const maxY = this.containerHeight - this.FAB_SIZE - this.BOTTOM_SAFE_AREA;
+       if (targetY > maxY) targetY = maxY;
+       this.fabY = targetY;
        this.checkFabPosition = true;
     }
   }
@@ -608,194 +729,163 @@ struct ControlPage {
         })
         
         // 悬浮控制按钮
-      Column() {
-        // 展开的控制面板
-        if (this.showControlPanel) {
-          Column({ space: 8 }) {
-            // 返回上一页（Android返回键）
-            Button() {
-              SymbolGlyph($r('sys.symbol.arrow_left'))
-                .fontSize(24)
-                .fontColor(['#FFFFFF'])
+      if (this.containerWidth > this.containerHeight) {
+        // 横屏模式：面板在按钮左侧展开（Row布局）
+        Row() {
+          // 展开的控制面板
+          if (this.showControlPanel) {
+            Row({ space: 8 }) {
+              this.fabButtons()
             }
-            .width(44)
-            .height(44)
-            .backgroundColor('#80000000')
-            .borderRadius(22)
-            .onClick(() => {
-              this.sendKeyToWorker(KeyCode.KEYCODE_BACK);
-            })
-
-            // 主页（Android Home键）
-            Button() {
-              SymbolGlyph($r('sys.symbol.house'))
-                .fontSize(22)
-                .fontColor(['#FFFFFF'])
-            }
-            .width(44)
-            .height(44)
-            .backgroundColor('#80000000')
-            .borderRadius(22)
-            .onClick(() => {
-              this.sendKeyToWorker(KeyCode.KEYCODE_HOME);
-            })
-
-            // 多任务界面（Android Recent Apps键）
-            Button() {
-              SymbolGlyph($r('sys.symbol.square'))
-                .fontSize(22)
-                .fontColor(['#FFFFFF'])
-            }
-            .width(44)
-            .height(44)
-            .backgroundColor('#80000000')
-            .borderRadius(22)
-            .onClick(() => {
-              this.sendKeyToWorker(KeyCode.KEYCODE_APP_SWITCH);
-            })
-
-            // 旋转屏幕按钮
-            Button() {
-              SymbolGlyph($r('sys.symbol.rectangle_portrait_rotate')) // 用户要求的旋转图标
-                .fontSize(22)
-                .fontColor(['#FFFFFF'])
-            }
-            .width(44)
-            .height(44)
-            .backgroundColor('#80000000')
-            .borderRadius(22)
-            .onClick(async () => {
-              try {
-                const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-                const windowClass = await window.getLastWindow(ctx);
-                this.isLandscape = !this.isLandscape;
-                if (this.isLandscape) {
-                  // 手动横屏
-                  await windowClass.setPreferredOrientation(window.Orientation.LANDSCAPE_INVERTED);
-                } else {
-                  // 恢复自动（受限于系统锁定）
-                  await windowClass.setPreferredOrientation(window.Orientation.AUTO_ROTATION_RESTRICTED);
-                }
-                this.getUIContext().getPromptAction().showToast({ message: $r('app.string.rotate_screen') });
-              } catch (err) {
-                LoggerControlPage.error('Save rotation failed', err);
-              }
-            })
-            
-            // 剪贴板同步按钮 - 使用安全控件
-            PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Circle })
-              .width(44)
-              .height(44)
-              .backgroundColor('#80000000')
-              .onClick(async (_event: ClickEvent, result: PasteButtonOnClickResult) => {
-                if (result === PasteButtonOnClickResult.SUCCESS) {
-                  try {
-                    const systemPasteboard = pasteboard.getSystemPasteboard();
-                    const hasData = await systemPasteboard.hasData();
-                    if (!hasData) {
-                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_empty') });
-                      return;
-                    }
-                    const pasteData = await systemPasteboard.getData();
-                    const text = pasteData.getPrimaryText();
-                    if (text && this.nativeClient) {
-                      // 发送到 Native
-                      const packet = ControlPacket.createSetClipboard(text, 0n, true);
-                      this.nativeClient.sendControl(packet);
-                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_synced') });
-                    } else {
-                      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.clipboard_no_text') });
-                    }
-                  } catch (err) {
-                    LoggerControlPage.error('Paste failed:', err);
-                    this.getUIContext().getPromptAction().showToast({ message: $r('app.string.paste_failed') });
-                  }
-                }
-              })
-            
-            // 断开连接并返回
-            Button() {
-              SymbolGlyph($r('sys.symbol.xmark'))
-                .fontSize(22)
-                .fontColor(['#FFFFFF'])
-            }
-            .width(44)
-            .height(44)
-            .borderRadius(22)
-            .onClick(() => {
-              this.exitPage();
-            })
+            .padding(8)
+            .backgroundColor('#40000000')
+            .borderRadius(12)
+            .margin({ right: 8 })
+            // 防止面板捕获拖动手势
+            .gesture(TapGesture().onAction(()=>{
+               // 吞噬点击
+            }))
           }
-          .padding(8)
-          .backgroundColor('#40000000')
-          .borderRadius(12)
-          .margin({ bottom: 8 })
-          // 防止面板捕获拖动手势
-          .gesture(TapGesture().onAction(()=>{
-             // 吞噬点击
-          }))
-        }
-        
-        // 悬浮触发按钮 - 白色小圆圈
-        Column()
-          .width(this.FAB_SIZE)
-          .height(this.FAB_SIZE)
-          .backgroundColor(this.showControlPanel ? '#FFFFFF' : '#B0FFFFFF')
-          .borderRadius(this.FAB_SIZE / 2)
-          .border({
-            width: 2,
-            color: '#80FFFFFF'
-          })
-          .shadow({
-            radius: 6,
-            color: '#40000000',
-            offsetX: 1,
-            offsetY: 1
-          })
-          .onClick(() => {
-            this.toggleControlPanel();
-          })
-      }
-      .alignItems(HorizontalAlign.Center)
-      .position({ x: this.fabX + this.FAB_SIZE / 2, y: this.fabY + this.FAB_SIZE })
-      .markAnchor({ x: '50%', y: '100%' })
-      .zIndex(200)
-      .gesture(
-          PanGesture({ fingers: 1, direction: PanDirection.All })
-            .onActionStart((_: GestureEvent) => {
-               this.clearAutoHideTimer();
-               if (this.showControlPanel) {
-                 this.showControlPanel = false;
-               }
-               this.dragStartX = this.fabX;
-               this.dragStartY = this.fabY;
-            })
-            .onActionUpdate((event: GestureEvent) => {
-               if (this.containerWidth > 0) {
-                 this.fabX = this.dragStartX + event.offsetX;
-                 this.fabY = this.dragStartY + event.offsetY;
-               }
-            })
-            .onActionEnd((_: GestureEvent) => {
-               // 拖动结束，吸附到右侧
-               if (this.containerWidth > 0) {
-                 const dockX = this.containerWidth - this.FAB_SIZE - 20;
-                 
-                 // 限制Y轴防止跑出屏幕，考虑底部安全区域
-                 let targetY = this.fabY;
-                 if (targetY < 50) targetY = 50;
-                 const maxY = this.containerHeight - 150 - this.BOTTOM_SAFE_AREA;
-                 if (targetY > maxY) targetY = maxY;
 
-                 this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
-                    this.fabX = dockX;
-                    this.fabY = targetY;
-                 });
-                 
-                 this.startAutoHideTimer();
-               }
+          // 悬浮触发按钮 - 白色小圆圈
+          Column()
+            .width(this.FAB_SIZE)
+            .height(this.FAB_SIZE)
+            .backgroundColor(this.showControlPanel ? '#FFFFFF' : '#B0FFFFFF')
+            .borderRadius(this.FAB_SIZE / 2)
+            .border({
+              width: 2,
+              color: '#80FFFFFF'
             })
-      )
+            .shadow({
+              radius: 6,
+              color: '#40000000',
+              offsetX: 1,
+              offsetY: 1
+            })
+            .onClick(() => {
+              this.toggleControlPanel();
+            })
+        }
+        .alignItems(VerticalAlign.Center)
+        .position({ x: this.fabX + this.FAB_SIZE / 2, y: this.fabY + this.FAB_SIZE / 2 })
+        .markAnchor({ x: '100%', y: '50%' })
+        .zIndex(200)
+        .gesture(
+            PanGesture({ fingers: 1, direction: PanDirection.All })
+              .onActionStart((_: GestureEvent) => {
+                 this.clearAutoHideTimer();
+                 if (this.showControlPanel) {
+                   this.showControlPanel = false;
+                 }
+                 this.dragStartX = this.fabX;
+                 this.dragStartY = this.fabY;
+              })
+              .onActionUpdate((event: GestureEvent) => {
+                 if (this.containerWidth > 0) {
+                   this.fabX = this.dragStartX + event.offsetX;
+                   this.fabY = this.dragStartY + event.offsetY;
+                 }
+              })
+              .onActionEnd((_: GestureEvent) => {
+                 // 拖动结束，吸附到右侧
+                 if (this.containerWidth > 0) {
+                   const dockX = this.containerWidth - this.FAB_SIZE - 20;
+                   
+                   // 限制Y轴防止跑出屏幕，考虑底部安全区域
+                   let targetY = this.fabY;
+                   if (targetY < 50) targetY = 50;
+                   const maxY = this.containerHeight - this.FAB_SIZE - this.BOTTOM_SAFE_AREA;
+                   if (targetY > maxY) targetY = maxY;
+
+                   this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
+                      this.fabX = dockX;
+                      this.fabY = targetY;
+                   });
+                   
+                   this.startAutoHideTimer();
+                 }
+              })
+        )
+      } else {
+        // 竖屏模式：面板在按钮上方展开（Column布局）
+        Column() {
+          // 展开的控制面板
+          if (this.showControlPanel) {
+            Column({ space: 8 }) {
+              this.fabButtons()
+            }
+            .padding(8)
+            .backgroundColor('#40000000')
+            .borderRadius(12)
+            .margin({ bottom: 8 })
+            // 防止面板捕获拖动手势
+            .gesture(TapGesture().onAction(()=>{
+               // 吞噬点击
+            }))
+          }
+
+          // 悬浮触发按钮 - 白色小圆圈
+          Column()
+            .width(this.FAB_SIZE)
+            .height(this.FAB_SIZE)
+            .backgroundColor(this.showControlPanel ? '#FFFFFF' : '#B0FFFFFF')
+            .borderRadius(this.FAB_SIZE / 2)
+            .border({
+              width: 2,
+              color: '#80FFFFFF'
+            })
+            .shadow({
+              radius: 6,
+              color: '#40000000',
+              offsetX: 1,
+              offsetY: 1
+            })
+            .onClick(() => {
+              this.toggleControlPanel();
+            })
+        }
+        .alignItems(HorizontalAlign.Center)
+        .position({ x: this.fabX + this.FAB_SIZE / 2, y: this.fabY + this.FAB_SIZE })
+        .markAnchor({ x: '50%', y: '100%' })
+        .zIndex(200)
+        .gesture(
+            PanGesture({ fingers: 1, direction: PanDirection.All })
+              .onActionStart((_: GestureEvent) => {
+                 this.clearAutoHideTimer();
+                 if (this.showControlPanel) {
+                   this.showControlPanel = false;
+                 }
+                 this.dragStartX = this.fabX;
+                 this.dragStartY = this.fabY;
+              })
+              .onActionUpdate((event: GestureEvent) => {
+                 if (this.containerWidth > 0) {
+                   this.fabX = this.dragStartX + event.offsetX;
+                   this.fabY = this.dragStartY + event.offsetY;
+                 }
+              })
+              .onActionEnd((_: GestureEvent) => {
+                 // 拖动结束，吸附到右侧
+                 if (this.containerWidth > 0) {
+                   const dockX = this.containerWidth - this.FAB_SIZE - 20;
+                   
+                   // 限制Y轴防止跑出屏幕，考虑底部安全区域
+                   let targetY = this.fabY;
+                   if (targetY < 50) targetY = 50;
+                   const maxY = this.containerHeight - this.FAB_SIZE - this.BOTTOM_SAFE_AREA;
+                   if (targetY > maxY) targetY = maxY;
+
+                   this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, () => {
+                      this.fabX = dockX;
+                      this.fabY = targetY;
+                   });
+                   
+                   this.startAutoHideTimer();
+                 }
+              })
+        )
+      }
       }
       .width('100%')
       .layoutWeight(1) // 占用剩余空间，让底部导航栏不覆盖视频
