@@ -114,7 +114,7 @@ struct ControlPage {
 
     // 旋转屏幕按钮
     Button() {
-      SymbolGlyph($r('sys.symbol.rectangle_portrait_rotate')) // 用户要求的旋转图标
+      SymbolGlyph($r('sys.symbol.rectangle_rotate'))
         .fontSize(22)
         .fontColor(['#FFFFFF'])
     }
