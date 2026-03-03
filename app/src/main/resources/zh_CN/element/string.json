@@ -1,4 +1,4 @@
-{
+﻿{
     "string": [
         {
             "name": "more_title",
@@ -827,6 +827,10 @@
         {
             "name": "control_disconnected",
             "value": "已断开连接"
+        },
+        {
+            "name": "disconnecting_status",
+            "value": "正在断开连接..."
         },
         {
             "name": "auth_required_toast",

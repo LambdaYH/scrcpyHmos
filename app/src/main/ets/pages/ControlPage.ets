@@ -1,4 +1,4 @@
-import { Device } from '../entity/Device';
+﻿import { Device } from '../entity/Device';
 import { TouchAction, KeyCode, ControlPacket } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
@@ -260,6 +260,14 @@ struct ControlPage {
     this.stopStepTimer(); // Clean up timer
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
 
+    if (!this.isExiting && (this.isConnected || ClientSessionManager.getInstance().hasActiveSession())) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.disconnecting_status') });
+      } catch (e) {
+        LoggerControlPage.error('Show disconnecting toast on disappear failed:', e);
+      }
+    }
+
     // 停止自动隐藏定时器
     if (this.autoHideTimer !== -1) {
       clearTimeout(this.autoHideTimer);
@@ -294,6 +302,11 @@ struct ControlPage {
   private isExiting: boolean = false;
   private isPageActive: boolean = false;
 
+  onBackPress(): boolean {
+    this.exitPage();
+    return true;
+  }
+
   // 统一退出页面逻辑
   async exitPage() {
     if (this.isExiting) {
@@ -302,6 +315,13 @@ struct ControlPage {
     }
     this.isExiting = true;
 
+    if (this.isConnected || ClientSessionManager.getInstance().hasActiveSession()) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.disconnecting_status') });
+      } catch (e) {
+        LoggerControlPage.error('Show disconnecting toast failed:', e);
+      }
+    }
     // 先恢复窗口状态
     await this.restoreWindow();
     // 再返回
@@ -1055,3 +1075,4 @@ struct ControlPage {
   }
 
 }
+

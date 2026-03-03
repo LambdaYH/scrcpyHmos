@@ -633,6 +633,10 @@
             "value": "Disconnected"
         },
         {
+            "name": "disconnecting_status",
+            "value": "Disconnecting..."
+        },
+        {
             "name": "auth_required_toast",
             "value": "Please authorize on the device"
         },
