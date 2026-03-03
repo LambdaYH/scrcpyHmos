@@ -182,7 +182,9 @@ export class ClientStream {
     } catch (e) {
         LoggerClientStream.error('[ClientStream] Read shell output failed', JSON.stringify(e));
     }
-    this.close();
+    // Do not close the whole ADB connection here.
+    // Native stream threads may still be running and own the shutdown order.
+    this.shellStreamId = -1;
   }
 
   close() {

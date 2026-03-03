@@ -17,6 +17,20 @@ Adb::Adb(AdbChannel* channel) : channel_(channel) {
 
 Adb::~Adb() {
     close();
+
+    // Destroy stream objects only when the ADB instance is destroyed.
+    // close() may be triggered by handleIn thread on disconnect, while
+    // reader threads are still unwinding from waitForData().
+    {
+        std::lock_guard<std::mutex> lock(streamsMutex_);
+        for (auto& pair : openStreams_) {
+            delete pair.second;
+        }
+        openStreams_.clear();
+        connectionStreams_.clear();
+        lastStream_ = nullptr;
+    }
+
     delete channel_;
 }
 
@@ -312,7 +326,6 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
                 auto it = openStreams_.find(localId);
                 if (it != openStreams_.end()) {
                     stream = it->second;
-                    openStreams_.erase(it);
                     break;
                 }
             }
@@ -335,6 +348,10 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
                 auto it = connectionStreams_.find(localId);
                 if (it != connectionStreams_.end()) {
                     connectionStreams_.erase(it);
+                }
+                auto openIt = openStreams_.find(localId);
+                if (openIt != openStreams_.end()) {
+                    openStreams_.erase(openIt);
                 }
             }
             delete stream;
@@ -674,6 +691,26 @@ void Adb::close() {
         channel_->close();
     }
 
+    // Mark all streams closed and wake blocking readers.
+    // Stream objects are not deleted here to avoid use-after-free while
+    // external consumer threads are still unwinding.
+    {
+        std::lock_guard<std::mutex> lock(streamsMutex_);
+        for (auto& pair : openStreams_) {
+            if (pair.second) {
+                pair.second->closed = true;
+                pair.second->readBuffer.close();
+            }
+        }
+        for (auto& pair : connectionStreams_) {
+            if (pair.second) {
+                pair.second->closed = true;
+                pair.second->readBuffer.close();
+            }
+        }
+        lastStream_ = nullptr;
+    }
+
     notifyAll();
 
     if (handleInThread_.joinable()) {
@@ -686,21 +723,7 @@ void Adb::close() {
     }
 
     // 清理流
-    {
-        std::lock_guard<std::mutex> lock(streamsMutex_);
-        
-        // internal cleanup: notify all streams of closure (already done above, but good for safety)
-        
-        // openStreams_ contains ALL streams (both active and closed-but-not-deleted)
-        // connectionStreams_ is a subset of openStreams_
-        // So we only need to iterate openStreams_ to delete everything.
-        
-        for (auto& pair : openStreams_) {
-            delete pair.second;
-        }
-        openStreams_.clear();
-        connectionStreams_.clear();
-    }
+    // Stream objects are released in ~Adb().
 }
 
 void Adb::writeToChannel(const std::vector<uint8_t>& data) {
