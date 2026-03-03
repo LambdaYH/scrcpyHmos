@@ -215,13 +215,25 @@ void Adb::handleInLoop() {
                     stream = it->second;
                     lastStream_ = stream; // Update cache
                 } else {
-                    OH_LOG_DEBUG(LOG_APP, "[ADB] New connection: localId=%{public}u, remoteId=%{public}u",
-                                 arg1, arg0);
-                    stream = createNewStream(static_cast<int32_t>(arg1),
-                                             static_cast<int32_t>(arg0),
-                                             static_cast<int32_t>(arg1) > 0);
-                    lastStream_ = stream; // Update cache
-                    // notifyAll(); // Moved to after command processing to avoid race condition (e.g. notify before CLSE handled)
+                    // connectionStreams_ may no longer contain closed streams (streamClose removes them),
+                    // but openStreams_ keeps ownership for lifecycle safety. Reuse it first to avoid
+                    // creating phantom streams on late CLSE/OKAY packets during shutdown.
+                    auto openIt = openStreams_.find(static_cast<int32_t>(arg1));
+                    if (openIt != openStreams_.end() && !openIt->second->closed.load()) {
+                        stream = openIt->second;
+                        lastStream_ = stream;
+                    } else if (openIt != openStreams_.end()) {
+                        // Known stream already closed; ignore late packets without recreating it.
+                        stream = nullptr;
+                    } else {
+                        OH_LOG_DEBUG(LOG_APP, "[ADB] New connection: localId=%{public}u, remoteId=%{public}u",
+                                     arg1, arg0);
+                        stream = createNewStream(static_cast<int32_t>(arg1),
+                                                 static_cast<int32_t>(arg0),
+                                                 static_cast<int32_t>(arg1) > 0);
+                        lastStream_ = stream; // Update cache
+                        // notifyAll(); // Moved to after command processing to avoid race condition (e.g. notify before CLSE handled)
+                    }
                 }
             }
 
@@ -282,10 +294,27 @@ void Adb::handleInLoop() {
                          notifyAll(); // Notify open() that stream is ready
                     }
                 } else if (cmd == AdbProtocol::CMD_CLSE) {
-                    OH_LOG_DEBUG(LOG_APP, "[ADB] Connection closed: localId=%{public}u", arg1);
+                    bool firstClose = true;
+                    bool shouldLog = false;
                     if (stream) {
-                        stream->closed = true;
+                        firstClose = !stream->closed.exchange(true);
                         stream->readBuffer.close();
+
+                        if (firstClose) {
+                            std::lock_guard<std::mutex> lock(streamsMutex_);
+                            auto it = connectionStreams_.find(static_cast<int32_t>(arg1));
+                            if (it != connectionStreams_.end() && it->second == stream) {
+                                connectionStreams_.erase(it);
+                            }
+                            if (lastStream_ == stream) {
+                                lastStream_ = nullptr;
+                            }
+                            shouldLog = true;
+                        }
+                    }
+
+                    if (shouldLog) {
+                        OH_LOG_DEBUG(LOG_APP, "[ADB] Connection closed: localId=%{public}u", arg1);
                     }
                     notifyAll(); // Notify open() or read() that stream is closed
                 } else if (cmd == AdbProtocol::CMD_WRTE && !stream) {
@@ -352,6 +381,9 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
                 auto openIt = openStreams_.find(localId);
                 if (openIt != openStreams_.end()) {
                     openStreams_.erase(openIt);
+                }
+                if (lastStream_ == stream) {
+                    lastStream_ = nullptr;
                 }
             }
             delete stream;
