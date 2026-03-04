@@ -12,6 +12,8 @@ struct DeviceDetail {
   @State nameError: boolean = false;
   @State addressError: boolean = false;
   @State portError: boolean = false;
+  @State maxFpsInput: string = '';
+  @State maxVideoBitInput: string = '';
   private preferencesHelper: PreferencesHelper = PreferencesHelper.getInstance();
 
   // 视频编码选项
@@ -42,6 +44,7 @@ struct DeviceDetail {
       if (params && params['device']) {
         this.device = params['device'] as Device;
         this.isEditMode = true;
+        this.syncVideoInputsFromDevice();
       } else {
         this.initDefaultDevice();
       }
@@ -55,6 +58,10 @@ struct DeviceDetail {
   private initDefaultDevice(): void {
     // 生成UUID
     this.device.uuid = util.generateRandomUUID(true);
+    // 新增设备默认参数
+    this.device.maxFps = 60;
+    this.device.maxVideoBit = 4_000_000;
+    this.syncVideoInputsFromDevice();
 
     // 生成时间戳 YYYYMMDDHHmm
     const now = new Date();
@@ -66,6 +73,11 @@ struct DeviceDetail {
     } catch (e) {
       this.device.name = `New Device ${timestamp}`;
     }
+  }
+
+  private syncVideoInputsFromDevice(): void {
+    this.maxFpsInput = this.device.maxFps > 0 ? this.device.maxFps.toString() : '';
+    this.maxVideoBitInput = this.device.maxVideoBit > 0 ? this.device.maxVideoBit.toString() : '';
   }
 
   build() {
@@ -221,13 +233,20 @@ struct DeviceDetail {
             Row() {
               Text($r('app.string.max_fps'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxFps ? this.device.maxFps.toString() : '', placeholder: $r('app.string.default_value') })
+              TextInput({ text: this.maxFpsInput, placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(100)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
+                  this.maxFpsInput = value;
+                  if (!value.trim()) {
+                    this.device.maxFps = 0;
+                    return;
+                  }
                   const num = parseInt(value);
-                  this.device.maxFps = isNaN(num) ? 0 : num;
+                  if (!isNaN(num)) {
+                    this.device.maxFps = num;
+                  }
                 })
             }
             .width('100%')
@@ -235,13 +254,20 @@ struct DeviceDetail {
             Row() {
               Text($r('app.string.bitrate'))
                 .layoutWeight(1)
-              TextInput({ text: this.device.maxVideoBit ? this.device.maxVideoBit.toString() : '', placeholder: $r('app.string.default_value') })
+              TextInput({ text: this.maxVideoBitInput, placeholder: $r('app.string.default_value') })
                 .type(InputType.Number)
                 .width(120)
                 .textAlign(TextAlign.End)
                 .onChange((value: string) => {
+                  this.maxVideoBitInput = value;
+                  if (!value.trim()) {
+                    this.device.maxVideoBit = 0;
+                    return;
+                  }
                   const num = parseInt(value);
-                  this.device.maxVideoBit = isNaN(num) ? 0 : num;
+                  if (!isNaN(num)) {
+                    this.device.maxVideoBit = num;
+                  }
                 })
             }
             .width('100%')
