@@ -32,12 +32,13 @@ int64_t ScrcpyStreamManager::readInt64BE(const uint8_t* data) {
            (static_cast<int64_t>(data[7]));
 }
 
-std::vector<uint8_t> ScrcpyStreamManager::readExact(int32_t streamId, size_t size, int32_t timeoutMs) {
-    if (!running_.load() || !adb_) {
+std::vector<uint8_t> ScrcpyStreamManager::readExact(AdbStream* stream, size_t size, int32_t timeoutMs) {
+    if (!running_.load() || !adb_ || !stream) {
         throw std::runtime_error("Stream manager not running");
     }
-    auto data = adb_->streamRead(streamId, size, timeoutMs);
-    if (data.size() < size) {
+    std::vector<uint8_t> data(size);
+    size_t readSize = adb_->streamReadToBuffer(stream, data.data(), size, timeoutMs, true);
+    if (readSize < size) {
         throw std::runtime_error("Stream closed or read incomplete");
     }
     return data;
@@ -69,6 +70,14 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     adb_ = adb;
     config_ = config;
     eventCallback_ = callback;
+    videoStream_ = (config_.videoStreamId >= 0 && adb_) ? adb_->getStreamHandle(config_.videoStreamId) : nullptr;
+    audioStream_ = (config_.audioStreamId >= 0 && adb_) ? adb_->getStreamHandle(config_.audioStreamId) : nullptr;
+    controlStream_ = (config_.controlStreamId >= 0 && adb_) ? adb_->getStreamHandle(config_.controlStreamId) : nullptr;
+
+    if (config_.videoStreamId >= 0 && !videoStream_) return -3;
+    if (config_.audioStreamId >= 0 && !audioStream_) return -4;
+    if (config_.controlStreamId >= 0 && !controlStream_) return -5;
+
     running_.store(true);
 
     OH_LOG_INFO(LOG_APP, "[StreamManager] Starting with video=%{public}d, audio=%{public}d, control=%{public}d",
@@ -136,6 +145,9 @@ void ScrcpyStreamManager::stop() {
         audioDecoder_ = nullptr;
     }
 
+    videoStream_ = nullptr;
+    audioStream_ = nullptr;
+    controlStream_ = nullptr;
     adb_ = nullptr;
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopped");
 }
@@ -143,10 +155,10 @@ void ScrcpyStreamManager::stop() {
 // ===================== sendControl =====================
 
 void ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
-    if (!running_.load() || !adb_ || config_.controlStreamId < 0) return;
+    if (!running_.load() || !adb_ || !controlStream_ || len == 0) return;
 
     try {
-        adb_->streamWrite(config_.controlStreamId, data, len);
+        adb_->streamWrite(controlStream_, data, len);
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "[StreamManager] sendControl error: %{public}s", e.what());
     }
@@ -158,19 +170,22 @@ void ScrcpyStreamManager::videoThreadFunc() {
     OH_LOG_INFO(LOG_APP, "[VideoThread] Started");
 
     try {
+        AdbStream* stream = videoStream_;
+        if (!stream) throw std::runtime_error("video stream not found");
+
         // 1. 读取 dummy byte (1 字节)
-        auto dummy = readExact(config_.videoStreamId, 1, 2000); // 2s Timeout
+        auto dummy = readExact(stream, 1, 2000); // 2s Timeout
         OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
 
         // 2. 读取设备名 (64 字节)
-        auto deviceNameData = readExact(config_.videoStreamId, 64, 2000);
+        auto deviceNameData = readExact(stream, 64, 2000);
         std::string deviceName(reinterpret_cast<char*>(deviceNameData.data()), 64);
         // 去掉尾零
         deviceName = deviceName.c_str();
         OH_LOG_INFO(LOG_APP, "[VideoThread] Device: %{public}s", deviceName.c_str());
 
         // 3. 读取编码元数据 (12 字节: codecId(4) + width(4) + height(4))
-        auto codecMeta = readExact(config_.videoStreamId, 12, 2000);
+        auto codecMeta = readExact(stream, 12, 2000);
         int32_t codecId = readInt32BE(codecMeta.data());
         int32_t width = readInt32BE(codecMeta.data() + 4);
         int32_t height = readInt32BE(codecMeta.data() + 8);
@@ -234,7 +249,7 @@ void ScrcpyStreamManager::videoThreadFunc() {
             // 读取 PTS (8 字节)
             // Use exact=true to throw if incomplete
             try {
-                adb_->streamReadToBuffer(config_.videoStreamId, headerBuf, 8, -1, true);
+                adb_->streamReadToBuffer(stream, headerBuf, 8, -1, true);
             } catch (const std::exception& e) {
                 if (running_.load()) OH_LOG_WARN(LOG_APP, "[VideoThread] Stream read error (PTS): %{public}s", e.what());
                 break;
@@ -254,7 +269,7 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
             // 读取 size (4 字节)
             try {
-                adb_->streamReadToBuffer(config_.videoStreamId, headerBuf, 4, -1, true);
+                adb_->streamReadToBuffer(stream, headerBuf, 4, -1, true);
             } catch (...) {
                 break;
             }
@@ -294,7 +309,7 @@ void ScrcpyStreamManager::videoThreadFunc() {
                  // Or just SubmitInputBuffer with size 0?
                  // We need to consume stream data!
                  std::vector<uint8_t> temp(frameSize);
-                 adb_->streamReadToBuffer(config_.videoStreamId, temp.data(), frameSize, -1, true);
+                 adb_->streamReadToBuffer(stream, temp.data(), frameSize, -1, true);
                  
                  // Return buffer empty
                  videoDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
@@ -303,7 +318,7 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
             // 3. Read directly into Buffer
             try {
-                adb_->streamReadToBuffer(config_.videoStreamId, bufData, frameSize, -1, true);
+                adb_->streamReadToBuffer(stream, bufData, frameSize, -1, true);
             } catch (...) {
                  // Return buffer before exiting
                  videoDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
@@ -347,9 +362,12 @@ void ScrcpyStreamManager::audioThreadFunc() {
     OH_LOG_INFO(LOG_APP, "[AudioThread] Started");
 
     try {
+        AdbStream* stream = audioStream_;
+        if (!stream) throw std::runtime_error("audio stream not found");
+
         // 1. 读取音频 codec header (4 字节)
         // 1. 读取音频 codec header (4 字节)
-        auto codecBytes = readExact(config_.audioStreamId, 4, 2000);
+        auto codecBytes = readExact(stream, 4, 2000);
         int32_t codecId = readInt32BE(codecBytes.data());
 
         OH_LOG_INFO(LOG_APP, "[AudioThread] Audio codec ID: 0x%{public}x", codecId);
@@ -407,14 +425,14 @@ void ScrcpyStreamManager::audioThreadFunc() {
 
         while (running_.load()) {
             // 读取 PTS (8 字节)
-            auto ptsData = readExact(config_.audioStreamId, 8);
+            auto ptsData = readExact(stream, 8);
             int64_t ptsRaw = readInt64BE(ptsData.data());
 
             bool isConfig = (ptsRaw & PACKET_FLAG_CONFIG) != 0;
             int64_t cleanPts = ptsRaw & PTS_MASK;
 
             // 读取 size (4 字节)
-            auto sizeData = readExact(config_.audioStreamId, 4);
+            auto sizeData = readExact(stream, 4);
             int32_t frameSize = readInt32BE(sizeData.data());
 
             if (frameSize <= 0 || frameSize > 1024 * 1024) {
@@ -455,7 +473,7 @@ void ScrcpyStreamManager::audioThreadFunc() {
                  OH_LOG_ERROR(LOG_APP, "[AudioThread] Buffer too small: %{public}d < %{public}d", bufCapacity, frameSize);
                  // Consume data ensuring synchronization
                  std::vector<uint8_t> temp(frameSize);
-                 adb_->streamReadToBuffer(config_.audioStreamId, temp.data(), frameSize, -1, true);
+                 adb_->streamReadToBuffer(stream, temp.data(), frameSize, -1, true);
                  
                  // Return buffer empty
                  audioDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
@@ -464,7 +482,7 @@ void ScrcpyStreamManager::audioThreadFunc() {
 
             // 3. Read directly into Buffer
             try {
-                adb_->streamReadToBuffer(config_.audioStreamId, bufData, frameSize, -1, true);
+                adb_->streamReadToBuffer(stream, bufData, frameSize, -1, true);
             } catch (...) {
                  // Return buffer before exiting
                  audioDecoder_->SubmitInputBuffer(bufIndex, bufHandle, 0, 0, 0); 
@@ -502,19 +520,22 @@ void ScrcpyStreamManager::controlThreadFunc() {
     OH_LOG_INFO(LOG_APP, "[ControlThread] Started");
 
     try {
+        AdbStream* stream = controlStream_;
+        if (!stream) throw std::runtime_error("control stream not found");
+
         while (running_.load()) {
             // 读取事件类型 (1 字节)
-            auto typeByte = readExact(config_.controlStreamId, 1);
+            auto typeByte = readExact(stream, 1);
             uint8_t eventType = typeByte[0];
 
             if (!running_.load()) break;
 
             switch (eventType) {
                 case 0: { // DEVICE_MSG_TYPE_CLIPBOARD
-                    auto lenData = readExact(config_.controlStreamId, 4);
+                    auto lenData = readExact(stream, 4);
                     int32_t clipLen = readInt32BE(lenData.data());
                     if (clipLen > 0 && clipLen <= 100000) {
-                        auto clipTextData = readExact(config_.controlStreamId, clipLen);
+                        auto clipTextData = readExact(stream, clipLen);
                         std::string text(reinterpret_cast<char*>(clipTextData.data()), clipTextData.size());
                         OH_LOG_DEBUG(LOG_APP, "[ControlThread] Clipboard received: %{public}zu bytes",
                                      text.size());
@@ -523,16 +544,16 @@ void ScrcpyStreamManager::controlThreadFunc() {
                     break;
                 }
                 case 1: { // DEVICE_MSG_TYPE_ACK_CLIPBOARD
-                    readExact(config_.controlStreamId, 8);
+                    readExact(stream, 8);
                     break;
                 }
                 case 2: { // DEVICE_MSG_TYPE_UHID_OUTPUT
-                    readExact(config_.controlStreamId, 2); // UHID id
-                    auto sizeBytes = readExact(config_.controlStreamId, 2);
+                    readExact(stream, 2); // UHID id
+                    auto sizeBytes = readExact(stream, 2);
                     int32_t size = (static_cast<int32_t>(sizeBytes[0]) << 8) |
                                    static_cast<int32_t>(sizeBytes[1]);
                     if (size > 0) {
-                        readExact(config_.controlStreamId, size);
+                        readExact(stream, size);
                     }
                     break;
                 }

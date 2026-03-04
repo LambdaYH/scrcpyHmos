@@ -52,7 +52,7 @@ private:
     void controlThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
-    std::vector<uint8_t> readExact(int32_t streamId, size_t size, int32_t timeoutMs = -1);
+    std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
 
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);
@@ -67,6 +67,9 @@ private:
 
     VideoDecoderNative* videoDecoder_ = nullptr;
     AudioDecoderNative* audioDecoder_ = nullptr;
+    AdbStream* videoStream_ = nullptr;
+    AdbStream* audioStream_ = nullptr;
+    AdbStream* controlStream_ = nullptr;
 
     std::thread videoThread_;
     std::thread audioThread_;

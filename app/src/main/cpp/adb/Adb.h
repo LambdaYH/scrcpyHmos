@@ -87,6 +87,7 @@ public:
 
     // 向流中写入数据
     void streamWrite(int32_t streamId, const uint8_t* data, size_t len);
+    void streamWrite(AdbStream* stream, const uint8_t* data, size_t len);
 
     // 关闭流
     void streamClose(int32_t streamId);
@@ -96,6 +97,12 @@ public:
 
     // 读取流关闭前的全部数据
     std::vector<uint8_t> streamReadAllBeforeClose(int32_t streamId);
+
+    // 获取流句柄（用于高频读写路径，避免重复查表）
+    AdbStream* getStreamHandle(int32_t streamId);
+
+    // 从流句柄读取数据到指定缓冲区
+    size_t streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize, int32_t timeoutMs = -1, bool exact = true);
 
     // 关闭ADB连接
     void close();

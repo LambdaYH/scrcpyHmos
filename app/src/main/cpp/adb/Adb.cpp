@@ -499,13 +499,19 @@ int32_t Adb::localSocketForward(const std::string& socketName) {
     return streamId;
 }
 
+AdbStream* Adb::getStreamHandle(int32_t streamId) {
+    std::lock_guard<std::mutex> lock(streamsMutex_);
+    auto it = connectionStreams_.find(streamId);
+    if (it != connectionStreams_.end()) return it->second;
+
+    auto openIt = openStreams_.find(streamId);
+    if (openIt != openStreams_.end()) return openIt->second;
+
+    return nullptr;
+}
+
 std::vector<uint8_t> Adb::streamRead(int32_t streamId, size_t size, int32_t timeoutMs, bool exact) {
-    AdbStream* stream = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(streamsMutex_);
-        auto it = connectionStreams_.find(streamId);
-        if (it != connectionStreams_.end()) stream = it->second;
-    }
+    AdbStream* stream = getStreamHandle(streamId);
     if (!stream) throw std::runtime_error("Stream not found");
 
     std::vector<uint8_t> result(size);
@@ -582,12 +588,12 @@ std::vector<uint8_t> Adb::streamRead(int32_t streamId, size_t size, int32_t time
 }
 
 size_t Adb::streamReadToBuffer(int32_t streamId, uint8_t* dest, size_t destSize, int32_t timeoutMs, bool exact) {
-    AdbStream* stream = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(streamsMutex_);
-        auto it = connectionStreams_.find(streamId);
-        if (it != connectionStreams_.end()) stream = it->second;
-    }
+    AdbStream* stream = getStreamHandle(streamId);
+    if (!stream) throw std::runtime_error("Stream not found");
+    return streamReadToBuffer(stream, dest, destSize, timeoutMs, exact);
+}
+
+size_t Adb::streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize, int32_t timeoutMs, bool exact) {
     if (!stream) throw std::runtime_error("Stream not found");
 
     size_t totalRead = 0;
@@ -639,14 +645,13 @@ size_t Adb::streamReadToBuffer(int32_t streamId, uint8_t* dest, size_t destSize,
 }
 
 void Adb::streamWrite(int32_t streamId, const uint8_t* data, size_t len) {
-    AdbStream* stream = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(streamsMutex_);
-        auto it = connectionStreams_.find(streamId);
-        if (it != connectionStreams_.end()) stream = it->second;
-    }
+    AdbStream* stream = getStreamHandle(streamId);
     if (!stream) throw std::runtime_error("Stream not found");
+    streamWrite(stream, data, len);
+}
 
+void Adb::streamWrite(AdbStream* stream, const uint8_t* data, size_t len) {
+    if (!stream) throw std::runtime_error("Stream not found");
     streamWriteRaw(stream, data, len);
 }
 

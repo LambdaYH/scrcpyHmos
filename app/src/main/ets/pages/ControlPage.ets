@@ -55,6 +55,10 @@ struct ControlPage {
   // 追踪是否正在滑动，防止 TapGesture 干扰滑动操作
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
+  private readonly moveMinIntervalMs: number = 12; // ~83Hz
+  private lastMoveSendTime: Map<number, number> = new Map();
+  private lastMoveX: Map<number, number> = new Map();
+  private lastMoveY: Map<number, number> = new Map();
   
   @State stepTime: number = 0;
   private stepTimer: number = -1;
@@ -991,16 +995,10 @@ struct ControlPage {
       TouchAction.ACTION_DOWN, BigInt(0), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
     );
     this.nativeClient.sendControl(packetDown);
-
-    // 延迟发送 ACTION_UP
-    setTimeout(() => {
-      if (this.nativeClient && this.isConnected) {
-        const packetUp = ControlPacket.createInjectTouchEvent(
-          TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
-        );
-        this.nativeClient.sendControl(packetUp);
-      }
-    }, 50);
+    const packetUp = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
+    );
+    this.nativeClient.sendControl(packetUp);
   }
 
   handleTouchStart(event: GestureEvent) {
@@ -1021,6 +1019,9 @@ struct ControlPage {
       const pointerId = finger.id;
 
       this.pointerDownTime.set(pointerId, eventTimestampMs);
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
+      this.lastMoveX.set(pointerId, x);
+      this.lastMoveY.set(pointerId, y);
 
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_DOWN, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
@@ -1033,6 +1034,7 @@ struct ControlPage {
     if (!this.nativeClient || !this.isConnected) return;
 
     this.panMoveCount++;
+    const now = Date.now();
 
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -1041,11 +1043,24 @@ struct ControlPage {
       const x = Math.round((localX / this.componentWidth) * this.videoWidth);
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
+      const lastX = this.lastMoveX.get(pointerId);
+      const lastY = this.lastMoveY.get(pointerId);
+      if (lastX === x && lastY === y) {
+        return;
+      }
+
+      const lastSend = this.lastMoveSendTime.get(pointerId) ?? 0;
+      if (now - lastSend < this.moveMinIntervalMs) {
+        return;
+      }
 
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
       );
       this.nativeClient?.sendControl(packet);
+      this.lastMoveX.set(pointerId, x);
+      this.lastMoveY.set(pointerId, y);
+      this.lastMoveSendTime.set(pointerId, now);
     });
   }
 
@@ -1071,6 +1086,9 @@ struct ControlPage {
       this.nativeClient?.sendControl(packet);
 
       this.pointerDownTime.delete(pointerId);
+      this.lastMoveSendTime.delete(pointerId);
+      this.lastMoveX.delete(pointerId);
+      this.lastMoveY.delete(pointerId);
     });
   }
 
