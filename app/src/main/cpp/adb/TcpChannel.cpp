@@ -61,6 +61,12 @@ TcpChannel::TcpChannel(int fd) : fd_(fd) {
         fcntl(fd_, F_SETFL, flags & ~O_NONBLOCK);
         OH_LOG_INFO(LOG_APP, "TcpChannel: set fd=%{public}d to blocking mode (was flags=0x%{public}x)", fd_, flags);
     }
+    int nodelay = 1;
+    if (setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay),
+                   sizeof(nodelay)) != 0) {
+        OH_LOG_WARN(LOG_APP, "TcpChannel: failed to set TCP_NODELAY on fd=%{public}d errno=%{public}d",
+                    fd_, errno);
+    }
     buffer_.resize(BUFFER_SIZE);
     OH_LOG_INFO(LOG_APP, "TcpChannel: created with fd=%{public}d", fd_);
 }
