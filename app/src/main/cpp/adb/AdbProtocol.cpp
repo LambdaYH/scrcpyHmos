@@ -1,7 +1,6 @@
 // AdbProtocol - ADB协议实现
 // 参考 AdbProtocol.ets 实现
 #include "AdbProtocol.h"
-#include <cstring>
 #include <stdexcept>
 #include <unistd.h>
 #include <hilog/log.h>
@@ -117,28 +116,21 @@ std::vector<uint8_t> AdbProtocol::generateMessage(uint32_t cmd, uint32_t arg0, u
     writeU32LE(4, arg0);
     writeU32LE(8, arg1);
 
+    uint32_t checksum = 0;
     if (payload == nullptr || payloadLen == 0) {
         writeU32LE(12, 0);
-        writeU32LE(16, 0);
     } else {
         writeU32LE(12, static_cast<uint32_t>(payloadLen));
-        writeU32LE(16, payloadChecksum(payload, payloadLen));
+        uint8_t* payloadDst = result.data() + ADB_HEADER_LENGTH;
+        for (size_t i = 0; i < payloadLen; ++i) {
+            uint8_t b = payload[i];
+            payloadDst[i] = b;
+            checksum += b;
+        }
     }
+    writeU32LE(16, checksum);
 
     // magic = ~cmd
     writeU32LE(20, ~cmd);
-
-    if (payload != nullptr && payloadLen > 0) {
-        std::memcpy(result.data() + ADB_HEADER_LENGTH, payload, payloadLen);
-    }
-
     return result;
-}
-
-uint32_t AdbProtocol::payloadChecksum(const uint8_t* payload, size_t len) {
-    uint32_t checksum = 0;
-    for (size_t i = 0; i < len; i++) {
-        checksum += payload[i];
-    }
-    return checksum;
 }
