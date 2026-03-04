@@ -5,6 +5,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
+#include <utility>
 #include <hilog/log.h>
 
 #undef LOG_TAG
@@ -265,7 +266,7 @@ void Adb::handleInLoop() {
 
                 // Send OKAY
                 auto okayMsg = AdbProtocol::generateOkay(static_cast<int32_t>(arg1), static_cast<int32_t>(arg0));
-                writeToChannel(okayMsg);
+                writeToChannel(std::move(okayMsg));
 
             } else {
                 // *** NORMAL PATH ***
@@ -342,7 +343,7 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
     if (!canMultipleSend) localId = -localId;
 
     auto openMsg = AdbProtocol::generateOpen(localId, destination);
-    writeToChannel(openMsg);
+    writeToChannel(std::move(openMsg));
     OH_LOG_INFO(LOG_APP, "[ADB] OPEN sent: localId=%{public}d dest=%{public}s", localId, destination.c_str());
 
     // 等待流建立
@@ -502,10 +503,17 @@ int32_t Adb::localSocketForward(const std::string& socketName) {
 AdbStream* Adb::getStreamHandle(int32_t streamId) {
     std::lock_guard<std::mutex> lock(streamsMutex_);
     auto it = connectionStreams_.find(streamId);
-    if (it != connectionStreams_.end()) return it->second;
+    if (it != connectionStreams_.end()) {
+        AdbStream* stream = it->second;
+        if (stream && !stream->closed.load()) return stream;
+        return nullptr;
+    }
 
     auto openIt = openStreams_.find(streamId);
-    if (openIt != openStreams_.end()) return openIt->second;
+    if (openIt != openStreams_.end()) {
+        AdbStream* stream = openIt->second;
+        if (stream && !stream->closed.load()) return stream;
+    }
 
     return nullptr;
 }
@@ -595,6 +603,7 @@ size_t Adb::streamReadToBuffer(int32_t streamId, uint8_t* dest, size_t destSize,
 
 size_t Adb::streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize, int32_t timeoutMs, bool exact) {
     if (!stream) throw std::runtime_error("Stream not found");
+    if (stream->closed.load()) throw std::runtime_error("Stream closed");
 
     size_t totalRead = 0;
     auto startTime = std::chrono::steady_clock::now();
@@ -652,6 +661,7 @@ void Adb::streamWrite(int32_t streamId, const uint8_t* data, size_t len) {
 
 void Adb::streamWrite(AdbStream* stream, const uint8_t* data, size_t len) {
     if (!stream) throw std::runtime_error("Stream not found");
+    if (stream->closed.load()) throw std::runtime_error("Stream closed");
     streamWriteRaw(stream, data, len);
 }
 
@@ -661,7 +671,7 @@ void Adb::streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len) {
         size_t chunkSize = std::min(static_cast<size_t>(maxData_ - 128), len - offset);
         auto writeMsg = AdbProtocol::generateWrite(stream->localId, stream->remoteId,
                                                     data + offset, chunkSize);
-        writeToChannel(writeMsg);
+        writeToChannel(std::move(writeMsg));
         offset += chunkSize;
     }
 }
@@ -678,7 +688,7 @@ void Adb::streamClose(int32_t streamId) {
     }
     if (stream) {
         auto closeMsg = AdbProtocol::generateClose(stream->localId, stream->remoteId);
-        writeToChannel(closeMsg);
+        writeToChannel(std::move(closeMsg));
 
         stream->closed = true;
         stream->readBuffer.close();
@@ -772,6 +782,16 @@ void Adb::writeToChannel(const std::vector<uint8_t>& data) {
          return;
     }
     sendQueue_.enqueue(data);
+}
+
+void Adb::writeToChannel(std::vector<uint8_t>&& data) {
+    if (isClosed_.load()) return;
+
+    if (sendQueue_.size_approx() > 5000) {
+         OH_LOG_WARN(LOG_APP, "[ADB] Send queue full, dropping packet");
+         return;
+    }
+    sendQueue_.enqueue(std::move(data));
 }
 
 void Adb::sendLoop() {

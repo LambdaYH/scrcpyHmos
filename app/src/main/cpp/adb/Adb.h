@@ -128,6 +128,7 @@ private:
 
     // 写入channel
     void writeToChannel(const std::vector<uint8_t>& data);
+    void writeToChannel(std::vector<uint8_t>&& data);
 
     // 创建新的流
     AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend);

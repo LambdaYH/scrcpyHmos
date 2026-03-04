@@ -1034,7 +1034,7 @@ struct ControlPage {
     if (!this.nativeClient || !this.isConnected) return;
 
     this.panMoveCount++;
-    const now = Date.now();
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
 
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -1050,7 +1050,7 @@ struct ControlPage {
       }
 
       const lastSend = this.lastMoveSendTime.get(pointerId) ?? 0;
-      if (now - lastSend < this.moveMinIntervalMs) {
+      if (eventTimestampMs - lastSend < this.moveMinIntervalMs) {
         return;
       }
 
@@ -1060,7 +1060,7 @@ struct ControlPage {
       this.nativeClient?.sendControl(packet);
       this.lastMoveX.set(pointerId, x);
       this.lastMoveY.set(pointerId, y);
-      this.lastMoveSendTime.set(pointerId, now);
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
     });
   }
 
