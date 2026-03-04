@@ -122,8 +122,7 @@ private:
     // 打开一个流
     int32_t open(const std::string& destination, bool canMultipleSend);
 
-    // 等待/通知机制
-    void waitForNotify();
+    // 通知机制
     void notifyAll();
 
     // 写入channel
@@ -132,9 +131,6 @@ private:
 
     // 创建新的流
     AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend);
-
-    // 向流推送接收到的数据
-    void pushToStream(AdbStream* stream, const uint8_t* data, size_t len);
 
     // 向流的底层channel写入数据（分块）
     void streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len);
@@ -157,7 +153,6 @@ private:
     std::thread sendThread_;
     std::atomic<bool> sendRunning_{false};
     moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> sendQueue_;
-    const size_t MAX_SEND_QUEUE_SIZE = 50 * 1024 * 1024; // 50MB limit
 
     // 等待通知
     std::mutex waitMutex_;

@@ -851,33 +851,6 @@ AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMulti
     return stream;
 }
 
-void Adb::pushToStream(AdbStream* stream, const uint8_t* data, size_t len) {
-    // Only used for legacy or non-optimized writes (e.g. if we read into tempPayload first)
-    // We can assume we have the data pointer.
-    size_t remaining = len;
-    size_t offset = 0;
-    while (remaining > 0) {
-        auto writeInfo = stream->readBuffer.getWritePtr();
-        if (writeInfo.second == 0) {
-             // Buffer full. In fallback mode, we might just drop or block?
-             // Since this is called from handleInLoop, block = bad.
-             // Drop.
-             OH_LOG_WARN(LOG_APP, "[ADB] pushToStream dropped %{public}zu bytes (Buffer Full)", remaining);
-             break;
-        }
-        size_t toWrite = std::min(remaining, writeInfo.second);
-        std::memcpy(writeInfo.first, data + offset, toWrite);
-        stream->readBuffer.commitWrite(toWrite);
-        remaining -= toWrite;
-        offset += toWrite;
-    }
-}
-
-void Adb::waitForNotify() {
-    std::unique_lock<std::mutex> lock(waitMutex_);
-    waitCv_.wait_for(lock, std::chrono::milliseconds(100));
-}
-
 void Adb::notifyAll() {
     waitCv_.notify_all();
 }

@@ -84,9 +84,6 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     if (config_.videoStreamId >= 0 && !videoStream_) return -3;
     if (config_.audioStreamId >= 0 && !audioStream_) return -4;
     if (config_.controlStreamId >= 0 && !controlStream_) return -5;
-    if (videoStream_ && videoStream_->closed.load()) return -3;
-    if (audioStream_ && audioStream_->closed.load()) return -4;
-    if (controlStream_ && controlStream_->closed.load()) return -5;
 
     running_.store(true);
 
@@ -249,7 +246,6 @@ void ScrcpyStreamManager::videoThreadFunc() {
         OH_LOG_INFO(LOG_APP, "[VideoThread] Decoder started, entering frame loop");
 
         // 5. 帧读取循环
-        // 5. 帧读取循环
         uint32_t frameCount = 0;
         bool firstFrameNotified = false;
         
@@ -378,7 +374,6 @@ void ScrcpyStreamManager::audioThreadFunc() {
         AdbStream* stream = audioStream_;
         if (!stream) throw std::runtime_error("audio stream not found");
 
-        // 1. 读取音频 codec header (4 字节)
         // 1. 读取音频 codec header (4 字节)
         uint8_t codecBytes[4];
         readExactToBuffer(stream, codecBytes, 4, 2000);
