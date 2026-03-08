@@ -13,10 +13,42 @@
 #include <netdb.h> // for getaddrinfo
 #include <poll.h>
 #include <stdexcept>
+#include <chrono>
 #include <hilog/log.h>
 
 #undef LOG_TAG
 #define LOG_TAG "TcpChannel"
+
+namespace {
+int pollRetryOnEintr(struct pollfd* pfd, nfds_t nfds, int timeoutMs) {
+    if (timeoutMs < 0) {
+        while (true) {
+            int ret = poll(pfd, nfds, -1);
+            if (ret < 0 && errno == EINTR) {
+                continue;
+            }
+            return ret;
+        }
+    }
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (true) {
+        auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return 0;
+        }
+        int remainingMs = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count()
+        );
+
+        int ret = poll(pfd, nfds, remainingMs);
+        if (ret < 0 && errno == EINTR) {
+            continue;
+        }
+        return ret;
+    }
+}
+}
 
 TcpChannel::TcpChannel(int fd) : fd_(fd) {
     if (fd_ < 0) {
@@ -76,9 +108,15 @@ TcpChannel::TcpChannel(const std::string& host, int port) {
             pfd.events = POLLOUT;
             
             // Timeout: 30 seconds (30000 ms)
-            int pollRes = poll(&pfd, 1, 30000);
+            int pollRes = pollRetryOnEintr(&pfd, 1, 30000);
             
             if (pollRes > 0) {
+                if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                    OH_LOG_ERROR(LOG_APP, "TcpChannel: Connect poll error revents=0x%{public}x", pfd.revents);
+                    ::close(fd_);
+                    fd_ = -1;
+                    continue;
+                }
                 int error = 0;
                 socklen_t len = sizeof(error);
                 if (getsockopt(fd_, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
@@ -98,7 +136,7 @@ TcpChannel::TcpChannel(const std::string& host, int port) {
                  fd_ = -1;
                  continue; // Try next address?
             } else {
-                 OH_LOG_ERROR(LOG_APP, "TcpChannel: Poll error");
+                 OH_LOG_ERROR(LOG_APP, "TcpChannel: Poll error errno=%{public}d", errno);
                  ::close(fd_);
                  fd_ = -1;
                  continue;
@@ -179,9 +217,14 @@ void TcpChannel::readWithTimeout(uint8_t* buf, size_t len, int timeoutMs) {
                  struct pollfd pfd;
                  pfd.fd = fd_;
                  pfd.events = POLLIN;
-                 int ret = poll(&pfd, 1, timeoutMs);
+                 int ret = pollRetryOnEintr(&pfd, 1, timeoutMs);
                  if (ret <= 0) {
                      if (ret == 0) throw std::runtime_error("TcpChannel: read timeout");
+                     OH_LOG_ERROR(LOG_APP, "TcpChannel: poll failed errno=%{public}d", errno);
+                     throw std::runtime_error("TcpChannel: poll failed");
+                 }
+                 if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                     OH_LOG_ERROR(LOG_APP, "TcpChannel: poll failed revents=0x%{public}x", pfd.revents);
                      throw std::runtime_error("TcpChannel: poll failed");
                  }
              }
@@ -206,9 +249,14 @@ void TcpChannel::fillBuffer(int timeoutMs) {
          struct pollfd pfd;
          pfd.fd = fd_;
          pfd.events = POLLIN;
-         int ret = poll(&pfd, 1, timeoutMs);
+         int ret = pollRetryOnEintr(&pfd, 1, timeoutMs);
          if (ret <= 0) {
              if (ret == 0) throw std::runtime_error("TcpChannel: read timeout");
+             OH_LOG_ERROR(LOG_APP, "TcpChannel: poll failed errno=%{public}d", errno);
+             throw std::runtime_error("TcpChannel: poll failed");
+         }
+         if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+             OH_LOG_ERROR(LOG_APP, "TcpChannel: poll failed revents=0x%{public}x", pfd.revents);
              throw std::runtime_error("TcpChannel: poll failed");
          }
     }

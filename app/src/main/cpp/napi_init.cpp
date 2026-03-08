@@ -5,6 +5,7 @@
 
 #include <hilog/log.h>
 #include <map>
+#include <memory>
 #include <unordered_map>
 
 // ============== Video Decoder ==============
@@ -274,7 +275,7 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
 #include "adb/Adb.h"
 #include "adb/AdbKeyPair.h"
 
-static std::unordered_map<int64_t, Adb*> g_adbInstances;
+static std::unordered_map<int64_t, std::shared_ptr<Adb>> g_adbInstances;
 static int64_t g_nextAdbId = 1;
 
 // 创建ADB实例 - adbCreate(ip, port) => adbId
@@ -331,7 +332,7 @@ struct AdbCreateContextFull {
     std::string ip;
     int32_t port;
     
-    Adb* adbInstance = nullptr; // Created in BG
+    std::shared_ptr<Adb> adbInstance; // Created in BG
     int64_t resultAdbId = -1;
     bool success = false;
     std::string errorMsg;
@@ -340,7 +341,7 @@ struct AdbCreateContextFull {
 static void ExecuteAdbCreateFull(napi_env env, void* data) {
     AdbCreateContextFull* context = static_cast<AdbCreateContextFull*>(data);
     try {
-        context->adbInstance = Adb::create(context->ip, context->port);
+        context->adbInstance = std::shared_ptr<Adb>(Adb::create(context->ip, context->port));
         if (context->adbInstance) {
             context->success = true;
         } else {
@@ -425,7 +426,7 @@ struct AdbConnectContext {
     std::string pubKeyPath;
     std::string priKeyPath;
     
-    Adb* adbInstance = nullptr;
+    std::shared_ptr<Adb> adbInstance;
 
     int32_t result = -1;
     bool success = false;
@@ -443,6 +444,8 @@ static void ExecuteAdbConnect(napi_env env, void* data) {
     }
 
     try {
+        OH_LOG_INFO(LOG_APP, "[NAPI] ExecuteAdbConnect: adbId=%{public}lld, adbPtr=%{public}p",
+                    static_cast<long long>(context->adbId), context->adbInstance.get());
         AdbKeyPair keyPair = AdbKeyPair::read(context->pubKeyPath, context->priKeyPath);
         
         auto onWaitAuth = [context]() {
@@ -759,7 +762,6 @@ static napi_value AdbClose(napi_env env, napi_callback_info info) {
     auto it = g_adbInstances.find(adbId);
     if (it != g_adbInstances.end()) {
         it->second->close();
-        delete it->second;
         g_adbInstances.erase(it);
     }
 
@@ -1007,7 +1009,7 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
         napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
     };
 
-    int32_t ret = g_streamManager->start(it->second, config, eventCallback);
+    int32_t ret = g_streamManager->start(it->second.get(), config, eventCallback);
 
     napi_value result;
     napi_create_int32(env, ret, &result);
