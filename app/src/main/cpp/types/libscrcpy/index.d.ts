@@ -14,8 +14,6 @@ export const nativeStartStreams: (
     audioStreamId: number,
     controlStreamId: number,
     surfaceId: string,
-    videoWidth: number,
-    videoHeight: number,
     audioSampleRate: number,
     audioChannelCount: number,
     cb: (type: string, data: string) => void

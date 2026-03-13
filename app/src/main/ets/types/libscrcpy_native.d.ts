@@ -39,8 +39,6 @@ declare module 'libscrcpy_native.so' {
         audioStreamId: number,
         controlStreamId: number,
         surfaceId: string,
-        videoWidth: number,
-        videoHeight: number,
         audioSampleRate: number,
         audioChannelCount: number,
         callback: (type: string, data: string) => void

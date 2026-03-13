@@ -24,11 +24,7 @@ public:
         int32_t videoStreamId = -1;
         int32_t audioStreamId = -1;    // -1 if no audio
         int32_t controlStreamId = -1;
-        std::string videoCodec;        // "h264", "h265", "av1"
-        std::string audioCodec;        // "opus", "aac", "flac", "raw"
         std::string surfaceId;
-        int32_t videoWidth = 0;
-        int32_t videoHeight = 0;
         int32_t audioSampleRate = 48000;
         int32_t audioChannelCount = 2;
     };

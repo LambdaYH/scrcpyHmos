@@ -2,7 +2,6 @@
 #include "LocalSocketChannel.h"
 
 #include <cerrno>
-#include <cstring>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>

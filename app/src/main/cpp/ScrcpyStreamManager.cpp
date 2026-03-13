@@ -5,8 +5,6 @@
 #include "adb/LocalSocketChannel.h"
 
 #include <cerrno>
-#include <chrono>
-#include <cstring>
 #include <hilog/log.h>
 #include <sstream>
 #include <stdexcept>

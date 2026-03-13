@@ -2,7 +2,6 @@
 import { TouchAction, KeyCode, ControlPacket } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
-import { AdbKeyManager } from '../helper/AdbKeyManager';
 import { ServerManager } from '../helper/ServerManager';
 import { ClientSessionManager } from '../helper/ClientSessionManager';
 import window from '@ohos.window';
@@ -43,7 +42,6 @@ struct ControlPage {
   private serverJarData: ArrayBuffer | null = null;
   private isStarted: boolean = false;
   private xComponentController: XComponentController = new XComponentController();
-  private pointerDownTime: Map<number, number> = new Map();  // 存储毫秒时间戳
   private surfaceReady: boolean = false;
   private context?: common.UIAbilityContext;
   private autoHideTimer: number = -1;
@@ -402,9 +400,6 @@ struct ControlPage {
         LoggerControlPage.info(`[ControlPage] Video dimensions: ${width}x${height}`);
         this.calcVideoDisplaySize();
       },
-      onAudioConfig: (codec: string) => {
-        LoggerControlPage.info(`[ControlPage] Audio codec: ${codec}`);
-      },
       onDisconnect: (reason: string) => {
         this.stopStepTimer(); // Stop timer on disconnect
         LoggerControlPage.warn('[ControlPage] Client disconnected:', reason);
@@ -533,8 +528,6 @@ struct ControlPage {
       }
     }
   }
-
-// 已移除 createStreamWorker
 
   // 同步剪贴板到系统
   private async syncClipboardToSystem(text: string): Promise<void> {
@@ -1018,7 +1011,6 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
-      this.pointerDownTime.set(pointerId, eventTimestampMs);
       this.lastMoveSendTime.set(pointerId, eventTimestampMs);
       this.lastMoveX.set(pointerId, x);
       this.lastMoveY.set(pointerId, y);
@@ -1085,7 +1077,6 @@ struct ControlPage {
       );
       this.nativeClient?.sendControl(packet);
 
-      this.pointerDownTime.delete(pointerId);
       this.lastMoveSendTime.delete(pointerId);
       this.lastMoveX.delete(pointerId);
       this.lastMoveY.delete(pointerId);

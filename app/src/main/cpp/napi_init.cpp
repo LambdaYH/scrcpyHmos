@@ -968,30 +968,23 @@ static void StreamEventCallToJS(napi_env env, napi_value jsCb, void* context, vo
     ReleaseStreamEventData(eventData);
 }
 
-// nativeStartStreams(adbId, videoStreamId, audioStreamId, controlStreamId,
-//                   surfaceId, videoWidth, videoHeight,
-//                   audioSampleRate, audioChannelCount, callback)
 static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
-    size_t argc = 10;
-    napi_value args[10];
+    size_t argc = 8;
+    napi_value args[8];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
     int32_t videoStreamId, audioStreamId, controlStreamId;
     char surfaceId[128];
-    size_t surfaceIdLen;
-    int32_t videoWidth, videoHeight;
     int32_t audioSampleRate, audioChannelCount;
 
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_int32(env, args[1], &videoStreamId);
     napi_get_value_int32(env, args[2], &audioStreamId);
     napi_get_value_int32(env, args[3], &controlStreamId);
-    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-    napi_get_value_int32(env, args[5], &videoWidth);
-    napi_get_value_int32(env, args[6], &videoHeight);
-    napi_get_value_int32(env, args[7], &audioSampleRate);
-    napi_get_value_int32(env, args[8], &audioChannelCount);
+    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), nullptr);
+    napi_get_value_int32(env, args[5], &audioSampleRate);
+    napi_get_value_int32(env, args[6], &audioChannelCount);
 
     // 创建 threadsafe function
     napi_value callbackName;
@@ -1003,7 +996,7 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     }
 
     napi_status status = napi_create_threadsafe_function(
-        env, args[9], nullptr, callbackName,
+        env, args[7], nullptr, callbackName,
         64, // max queue size
         1,  // initial thread count
         nullptr, nullptr, nullptr,
@@ -1040,8 +1033,6 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     config.audioStreamId = audioStreamId;
     config.controlStreamId = controlStreamId;
     config.surfaceId = surfaceId;
-    config.videoWidth = videoWidth;
-    config.videoHeight = videoHeight;
     config.audioSampleRate = audioSampleRate;
     config.audioChannelCount = audioChannelCount;
 
