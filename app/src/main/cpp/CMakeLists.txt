@@ -12,6 +12,7 @@ add_library(scrcpy_native SHARED
     ScrcpyStreamManager.cpp
     adb/AdbProtocol.cpp
     adb/AdbBase64.cpp
+    adb/LocalSocketChannel.cpp
     adb/TcpChannel.cpp
     adb/AdbKeyPair.cpp
     adb/Adb.cpp

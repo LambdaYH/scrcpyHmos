@@ -4,9 +4,11 @@
 #define SCRCPY_STREAM_MANAGER_H
 
 #include "adb/Adb.h"
+#include "adb/AdbChannel.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
 
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -50,10 +52,17 @@ private:
     void videoThreadFunc();
     void audioThreadFunc();
     void controlThreadFunc();
+    void videoProxyThreadFunc();
+    void audioProxyThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
+    std::vector<uint8_t> readExact(AdbChannel* channel, size_t size, int32_t timeoutMs = -1);
+    void readExactToBuffer(AdbChannel* channel, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
     std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
     void readExactToBuffer(AdbStream* stream, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
+    int32_t createLocalTunnel(AdbChannel*& channel, int& proxyFd);
+    void closeLocalTunnels();
+    static void closeFd(int& fd);
 
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);
@@ -71,10 +80,17 @@ private:
     AdbStream* videoStream_ = nullptr;
     AdbStream* audioStream_ = nullptr;
     AdbStream* controlStream_ = nullptr;
+    AdbChannel* videoChannel_ = nullptr;
+    AdbChannel* audioChannel_ = nullptr;
+
+    int videoProxyFd_ = -1;
+    int audioProxyFd_ = -1;
 
     std::thread videoThread_;
     std::thread audioThread_;
     std::thread controlThread_;
+    std::thread videoProxyThread_;
+    std::thread audioProxyThread_;
     std::atomic<bool> running_{false};
     std::mutex eventMutex_;
 };
