@@ -297,10 +297,6 @@
             "value": "Turn Screen Off"
         },
         {
-            "name": "fullscreen_on_connect",
-            "value": "Fullscreen on Connect"
-        },
-        {
             "name": "custom_resolution",
             "value": "Custom Resolution"
         },

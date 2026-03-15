@@ -35,7 +35,6 @@ export class Device {
   customResolutionHeight: number = 1080;
   wakeOnConnect: boolean = true;
   lightOffOnConnect: boolean = false;
-  changeToFullOnConnect: boolean = false;
 
   // 运行时操作
   stayAwake: boolean = true; // 原 keepAwake

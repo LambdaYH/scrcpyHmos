@@ -293,10 +293,6 @@
             "value": "连接时熄屏"
         },
         {
-            "name": "fullscreen_on_connect",
-            "value": "连接时全屏"
-        },
-        {
             "name": "custom_resolution",
             "value": "自定义分辨率"
         },
@@ -767,14 +763,6 @@
         {
             "name": "config_turn_screen_off_connect_desc",
             "value": "连接建立后关闭设备物理屏幕 (实际上是变黑)，节省电量。"
-        },
-        {
-            "name": "config_fullscreen_connect_title",
-            "value": "连接时全屏"
-        },
-        {
-            "name": "config_fullscreen_connect_desc",
-            "value": "连接成功后自动进入全屏模式。"
         },
         {
             "name": "config_turn_screen_off_close_title",

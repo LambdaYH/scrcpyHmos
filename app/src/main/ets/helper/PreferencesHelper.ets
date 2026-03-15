@@ -81,7 +81,6 @@ export class PreferencesHelper {
     target.customResolutionHeight = source.customResolutionHeight ?? 1080;
     target.wakeOnConnect = source.wakeOnConnect ?? true;
     target.lightOffOnConnect = source.lightOffOnConnect ?? false;
-    target.changeToFullOnConnect = source.changeToFullOnConnect ?? false;
 
     // 运行时操作
     // 兼容旧数据：keepAwake -> stayAwake

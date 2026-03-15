@@ -442,16 +442,6 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
-              Text($r('app.string.fullscreen_on_connect'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.changeToFullOnConnect })
-                .onChange((isOn: boolean) => {
-                  this.device.changeToFullOnConnect = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
               Text($r('app.string.custom_resolution'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.customResolutionOnConnect })
                 .onChange((isOn: boolean) => {
