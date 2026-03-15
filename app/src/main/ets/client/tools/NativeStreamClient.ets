@@ -1,5 +1,6 @@
 import { Device } from '../../entity/Device';
 import { ClientStream } from './ClientStream';
+import { ControlPacket } from './ControlPacket';
 import * as libscrcpy from 'libscrcpy_native.so';
 import { ServerManager } from '../../helper/ServerManager';
 import { LoggerClientStream } from '../../helper/Logger';
@@ -49,6 +50,11 @@ export class NativeStreamClient {
       await this.openNativeStreams();
 
       this.startNativeProcessing(surfaceId);
+
+      if (this.device.lightOffOnConnect) {
+        LoggerClientStream.info('[NativeStreamClient] Requesting device screen off after connection');
+        this.sendControl(ControlPacket.createSetDisplayPower(false));
+      }
 
       LoggerClientStream.info('[NativeStreamClient] Session started successfully');
     } catch (err) {

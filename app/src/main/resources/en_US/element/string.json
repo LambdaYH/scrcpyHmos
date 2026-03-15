@@ -297,10 +297,6 @@
             "value": "Turn Screen Off"
         },
         {
-            "name": "custom_resolution",
-            "value": "Custom Resolution"
-        },
-        {
             "name": "disconnection_actions",
             "value": "Disconnection Actions"
         },

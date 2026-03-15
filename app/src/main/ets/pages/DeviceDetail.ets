@@ -440,39 +440,6 @@ struct DeviceDetail {
             }
             .width('100%')
             .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text($r('app.string.custom_resolution'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.customResolutionOnConnect })
-                .onChange((isOn: boolean) => {
-                  this.device.customResolutionOnConnect = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            if (this.device.customResolutionOnConnect) {
-              Row({ space: 8 }) {
-                TextInput({ text: this.device.customResolutionWidth.toString(), placeholder: 'Width' })
-                  .type(InputType.Number)
-                  .layoutWeight(1)
-                  .onChange((value: string) => {
-                    const num = parseInt(value);
-                    this.device.customResolutionWidth = isNaN(num) ? 0 : num;
-                  })
-
-                Text('x')
-
-                TextInput({ text: this.device.customResolutionHeight.toString(), placeholder: 'Height' })
-                  .type(InputType.Number)
-                  .layoutWeight(1)
-                  .onChange((value: string) => {
-                    const num = parseInt(value);
-                    this.device.customResolutionHeight = isNaN(num) ? 0 : num;
-                  })
-              }
-              .width('100%')
-            }
           }
           .width('100%')
           .padding(16)

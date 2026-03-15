@@ -113,11 +113,14 @@ export class ServerManager {
     
     addArg('show_touches', device.showTouches);
     addArg('stay_awake', device.stayAwake);
+    if (!device.wakeOnConnect) {
+      addArg('power_on', false);
+    }
     addArg('power_off_on_close', device.powerOffScreenOnClose);
     addArg('clipboard_autosync', device.clipboardAutosync);
     addArg('downsize_on_error', device.downsizeOnError);
     
-    addArg('cleanup', true);
+    addArg('cleanup', device.cleanup);
 
     if (device.logLevel !== 'info') {
       addArg('log_level', device.logLevel);

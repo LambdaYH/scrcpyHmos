@@ -30,9 +30,6 @@ export class Device {
   maxAudioBit: number = 0; // bps
 
   // 连接时操作
-  customResolutionOnConnect: boolean = false;
-  customResolutionWidth: number = 1920;
-  customResolutionHeight: number = 1080;
   wakeOnConnect: boolean = true;
   lightOffOnConnect: boolean = false;
 
@@ -40,7 +37,6 @@ export class Device {
   stayAwake: boolean = true; // 原 keepAwake
   showTouches: boolean = false;
   clipboardAutosync: boolean = true; // 原 listenClipOnRunning
-  changeResolutionOnRunning: boolean = false;
   cleanup: boolean = true;
 
   // 断开时操作

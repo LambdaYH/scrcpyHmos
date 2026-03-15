@@ -293,10 +293,6 @@
             "value": "连接时熄屏"
         },
         {
-            "name": "custom_resolution",
-            "value": "自定义分辨率"
-        },
-        {
             "name": "disconnection_actions",
             "value": "断开时操作"
         },
