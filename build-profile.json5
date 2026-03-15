@@ -1,7 +1,19 @@
 {
   "app": {
     "signingConfigs": [
-
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Users/cheny/OneDrive/key/鸿蒙开发/myKey.p12",
+          "storePassword": "0000001E743C4E6CE9044DA72814494D51F7A5195531C63F64B40B06C23641507033E59F5892C8A8A00DEE0B7503",
+          "keyAlias": "myKey",
+          "keyPassword": "0000001EA5400D88EC3CE34BEF834A1187859917D60EB2EAC2D76F89C1ABB424EAFDD169EC13056F4D8BB64725CC",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Users/cheny/OneDrive/key/鸿蒙开发/scrcpyHmosRelease.p7b",
+          "certpath": "C:/Users/cheny/OneDrive/key/鸿蒙开发/release_cert.cer"
+        }
+      }
     ],
     "products": [
       {
