@@ -1,8 +1,7 @@
-import { Device } from '../entity/Device';
+﻿import { Device } from '../entity/Device';
 import { TouchAction, KeyCode, ControlPacket } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
-import { AdbKeyManager } from '../helper/AdbKeyManager';
 import { ServerManager } from '../helper/ServerManager';
 import { ClientSessionManager } from '../helper/ClientSessionManager';
 import window from '@ohos.window';
@@ -43,7 +42,6 @@ struct ControlPage {
   private serverJarData: ArrayBuffer | null = null;
   private isStarted: boolean = false;
   private xComponentController: XComponentController = new XComponentController();
-  private pointerDownTime: Map<number, number> = new Map();  // 存储毫秒时间戳
   private surfaceReady: boolean = false;
   private context?: common.UIAbilityContext;
   private autoHideTimer: number = -1;
@@ -55,6 +53,10 @@ struct ControlPage {
   // 追踪是否正在滑动，防止 TapGesture 干扰滑动操作
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
+  private readonly moveMinIntervalMs: number = 12; // ~83Hz
+  private lastMoveSendTime: Map<number, number> = new Map();
+  private lastMoveX: Map<number, number> = new Map();
+  private lastMoveY: Map<number, number> = new Map();
   
   @State stepTime: number = 0;
   private stepTimer: number = -1;
@@ -260,6 +262,14 @@ struct ControlPage {
     this.stopStepTimer(); // Clean up timer
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
 
+    if (!this.isExiting && (this.isConnected || ClientSessionManager.getInstance().hasActiveSession())) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.disconnecting_status') });
+      } catch (e) {
+        LoggerControlPage.error('Show disconnecting toast on disappear failed:', e);
+      }
+    }
+
     // 停止自动隐藏定时器
     if (this.autoHideTimer !== -1) {
       clearTimeout(this.autoHideTimer);
@@ -294,6 +304,11 @@ struct ControlPage {
   private isExiting: boolean = false;
   private isPageActive: boolean = false;
 
+  onBackPress(): boolean {
+    this.exitPage();
+    return true;
+  }
+
   // 统一退出页面逻辑
   async exitPage() {
     if (this.isExiting) {
@@ -302,6 +317,13 @@ struct ControlPage {
     }
     this.isExiting = true;
 
+    if (this.isConnected || ClientSessionManager.getInstance().hasActiveSession()) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.disconnecting_status') });
+      } catch (e) {
+        LoggerControlPage.error('Show disconnecting toast failed:', e);
+      }
+    }
     // 先恢复窗口状态
     await this.restoreWindow();
     // 再返回
@@ -377,9 +399,6 @@ struct ControlPage {
         this.videoHeight = height;
         LoggerControlPage.info(`[ControlPage] Video dimensions: ${width}x${height}`);
         this.calcVideoDisplaySize();
-      },
-      onAudioConfig: (codec: string) => {
-        LoggerControlPage.info(`[ControlPage] Audio codec: ${codec}`);
       },
       onDisconnect: (reason: string) => {
         this.stopStepTimer(); // Stop timer on disconnect
@@ -509,8 +528,6 @@ struct ControlPage {
       }
     }
   }
-
-// 已移除 createStreamWorker
 
   // 同步剪贴板到系统
   private async syncClipboardToSystem(text: string): Promise<void> {
@@ -971,16 +988,10 @@ struct ControlPage {
       TouchAction.ACTION_DOWN, BigInt(0), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
     );
     this.nativeClient.sendControl(packetDown);
-
-    // 延迟发送 ACTION_UP
-    setTimeout(() => {
-      if (this.nativeClient && this.isConnected) {
-        const packetUp = ControlPacket.createInjectTouchEvent(
-          TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
-        );
-        this.nativeClient.sendControl(packetUp);
-      }
-    }, 50);
+    const packetUp = ControlPacket.createInjectTouchEvent(
+      TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
+    );
+    this.nativeClient.sendControl(packetUp);
   }
 
   handleTouchStart(event: GestureEvent) {
@@ -1000,7 +1011,9 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
-      this.pointerDownTime.set(pointerId, eventTimestampMs);
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
+      this.lastMoveX.set(pointerId, x);
+      this.lastMoveY.set(pointerId, y);
 
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_DOWN, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
@@ -1013,6 +1026,7 @@ struct ControlPage {
     if (!this.nativeClient || !this.isConnected) return;
 
     this.panMoveCount++;
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
 
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -1021,11 +1035,24 @@ struct ControlPage {
       const x = Math.round((localX / this.componentWidth) * this.videoWidth);
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
+      const lastX = this.lastMoveX.get(pointerId);
+      const lastY = this.lastMoveY.get(pointerId);
+      if (lastX === x && lastY === y) {
+        return;
+      }
+
+      const lastSend = this.lastMoveSendTime.get(pointerId) ?? 0;
+      if (eventTimestampMs - lastSend < this.moveMinIntervalMs) {
+        return;
+      }
 
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
       );
       this.nativeClient?.sendControl(packet);
+      this.lastMoveX.set(pointerId, x);
+      this.lastMoveY.set(pointerId, y);
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
     });
   }
 
@@ -1050,8 +1077,11 @@ struct ControlPage {
       );
       this.nativeClient?.sendControl(packet);
 
-      this.pointerDownTime.delete(pointerId);
+      this.lastMoveSendTime.delete(pointerId);
+      this.lastMoveX.delete(pointerId);
+      this.lastMoveY.delete(pointerId);
     });
   }
 
 }
+

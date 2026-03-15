@@ -1,7 +1,5 @@
 // ClientStream - 客户端流管理
 import { Device } from '../../entity/Device';
-// import { Adb } from '../../adb/Adb'; 
-// import { BufferStream } from '../../buffer/BufferStream';
 import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager } from '../../helper/ServerManager';
 import { LoggerClientStream } from '../../helper/Logger';
@@ -9,53 +7,19 @@ import { buffer, util } from '@kit.ArkTS';
 import * as libscrcpy from 'libscrcpy_native.so';
 import fs from '@ohos.file.fs';
 
-// Video configuration from handshake
-export interface VideoConfig {
-  codecId: number;
-  width: number;
-  height: number;
-}
-
-// Audio configuration - actual codec from server
-export interface AudioConfig {
-  codecId: number; // Raw codec ID from server (e.g., 0x6F707573 for opus)
-  codecName: string; // Human readable codec name (e.g., "opus", "aac")
-}
-
-// 视频帧接口
-export interface VideoFrame {
-  data: ArrayBuffer;
-  pts: number;
-  flags: number;
-}
-
-// 音频帧接口
-export interface AudioFrame {
-  data: ArrayBuffer;
-  pts: number; // Presentation timestamp in microseconds
-}
-
 export class ClientStream {
-  // Native ADB ID
   private adbId: number = -1;
   private shellStreamId: number = -1;
   
   private currentScid: string = '';
-  private isConnected: boolean = false;
   private isClosing: boolean = false;
   private device: Device;
-  // private adb?: Adb; // Removed
-  // Handshake data
-  private deviceName: string = '';
-  private videoConfig?: VideoConfig;
-  private audioConfig?: AudioConfig;
 
   constructor(device: Device) {
     this.device = device;
   }
 
-
-  // 为 Native 模式准备服务端：连接ADB，推送服务端，启动服务端，但不打开流
+  // 为 Native 模式准备服务端：连接 ADB、推送服务端并启动 shell。
   async prepareServerForNative(
     context: Context, // 需要Context来获取AdbKeyManager
     serverJarData: ArrayBuffer | null,
@@ -97,20 +61,18 @@ export class ClientStream {
       const connectRes: number = await libscrcpy.adbConnect(this.adbId, pubKeyPath, priKeyPath, onWaitAuth);
       if (connectRes !== 0) {
           if (connectRes === -2) {
-             // Deprecated legacy code, now -5
              throw new Error('app.string.connect_timeout_toast');
           } else if (connectRes === -3) {
              throw new Error('app.string.adb_auth_failed');
           } else if (connectRes === -4) {
-             throw new Error('app.string.adb_connect_timeout'); // New: Initial connection timeout
+             throw new Error('app.string.adb_connect_timeout');
           } else if (connectRes === -5) {
-             throw new Error('app.string.adb_auth_timeout');   // New: Auth wait timeout
+             throw new Error('app.string.adb_auth_timeout');
           } else if (connectRes === -6) {
-             throw new Error('app.string.connection_cancelled'); // New: Cancelled by user
+             throw new Error('app.string.connection_cancelled');
           } else if (connectRes === -7) {
-             throw new Error('app.string.adb_auth_disconnected'); // New: Device closed connection
+             throw new Error('app.string.adb_auth_disconnected');
           } else {
-             // -1 or other errors
              throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);
           }
       }
@@ -127,8 +89,6 @@ export class ClientStream {
 
       // 4. 启动服务端
       const args = ServerManager.buildServerArgs(this.device);
-      // Ensure SCID is generated (ServerManager generates it during buildServerArgs if not present, but better to check)
-      // Actually buildServerArgs calls generateScid.
       this.currentScid = ServerManager.getLastScid();
       const socketName = `scrcpy_${this.currentScid}`;
       
@@ -145,16 +105,14 @@ export class ClientStream {
 
       LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
 
-      // 5. Monitor output
       this.readShellOutputAsync();
       
-      this.isConnected = true;
       return this.adbId;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[ClientStream] prepareServerForNative failed:', errMsg);
       this.close();
-      throw (err instanceof Error) ? err : new Error(String(err)); // Rethrow to let NativeStreamClient handle it
+      throw (err instanceof Error) ? err : new Error(String(err));
     }
   }
 
@@ -163,14 +121,12 @@ export class ClientStream {
     try {
         const decoder = util.TextDecoder.create('utf-8');
         while (!this.isClosing && this.adbId >= 0 && this.shellStreamId >= 0) {
-            // Check if closed
             const isClosed: boolean = libscrcpy.adbIsStreamClosed(this.adbId, this.shellStreamId);
             if (isClosed) {
                 LoggerClientStream.info('[ClientStream] Shell stream closed by remote');
                 break;
             }
             
-            // Read
             const data: ArrayBuffer = libscrcpy.adbStreamRead(this.adbId, this.shellStreamId, 1024);
             if (data.byteLength > 0) {
                 const text = decoder.decodeToString(new Uint8Array(data));
@@ -182,7 +138,9 @@ export class ClientStream {
     } catch (e) {
         LoggerClientStream.error('[ClientStream] Read shell output failed', JSON.stringify(e));
     }
-    this.close();
+    // Do not close the whole ADB connection here.
+    // Native stream threads may still be running and own the shutdown order.
+    this.shellStreamId = -1;
   }
 
   close() {
@@ -195,6 +153,5 @@ export class ClientStream {
           this.adbId = -1;
           this.shellStreamId = -1;
       }
-      this.isConnected = false;
   }
 }

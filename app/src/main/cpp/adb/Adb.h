@@ -87,6 +87,7 @@ public:
 
     // 向流中写入数据
     void streamWrite(int32_t streamId, const uint8_t* data, size_t len);
+    void streamWrite(AdbStream* stream, const uint8_t* data, size_t len);
 
     // 关闭流
     void streamClose(int32_t streamId);
@@ -96,6 +97,12 @@ public:
 
     // 读取流关闭前的全部数据
     std::vector<uint8_t> streamReadAllBeforeClose(int32_t streamId);
+
+    // 获取流句柄（用于高频读写路径，避免重复查表）
+    AdbStream* getStreamHandle(int32_t streamId);
+
+    // 从流句柄读取数据到指定缓冲区
+    size_t streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize, int32_t timeoutMs = -1, bool exact = true);
 
     // 关闭ADB连接
     void close();
@@ -115,18 +122,15 @@ private:
     // 打开一个流
     int32_t open(const std::string& destination, bool canMultipleSend);
 
-    // 等待/通知机制
-    void waitForNotify();
+    // 通知机制
     void notifyAll();
 
     // 写入channel
     void writeToChannel(const std::vector<uint8_t>& data);
+    void writeToChannel(std::vector<uint8_t>&& data);
 
     // 创建新的流
     AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend);
-
-    // 向流推送接收到的数据
-    void pushToStream(AdbStream* stream, const uint8_t* data, size_t len);
 
     // 向流的底层channel写入数据（分块）
     void streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len);
@@ -149,7 +153,6 @@ private:
     std::thread sendThread_;
     std::atomic<bool> sendRunning_{false};
     moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> sendQueue_;
-    const size_t MAX_SEND_QUEUE_SIZE = 50 * 1024 * 1024; // 50MB limit
 
     // 等待通知
     std::mutex waitMutex_;

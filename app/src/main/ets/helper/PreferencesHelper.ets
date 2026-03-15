@@ -76,12 +76,8 @@ export class PreferencesHelper {
     target.maxAudioBit = source.maxAudioBit ?? 128000;
 
     // 连接时操作
-    target.customResolutionOnConnect = source.customResolutionOnConnect ?? false;
-    target.customResolutionWidth = source.customResolutionWidth ?? 1920;
-    target.customResolutionHeight = source.customResolutionHeight ?? 1080;
     target.wakeOnConnect = source.wakeOnConnect ?? true;
     target.lightOffOnConnect = source.lightOffOnConnect ?? false;
-    target.changeToFullOnConnect = source.changeToFullOnConnect ?? false;
 
     // 运行时操作
     // 兼容旧数据：keepAwake -> stayAwake
@@ -89,12 +85,8 @@ export class PreferencesHelper {
     target.showTouches = source.showTouches ?? false;
     // 兼容旧数据：listenClipOnRunning -> clipboardAutosync
     target.clipboardAutosync = source.clipboardAutosync ?? true;
-    target.changeResolutionOnRunning = source.changeResolutionOnRunning ?? false;
 
     // 断开时操作
-    target.lockOnClose = source.lockOnClose ?? false;
-    target.lightOnClose = source.lightOnClose ?? false;
-    target.reconnectOnClose = source.reconnectOnClose ?? false;
     target.powerOffScreenOnClose = source.powerOffScreenOnClose ?? false;
 
     // 高级选项

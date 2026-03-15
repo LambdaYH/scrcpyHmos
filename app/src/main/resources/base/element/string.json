@@ -341,14 +341,6 @@
       "value": "Turn Screen Off"
     },
     {
-      "name": "fullscreen_on_connect",
-      "value": "Fullscreen on Connect"
-    },
-    {
-      "name": "custom_resolution",
-      "value": "Custom Resolution"
-    },
-    {
       "name": "disconnection_actions",
       "value": "Disconnection Actions"
     },
@@ -821,14 +813,6 @@
       "value": "Turn off device physical screen (black screen) after connection to save power."
     },
     {
-      "name": "config_fullscreen_connect_title",
-      "value": "Fullscreen on Connect"
-    },
-    {
-      "name": "config_fullscreen_connect_desc",
-      "value": "Automatically enter fullscreen mode after connection."
-    },
-    {
       "name": "config_turn_screen_off_close_title",
       "value": "Turn Screen Off on Close"
     },
@@ -879,6 +863,10 @@
     {
       "name": "control_disconnected",
       "value": "Disconnected"
+    },
+    {
+      "name": "disconnecting_status",
+      "value": "Disconnecting..."
     },
     {
       "name": "auth_required_toast",

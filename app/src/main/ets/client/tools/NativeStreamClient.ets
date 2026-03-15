@@ -1,34 +1,12 @@
-/*
- * NativeStreamClient.ets
- * 
- * Manages the native stream connection for Scrcpy.
- * Replaces the original ArkTS Worker-based stream management.
- * 
- * Workflow:
- * 1. Uses ClientStream (ArkTS) to connect ADB, push server, and start server.
- * 2. Creates a NEW, separate socket connection to ADB for streaming.
- * 3. Passes the socket FD to Native layer.
- * 4. Exports ADB keys to temp files and authenticates Native ADB.
- * 5. Establishes multiplexed streams (Video, Audio, Control) via Native ADB.
- * 6. Starts native processing threads.
- */
-
 import { Device } from '../../entity/Device';
 import { ClientStream } from './ClientStream';
-// Import as any/unknown first to allow casting
+import { ControlPacket } from './ControlPacket';
 import * as libscrcpy from 'libscrcpy_native.so';
-import { AdbKeyManager } from '../../helper/AdbKeyManager';
 import { ServerManager } from '../../helper/ServerManager';
-import fs from '@ohos.file.fs';
-import socket from '@ohos.net.socket';
 import { LoggerClientStream } from '../../helper/Logger';
-import { util } from '@kit.ArkTS';
-import { BusinessError } from '@kit.BasicServicesKit';
-
 
 export interface NativeStreamListener {
   onVideoConfig: (width: number, height: number) => void;
-  onAudioConfig: (codec: string) => void;
   onDisconnect: (reason: string) => void;
   onError: (error: string) => void;
   onClipboard: (text: string) => void;
@@ -47,9 +25,6 @@ export class NativeStreamClient {
   private audioStreamId: number = -1;
   private controlStreamId: number = -1;
 
-  // Socket
-  private nativeSocket?: socket.TCPSocket;
-
   constructor(context: Context, device: Device, listener?: NativeStreamListener) {
     this.context = context;
     this.device = device;
@@ -62,8 +37,7 @@ export class NativeStreamClient {
     try {
       LoggerClientStream.info('[NativeStreamClient] Starting session...');
 
-      // 1. Prepare Server (ArkTS side) & Get Shared ADB ID
-      // This ensures scrcpy-server is running on the device and gives us the connected ADB ID
+      // 1. Prepare the server and reuse the connected ADB session.
       this.adbId = await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
           LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from ClientStream');
           if (this.listener && this.listener.onWaitAuth) {
@@ -73,18 +47,20 @@ export class NativeStreamClient {
       
       LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
-      // 2. Open Streams (Video, Audio, Control)
       await this.openNativeStreams();
 
-      // 3. Start Native Processing
       this.startNativeProcessing(surfaceId);
+
+      if (this.device.lightOffOnConnect) {
+        LoggerClientStream.info('[NativeStreamClient] Requesting device screen off after connection');
+        this.sendControl(ControlPacket.createSetDisplayPower(false));
+      }
 
       LoggerClientStream.info('[NativeStreamClient] Session started successfully');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[NativeStreamClient] Start failed:', errMsg);
-      this.stop(); // Cleanup
-      // Don't call listener.onError here, let the caller handle the promise rejection
+      this.stop();
       throw (err instanceof Error) ? err : new Error(String(err));
     }
   }
@@ -94,21 +70,14 @@ export class NativeStreamClient {
     try {
       LoggerClientStream.info('[NativeStreamClient] Stopping session...');
       
-      // Stop native streams
       try {
         libscrcpy.nativeStopStreams();
       } catch (e) {
         LoggerClientStream.error('[NativeStreamClient] nativeStopStreams failed:', e);
       }
 
-      // We do NOT close this.adbId here directly because it is owned by this.clientStream.
-      // this.clientStream.close() below will close it.
       this.adbId = -1;
 
-      // Close socket
-      this.nativeSocket = undefined;
-
-      // Stop ArkTS client stream (closes shell stream and the shared ADB connection)
       if (this.clientStream) {
         try {
           this.clientStream.close();
@@ -135,8 +104,7 @@ export class NativeStreamClient {
     const socketName = ServerManager.getSocketName(); // e.g. "scrcpy_12345678"
     LoggerClientStream.info(`[NativeStreamClient] Forwarding streams to localabstract:${socketName}`);
 
-    // 1. Video Stream (Wait for 1st connection behaviour - Dummy Byte handled by native thread)
-    // Retry mechanism to wait for server to start listening
+    // Retry while waiting for the server to listen on the abstract socket.
     let retries = 50; // 50 * 100ms = 5 seconds
     while (retries > 0) {
       this.videoStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
@@ -206,22 +174,14 @@ export class NativeStreamClient {
         }
     };
 
-    // Defaults
-    const videoWidth = 0; // Decoder will determine from stream
-    const videoHeight = 0;
-    const audioSampleRate = 48000;
-    const audioChannels = 2;
-
-        const res: number = libscrcpy.nativeStartStreams(
+    const res: number = libscrcpy.nativeStartStreams(
         this.adbId,
         this.videoStreamId,
         this.audioStreamId, // -1 if disabled
         this.controlStreamId,
         surfaceId,
-        videoWidth,
-        videoHeight,
-        audioSampleRate,
-        audioChannels,
+        48000,
+        2,
         eventCallback
     );
 

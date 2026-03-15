@@ -55,7 +55,6 @@ public:
 private:
     static std::vector<uint8_t> generateMessage(uint32_t cmd, uint32_t arg0, uint32_t arg1,
                                                   const uint8_t* payload, size_t payloadLen);
-    static uint32_t payloadChecksum(const uint8_t* payload, size_t len);
 };
 
 #endif // ADB_PROTOCOL_H

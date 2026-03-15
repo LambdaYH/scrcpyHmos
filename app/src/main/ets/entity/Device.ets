@@ -30,24 +30,16 @@ export class Device {
   maxAudioBit: number = 0; // bps
 
   // 连接时操作
-  customResolutionOnConnect: boolean = false;
-  customResolutionWidth: number = 1920;
-  customResolutionHeight: number = 1080;
   wakeOnConnect: boolean = true;
   lightOffOnConnect: boolean = false;
-  changeToFullOnConnect: boolean = false;
 
   // 运行时操作
   stayAwake: boolean = true; // 原 keepAwake
   showTouches: boolean = false;
   clipboardAutosync: boolean = true; // 原 listenClipOnRunning
-  changeResolutionOnRunning: boolean = false;
   cleanup: boolean = true;
 
   // 断开时操作
-  lockOnClose: boolean = false;
-  lightOnClose: boolean = false;
-  reconnectOnClose: boolean = false;
   powerOffScreenOnClose: boolean = false;
 
   // 高级选项

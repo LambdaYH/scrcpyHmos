@@ -4,9 +4,11 @@
 #define SCRCPY_STREAM_MANAGER_H
 
 #include "adb/Adb.h"
+#include "adb/AdbChannel.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
 
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -22,11 +24,7 @@ public:
         int32_t videoStreamId = -1;
         int32_t audioStreamId = -1;    // -1 if no audio
         int32_t controlStreamId = -1;
-        std::string videoCodec;        // "h264", "h265", "av1"
-        std::string audioCodec;        // "opus", "aac", "flac", "raw"
         std::string surfaceId;
-        int32_t videoWidth = 0;
-        int32_t videoHeight = 0;
         int32_t audioSampleRate = 48000;
         int32_t audioChannelCount = 2;
     };
@@ -50,9 +48,17 @@ private:
     void videoThreadFunc();
     void audioThreadFunc();
     void controlThreadFunc();
+    void videoProxyThreadFunc();
+    void audioProxyThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
-    std::vector<uint8_t> readExact(int32_t streamId, size_t size, int32_t timeoutMs = -1);
+    std::vector<uint8_t> readExact(AdbChannel* channel, size_t size, int32_t timeoutMs = -1);
+    void readExactToBuffer(AdbChannel* channel, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
+    std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
+    void readExactToBuffer(AdbStream* stream, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
+    int32_t createLocalTunnel(AdbChannel*& channel, int& proxyFd);
+    void closeLocalTunnels();
+    static void closeFd(int& fd);
 
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);
@@ -67,10 +73,20 @@ private:
 
     VideoDecoderNative* videoDecoder_ = nullptr;
     AudioDecoderNative* audioDecoder_ = nullptr;
+    AdbStream* videoStream_ = nullptr;
+    AdbStream* audioStream_ = nullptr;
+    AdbStream* controlStream_ = nullptr;
+    AdbChannel* videoChannel_ = nullptr;
+    AdbChannel* audioChannel_ = nullptr;
+
+    int videoProxyFd_ = -1;
+    int audioProxyFd_ = -1;
 
     std::thread videoThread_;
     std::thread audioThread_;
     std::thread controlThread_;
+    std::thread videoProxyThread_;
+    std::thread audioProxyThread_;
     std::atomic<bool> running_{false};
     std::mutex eventMutex_;
 };

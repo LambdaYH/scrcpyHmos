@@ -1,9 +1,11 @@
 #include "napi/native_api.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
+#include "concurrentqueue/concurrentqueue.h"
 
 
 #include <hilog/log.h>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <unordered_map>
@@ -904,11 +906,54 @@ struct StreamEventData {
     std::string data;
 };
 
+static moodycamel::ConcurrentQueue<StreamEventData*> g_streamEventPool;
+static std::atomic<size_t> g_streamEventPoolSize{0};
+static constexpr size_t STREAM_EVENT_POOL_MAX = 256;
+
+static StreamEventData* AcquireStreamEventData()
+{
+    StreamEventData* item = nullptr;
+    if (g_streamEventPool.try_dequeue(item) && item != nullptr) {
+        g_streamEventPoolSize.fetch_sub(1, std::memory_order_relaxed);
+        return item;
+    }
+    return new StreamEventData();
+}
+
+static void ReleaseStreamEventData(StreamEventData* eventData)
+{
+    if (!eventData) return;
+    eventData->type.clear();
+    eventData->data.clear();
+    size_t current = g_streamEventPoolSize.load(std::memory_order_relaxed);
+    while (current < STREAM_EVENT_POOL_MAX &&
+           !g_streamEventPoolSize.compare_exchange_weak(
+               current, current + 1, std::memory_order_relaxed, std::memory_order_relaxed)) {
+    }
+    if (current >= STREAM_EVENT_POOL_MAX) {
+        delete eventData;
+        return;
+    }
+    if (!g_streamEventPool.enqueue(eventData)) {
+        g_streamEventPoolSize.fetch_sub(1, std::memory_order_relaxed);
+        delete eventData;
+    }
+}
+
+static void ClearStreamEventPool()
+{
+    StreamEventData* item = nullptr;
+    while (g_streamEventPool.try_dequeue(item)) {
+        delete item;
+    }
+    g_streamEventPoolSize.store(0, std::memory_order_relaxed);
+}
+
 // JS 侧执行的回调函数
 static void StreamEventCallToJS(napi_env env, napi_value jsCb, void* context, void* data) {
     StreamEventData* eventData = static_cast<StreamEventData*>(data);
     if (!eventData || !env || !jsCb) {
-        delete eventData;
+        ReleaseStreamEventData(eventData);
         return;
     }
 
@@ -920,33 +965,26 @@ static void StreamEventCallToJS(napi_env env, napi_value jsCb, void* context, vo
     napi_get_global(env, &global);
     napi_call_function(env, global, jsCb, 2, argv, nullptr);
 
-    delete eventData;
+    ReleaseStreamEventData(eventData);
 }
 
-// nativeStartStreams(adbId, videoStreamId, audioStreamId, controlStreamId,
-//                   surfaceId, videoWidth, videoHeight,
-//                   audioSampleRate, audioChannelCount, callback)
 static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
-    size_t argc = 10;
-    napi_value args[10];
+    size_t argc = 8;
+    napi_value args[8];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
     int32_t videoStreamId, audioStreamId, controlStreamId;
     char surfaceId[128];
-    size_t surfaceIdLen;
-    int32_t videoWidth, videoHeight;
     int32_t audioSampleRate, audioChannelCount;
 
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_int32(env, args[1], &videoStreamId);
     napi_get_value_int32(env, args[2], &audioStreamId);
     napi_get_value_int32(env, args[3], &controlStreamId);
-    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), &surfaceIdLen);
-    napi_get_value_int32(env, args[5], &videoWidth);
-    napi_get_value_int32(env, args[6], &videoHeight);
-    napi_get_value_int32(env, args[7], &audioSampleRate);
-    napi_get_value_int32(env, args[8], &audioChannelCount);
+    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), nullptr);
+    napi_get_value_int32(env, args[5], &audioSampleRate);
+    napi_get_value_int32(env, args[6], &audioChannelCount);
 
     // 创建 threadsafe function
     napi_value callbackName;
@@ -958,7 +996,7 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     }
 
     napi_status status = napi_create_threadsafe_function(
-        env, args[9], nullptr, callbackName,
+        env, args[7], nullptr, callbackName,
         64, // max queue size
         1,  // initial thread count
         nullptr, nullptr, nullptr,
@@ -995,8 +1033,6 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     config.audioStreamId = audioStreamId;
     config.controlStreamId = controlStreamId;
     config.surfaceId = surfaceId;
-    config.videoWidth = videoWidth;
-    config.videoHeight = videoHeight;
     config.audioSampleRate = audioSampleRate;
     config.audioChannelCount = audioChannelCount;
 
@@ -1005,8 +1041,13 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
 
     napi_threadsafe_function tsfn = g_streamCallback;
     auto eventCallback = [tsfn](const std::string& type, const std::string& data) {
-        StreamEventData* eventData = new StreamEventData{type, data};
-        napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
+        StreamEventData* eventData = AcquireStreamEventData();
+        eventData->type = type;
+        eventData->data = data;
+        napi_status status = napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
+        if (status != napi_ok) {
+            ReleaseStreamEventData(eventData);
+        }
     };
 
     int32_t ret = g_streamManager->start(it->second.get(), config, eventCallback);
@@ -1028,6 +1069,7 @@ static napi_value NativeStopStreams(napi_env env, napi_callback_info info) {
         napi_release_threadsafe_function(g_streamCallback, napi_tsfn_release);
         g_streamCallback = nullptr;
     }
+    ClearStreamEventPool();
 
     napi_value result;
     napi_get_undefined(env, &result);
@@ -1114,4 +1156,3 @@ static napi_module demoModule = {
 extern "C" __attribute__((constructor)) void RegisterModule(void) {
     napi_module_register(&demoModule);
 }
-

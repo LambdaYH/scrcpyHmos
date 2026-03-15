@@ -63,12 +63,6 @@ void AudioDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
     if (OH_AVBuffer_GetBufferAttr(buffer, &attr) == AV_ERR_OK && attr.size > 0) {
         uint8_t* data = OH_AVBuffer_GetAddr(buffer);
 
-        PcmFrame frame;
-        size_t copySize = std::min(static_cast<size_t>(attr.size), sizeof(frame.data));
-        std::memcpy(frame.data.data(), data, copySize);
-        frame.size = copySize;
-        frame.offset = 0;
-
         // Simple size check to avoid unlimited growth
         if (ctx->decoder->pcmQueue_.size_approx() < PCM_POOL_SIZE) {
             // Decoding mode: we still need to copy from AVBuffer to PcmFrame
