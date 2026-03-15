@@ -45,9 +45,6 @@ export class Device {
   cleanup: boolean = true;
 
   // 断开时操作
-  lockOnClose: boolean = false;
-  lightOnClose: boolean = false;
-  reconnectOnClose: boolean = false;
   powerOffScreenOnClose: boolean = false;
 
   // 高级选项

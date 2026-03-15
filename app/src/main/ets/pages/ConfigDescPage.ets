@@ -92,8 +92,7 @@ struct ConfigDescPage {
           this.ConfigSection($r('app.string.config_connection_actions'), [
             { title: $r('app.string.config_turn_screen_off_connect_title'), desc: $r('app.string.config_turn_screen_off_connect_desc') },
             { title: $r('app.string.config_fullscreen_connect_title'), desc: $r('app.string.config_fullscreen_connect_desc') },
-            { title: $r('app.string.config_turn_screen_off_close_title'), desc: $r('app.string.config_turn_screen_off_close_desc') },
-            { title: $r('app.string.config_lock_screen_close_title'), desc: $r('app.string.config_lock_screen_close_desc') }
+            { title: $r('app.string.config_turn_screen_off_close_title'), desc: $r('app.string.config_turn_screen_off_close_desc') }
           ] as ConfigItem[])
 
           this.ConfigSection($r('app.string.config_advanced_options'), [

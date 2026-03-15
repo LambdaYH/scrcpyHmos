@@ -409,16 +409,6 @@ struct DeviceDetail {
             }
             .width('100%')
             .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text($r('app.string.turn_screen_off_on_close'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.powerOffScreenOnClose })
-                .onChange((isOn: boolean) => {
-                  this.device.powerOffScreenOnClose = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
           }
           .width('100%')
           .padding(16)
@@ -506,30 +496,10 @@ struct DeviceDetail {
               .fontWeight(FontWeight.Medium)
 
             Row() {
-              Text($r('app.string.lock_screen'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.lockOnClose })
+              Text($r('app.string.turn_screen_off_on_close'))
+              Toggle({ type: ToggleType.Switch, isOn: this.device.powerOffScreenOnClose })
                 .onChange((isOn: boolean) => {
-                  this.device.lockOnClose = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text($r('app.string.turn_screen_on_disconnect'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.lightOnClose })
-                .onChange((isOn: boolean) => {
-                  this.device.lightOnClose = isOn;
-                })
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-
-            Row() {
-              Text($r('app.string.auto_reconnect'))
-              Toggle({ type: ToggleType.Switch, isOn: this.device.reconnectOnClose })
-                .onChange((isOn: boolean) => {
-                  this.device.reconnectOnClose = isOn;
+                  this.device.powerOffScreenOnClose = isOn;
                 })
             }
             .width('100%')

@@ -92,9 +92,6 @@ export class PreferencesHelper {
     target.changeResolutionOnRunning = source.changeResolutionOnRunning ?? false;
 
     // 断开时操作
-    target.lockOnClose = source.lockOnClose ?? false;
-    target.lightOnClose = source.lightOnClose ?? false;
-    target.reconnectOnClose = source.reconnectOnClose ?? false;
     target.powerOffScreenOnClose = source.powerOffScreenOnClose ?? false;
 
     // 高级选项
