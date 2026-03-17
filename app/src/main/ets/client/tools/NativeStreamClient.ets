@@ -61,8 +61,10 @@ export class NativeStreamClient {
       LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
       const eventCallback = this.createNativeEventCallback();
+      LoggerClientStream.info('[NativeStreamClient] Tunnel mode: trying reverse first');
       const reverseStarted = await this.tryStartReverse(surfaceId, eventCallback);
       if (!reverseStarted) {
+        LoggerClientStream.info('[NativeStreamClient] Tunnel mode: using forward');
         const args = ServerManager.buildServerArgs(this.device, true);
         this.clientStream.startServer(args);
         await this.openNativeStreams();
@@ -115,6 +117,7 @@ export class NativeStreamClient {
   ): Promise<boolean> {
     const reverseArgs = ServerManager.buildServerArgs(this.device, false);
     const socketName = ServerManager.getSocketName();
+    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: preparing reverse for localabstract:${socketName}`);
 
     const reversePort: number = this.callNativeStartReverseStreams(
       this.adbId,
@@ -140,7 +143,7 @@ export class NativeStreamClient {
       return false;
     }
 
-    LoggerClientStream.info(`[NativeStreamClient] Reverse tunnel ready localabstract:${socketName} -> tcp:${reversePort}`);
+    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: using reverse (localabstract:${socketName} -> tcp:${reversePort})`);
     this.clientStream.startServer(reverseArgs);
     return true;
   }
@@ -156,7 +159,7 @@ export class NativeStreamClient {
 
   private async openNativeStreams(): Promise<void> {
     const socketName = ServerManager.getSocketName(); // e.g. "scrcpy_12345678"
-    LoggerClientStream.info(`[NativeStreamClient] Forwarding streams to localabstract:${socketName}`);
+    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: forward streams to localabstract:${socketName}`);
 
     // Retry while waiting for the server to listen on the abstract socket.
     let retries = 50; // 50 * 100ms = 5 seconds
