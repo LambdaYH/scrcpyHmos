@@ -4,8 +4,10 @@
 
 #include "adb/LocalSocketChannel.h"
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <hilog/log.h>
+#include <netinet/in.h>
 #include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -140,9 +142,18 @@ void ScrcpyStreamManager::closeLocalTunnels() {
         delete audioChannel_;
         audioChannel_ = nullptr;
     }
+    if (controlChannel_) {
+        controlChannel_->close();
+        delete controlChannel_;
+        controlChannel_ = nullptr;
+    }
 
     closeFd(videoProxyFd_);
     closeFd(audioProxyFd_);
+}
+
+void ScrcpyStreamManager::closeListener() {
+    closeFd(listenFd_);
 }
 
 void ScrcpyStreamManager::emitEvent(const std::string& type, const std::string& data) {
@@ -221,19 +232,91 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     return 0;
 }
 
+int32_t ScrcpyStreamManager::createTcpListener(uint16_t& port) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        OH_LOG_ERROR(LOG_APP, "[StreamManager] create listener socket failed errno=%{public}d", errno);
+        return -1;
+    }
+
+    int reuseAddr = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, sizeof(reuseAddr));
+
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(0);
+
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        OH_LOG_ERROR(LOG_APP, "[StreamManager] bind listener failed errno=%{public}d", errno);
+        ::close(fd);
+        return -2;
+    }
+
+    if (listen(fd, 4) != 0) {
+        OH_LOG_ERROR(LOG_APP, "[StreamManager] listen failed errno=%{public}d", errno);
+        ::close(fd);
+        return -3;
+    }
+
+    sockaddr_in localAddr {};
+    socklen_t localAddrLen = sizeof(localAddr);
+    if (getsockname(fd, reinterpret_cast<sockaddr*>(&localAddr), &localAddrLen) != 0) {
+        OH_LOG_ERROR(LOG_APP, "[StreamManager] getsockname failed errno=%{public}d", errno);
+        ::close(fd);
+        return -4;
+    }
+
+    listenFd_ = fd;
+    port = ntohs(localAddr.sin_port);
+    return 0;
+}
+
+int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, StreamEventCallback callback) {
+    if (running_.load()) {
+        OH_LOG_WARN(LOG_APP, "[StreamManager] Already running, stop first");
+        stop();
+    }
+
+    adb_ = adb;
+    config_ = config;
+    eventCallback_ = callback;
+    videoStream_ = nullptr;
+    audioStream_ = nullptr;
+    controlStream_ = nullptr;
+
+    uint16_t port = 0;
+    int32_t listenerRet = createTcpListener(port);
+    if (listenerRet != 0) {
+        closeLocalTunnels();
+        closeListener();
+        adb_ = nullptr;
+        return listenerRet;
+    }
+
+    running_.store(true);
+    acceptThread_ = std::thread(&ScrcpyStreamManager::acceptThreadFunc, this);
+
+    OH_LOG_INFO(LOG_APP,
+                "[StreamManager] Reverse listener started on port=%{public}u, video=%{public}d, audio=%{public}d, control=%{public}d",
+                port, config_.expectVideo, config_.expectAudio, config_.expectControl);
+    return static_cast<int32_t>(port);
+}
+
 // ===================== stop =====================
 
 void ScrcpyStreamManager::stop() {
     bool wasRunning = running_.exchange(false);
     if (!wasRunning && !videoThread_.joinable() && !audioThread_.joinable() &&
         !controlThread_.joinable() && !videoProxyThread_.joinable() &&
-        !audioProxyThread_.joinable()) {
+        !audioProxyThread_.joinable() && !acceptThread_.joinable()) {
         return;
     }
 
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
 
     closeLocalTunnels();
+    closeListener();
 
     if (adb_) {
         if (config_.videoStreamId >= 0) {
@@ -252,6 +335,7 @@ void ScrcpyStreamManager::stop() {
     joinThread(controlThread_);
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
+    joinThread(acceptThread_);
 
     if (videoDecoder_) {
         videoDecoder_->Release();
@@ -274,14 +358,48 @@ void ScrcpyStreamManager::stop() {
 // ===================== sendControl =====================
 
 void ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
-    if (!running_.load() || !adb_ || !controlStream_ || len == 0) {
+    if (!running_.load() || len == 0) {
         return;
     }
 
     try {
-        adb_->streamWrite(controlStream_, data, len);
+        if (controlChannel_) {
+            controlChannel_->write(data, len);
+        } else if (adb_ && controlStream_) {
+            adb_->streamWrite(controlStream_, data, len);
+        }
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "[StreamManager] sendControl error: %{public}s", e.what());
+    }
+}
+
+void ScrcpyStreamManager::acceptThreadFunc() {
+    try {
+        auto acceptChannel = [this]() -> AdbChannel* {
+            int fd = ::accept(listenFd_, nullptr, nullptr);
+            if (fd < 0) {
+                throw std::runtime_error("accept failed");
+            }
+            return new LocalSocketChannel(fd);
+        };
+
+        if (config_.expectVideo) {
+            videoChannel_ = acceptChannel();
+            videoThread_ = std::thread(&ScrcpyStreamManager::videoThreadFunc, this);
+        }
+        if (config_.expectAudio) {
+            audioChannel_ = acceptChannel();
+            audioThread_ = std::thread(&ScrcpyStreamManager::audioThreadFunc, this);
+        }
+        if (config_.expectControl) {
+            controlChannel_ = acceptChannel();
+            controlThread_ = std::thread(&ScrcpyStreamManager::controlThreadFunc, this);
+        }
+    } catch (const std::exception& e) {
+        if (running_.load()) {
+            OH_LOG_ERROR(LOG_APP, "[StreamManager] Reverse accept failed: %{public}s", e.what());
+            emitEvent("error", std::string("Reverse accept failed: ") + e.what());
+        }
     }
 }
 
@@ -336,8 +454,11 @@ void ScrcpyStreamManager::videoThreadFunc() {
         AdbChannel* channel = videoChannel_;
         if (!channel) throw std::runtime_error("video channel not found");
 
-        auto dummy = readExact(channel, 1, 2000);
-        OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
+        if (config_.sendDummyByte) {
+            auto dummy = readExact(channel, 1, 2000);
+            (void) dummy;
+            OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
+        }
 
         auto deviceNameData = readExact(channel, 64, 2000);
         std::string deviceName(reinterpret_cast<char*>(deviceNameData.data()), 64);
@@ -623,16 +744,23 @@ void ScrcpyStreamManager::controlThreadFunc() {
 
     try {
         AdbStream* stream = controlStream_;
-        if (!stream) throw std::runtime_error("control stream not found");
+        AdbChannel* channel = controlChannel_;
+        if (!stream && !channel) throw std::runtime_error("control stream not found");
 
         uint8_t typeByte[1];
         uint8_t lenData[4];
         uint8_t ackData[8];
         uint8_t uhidHeader[4];
         while (running_.load()) {
-            size_t n = adb_->streamReadToBuffer(stream, typeByte, 1, -1, true);
-            if (n < 1) {
-                break;
+            size_t n = 0;
+            if (channel) {
+                readExactToBuffer(channel, typeByte, 1);
+                n = 1;
+            } else {
+                n = adb_->streamReadToBuffer(stream, typeByte, 1, -1, true);
+                if (n < 1) {
+                    break;
+                }
             }
             uint8_t eventType = typeByte[0];
 
@@ -640,10 +768,14 @@ void ScrcpyStreamManager::controlThreadFunc() {
 
             switch (eventType) {
                 case 0: {
-                    readExactToBuffer(stream, lenData, 4);
+                    if (channel) {
+                        readExactToBuffer(channel, lenData, 4);
+                    } else {
+                        readExactToBuffer(stream, lenData, 4);
+                    }
                     int32_t clipLen = readInt32BE(lenData);
                     if (clipLen > 0 && clipLen <= 100000) {
-                        auto clipTextData = readExact(stream, clipLen);
+                        auto clipTextData = channel ? readExact(channel, clipLen) : readExact(stream, clipLen);
                         std::string text(reinterpret_cast<char*>(clipTextData.data()), clipTextData.size());
                         OH_LOG_DEBUG(LOG_APP, "[ControlThread] Clipboard received: %{public}zu bytes", text.size());
                         emitEvent("clipboard", text);
@@ -651,15 +783,27 @@ void ScrcpyStreamManager::controlThreadFunc() {
                     break;
                 }
                 case 1: {
-                    readExactToBuffer(stream, ackData, sizeof(ackData));
+                    if (channel) {
+                        readExactToBuffer(channel, ackData, sizeof(ackData));
+                    } else {
+                        readExactToBuffer(stream, ackData, sizeof(ackData));
+                    }
                     break;
                 }
                 case 2: {
-                    readExactToBuffer(stream, uhidHeader, sizeof(uhidHeader));
+                    if (channel) {
+                        readExactToBuffer(channel, uhidHeader, sizeof(uhidHeader));
+                    } else {
+                        readExactToBuffer(stream, uhidHeader, sizeof(uhidHeader));
+                    }
                     int32_t size = (static_cast<int32_t>(uhidHeader[2]) << 8) |
                                    static_cast<int32_t>(uhidHeader[3]);
                     if (size > 0) {
-                        readExact(stream, size);
+                        if (channel) {
+                            readExact(channel, size);
+                        } else {
+                            readExact(stream, size);
+                        }
                     }
                     break;
                 }

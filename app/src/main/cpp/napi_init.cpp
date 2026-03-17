@@ -663,6 +663,67 @@ static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
     return result;
 }
 
+static napi_value AdbReverse(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value args[3];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char socketName[256];
+    size_t nameLen;
+    int32_t port;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
+    napi_get_value_int32(env, args[2], &port);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        const std::string remote = "localabstract:" + std::string(socketName);
+        const std::string local = "tcp:" + std::to_string(port);
+        napi_create_int32(env, it->second->reverseForward(remote, local) ? 0 : -1, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverse failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
+static napi_value AdbReverseRemove(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char socketName[256];
+    size_t nameLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    try {
+        const std::string remote = "localabstract:" + std::string(socketName);
+        napi_create_int32(env, it->second->reverseRemove(remote) ? 0 : -1, &result);
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverseRemove failed: %{public}s", e.what());
+        napi_create_int32(env, -1, &result);
+    }
+    return result;
+}
+
 // 从流读取 - adbStreamRead(adbId, streamId, size) => ArrayBuffer
 static napi_value AdbStreamRead(napi_env env, napi_callback_info info) {
     size_t argc = 3;
@@ -968,6 +1029,39 @@ static void StreamEventCallToJS(napi_env env, napi_value jsCb, void* context, vo
     ReleaseStreamEventData(eventData);
 }
 
+static bool PrepareStreamCallback(napi_env env, napi_value callback) {
+    napi_value callbackName;
+    napi_create_string_utf8(env, "streamCallback", NAPI_AUTO_LENGTH, &callbackName);
+
+    if (g_streamCallback) {
+        napi_release_threadsafe_function(g_streamCallback, napi_tsfn_abort);
+        g_streamCallback = nullptr;
+    }
+
+    napi_status status = napi_create_threadsafe_function(
+        env, callback, nullptr, callbackName,
+        64,
+        1,
+        nullptr, nullptr, nullptr,
+        StreamEventCallToJS,
+        &g_streamCallback
+    );
+    return status == napi_ok;
+}
+
+static StreamEventCallback CreateNativeStreamEventCallback() {
+    napi_threadsafe_function tsfn = g_streamCallback;
+    return [tsfn](const std::string& type, const std::string& data) {
+        StreamEventData* eventData = AcquireStreamEventData();
+        eventData->type = type;
+        eventData->data = data;
+        napi_status status = napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
+        if (status != napi_ok) {
+            ReleaseStreamEventData(eventData);
+        }
+    };
+}
+
 static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     size_t argc = 8;
     napi_value args[8];
@@ -986,25 +1080,7 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     napi_get_value_int32(env, args[5], &audioSampleRate);
     napi_get_value_int32(env, args[6], &audioChannelCount);
 
-    // 创建 threadsafe function
-    napi_value callbackName;
-    napi_create_string_utf8(env, "streamCallback", NAPI_AUTO_LENGTH, &callbackName);
-
-    if (g_streamCallback) {
-        napi_release_threadsafe_function(g_streamCallback, napi_tsfn_abort);
-        g_streamCallback = nullptr;
-    }
-
-    napi_status status = napi_create_threadsafe_function(
-        env, args[7], nullptr, callbackName,
-        64, // max queue size
-        1,  // initial thread count
-        nullptr, nullptr, nullptr,
-        StreamEventCallToJS,
-        &g_streamCallback
-    );
-
-    if (status != napi_ok) {
+    if (!PrepareStreamCallback(env, args[7])) {
         OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to create threadsafe function");
         napi_value result;
         napi_create_int32(env, -1, &result);
@@ -1035,22 +1111,77 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     config.surfaceId = surfaceId;
     config.audioSampleRate = audioSampleRate;
     config.audioChannelCount = audioChannelCount;
+    config.reverse = false;
+    config.sendDummyByte = true;
 
     // 创建并启动
     g_streamManager = new ScrcpyStreamManager();
-
-    napi_threadsafe_function tsfn = g_streamCallback;
-    auto eventCallback = [tsfn](const std::string& type, const std::string& data) {
-        StreamEventData* eventData = AcquireStreamEventData();
-        eventData->type = type;
-        eventData->data = data;
-        napi_status status = napi_call_threadsafe_function(tsfn, eventData, napi_tsfn_nonblocking);
-        if (status != napi_ok) {
-            ReleaseStreamEventData(eventData);
-        }
-    };
-
+    auto eventCallback = CreateNativeStreamEventCallback();
     int32_t ret = g_streamManager->start(it->second.get(), config, eventCallback);
+
+    napi_value result;
+    napi_create_int32(env, ret, &result);
+    return result;
+}
+
+static napi_value NativeStartReverseStreams(napi_env env, napi_callback_info info) {
+    size_t argc = 8;
+    napi_value args[8];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    bool expectVideo = true;
+    bool expectAudio = false;
+    bool expectControl = true;
+    char surfaceId[128];
+    int32_t audioSampleRate = 48000;
+    int32_t audioChannelCount = 2;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_bool(env, args[1], &expectVideo);
+    napi_get_value_bool(env, args[2], &expectAudio);
+    napi_get_value_bool(env, args[3], &expectControl);
+    napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), nullptr);
+    napi_get_value_int32(env, args[5], &audioSampleRate);
+    napi_get_value_int32(env, args[6], &audioChannelCount);
+
+    if (!PrepareStreamCallback(env, args[7])) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to create reverse threadsafe function");
+        napi_value result;
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] ADB instance not found for reverse: %{public}lld", (long long)adbId);
+        napi_value result;
+        napi_create_int32(env, -2, &result);
+        return result;
+    }
+
+    if (g_streamManager) {
+        g_streamManager->stop();
+        delete g_streamManager;
+        g_streamManager = nullptr;
+    }
+
+    ScrcpyStreamManager::Config config;
+    config.videoStreamId = -1;
+    config.audioStreamId = -1;
+    config.controlStreamId = -1;
+    config.surfaceId = surfaceId;
+    config.audioSampleRate = audioSampleRate;
+    config.audioChannelCount = audioChannelCount;
+    config.reverse = true;
+    config.expectVideo = expectVideo;
+    config.expectAudio = expectAudio;
+    config.expectControl = expectControl;
+    config.sendDummyByte = false;
+
+    g_streamManager = new ScrcpyStreamManager();
+    auto eventCallback = CreateNativeStreamEventCallback();
+    int32_t ret = g_streamManager->startReverse(it->second.get(), config, eventCallback);
 
     napi_value result;
     napi_create_int32(env, ret, &result);
@@ -1122,6 +1253,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbTcpForward", nullptr, AdbTcpForward, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbLocalSocketForward", nullptr, AdbLocalSocketForward, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbReverse", nullptr, AdbReverse, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbReverseRemove", nullptr, AdbReverseRemove, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbGetShell", nullptr, AdbGetShell, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbRestartOnTcpip", nullptr, AdbRestartOnTcpip, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbStreamRead", nullptr, AdbStreamRead, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -1134,6 +1267,7 @@ static napi_value Init(napi_env env, napi_value exports) {
 
         // Stream Manager API
         {"nativeStartStreams", nullptr, NativeStartStreams, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeStartReverseStreams", nullptr, NativeStartReverseStreams, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeStopStreams", nullptr, NativeStopStreams, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSendControl", nullptr, NativeSendControl, nullptr, nullptr, nullptr, napi_default, nullptr},
     };

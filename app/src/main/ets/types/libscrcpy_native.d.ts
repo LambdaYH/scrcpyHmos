@@ -22,6 +22,8 @@ declare module 'libscrcpy_native.so' {
     export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): void;
     export function adbTcpForward(adbId: number, port: number): number;
     export function adbLocalSocketForward(adbId: number, socketName: string): number;
+    export function adbReverse(adbId: number, socketName: string, port: number): number;
+    export function adbReverseRemove(adbId: number, socketName: string): number;
     export function adbGetShell(adbId: number): number;
     export function adbRestartOnTcpip(adbId: number, port: number): string;
     export function adbStreamRead(adbId: number, streamId: number, size: number): ArrayBuffer;
@@ -38,6 +40,16 @@ declare module 'libscrcpy_native.so' {
         videoStreamId: number,
         audioStreamId: number,
         controlStreamId: number,
+        surfaceId: string,
+        audioSampleRate: number,
+        audioChannelCount: number,
+        callback: (type: string, data: string) => void
+    ): number;
+    export function nativeStartReverseStreams(
+        adbId: number,
+        expectVideo: boolean,
+        expectAudio: boolean,
+        expectControl: boolean,
         surfaceId: string,
         audioSampleRate: number,
         audioChannelCount: number,

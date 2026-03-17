@@ -4,6 +4,8 @@ export const adbRunCmd: (adbId: number, cmd: string) => string;
 export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => void;
 export const adbTcpForward: (adbId: number, port: number) => number;
 export const adbLocalSocketForward: (adbId: number, socketName: string) => number;
+export const adbReverse: (adbId: number, socketName: string, port: number) => number;
+export const adbReverseRemove: (adbId: number, socketName: string) => number;
 export const adbGetShell: (adbId: number) => number;
 export const adbRestartOnTcpip: (adbId: number, port: number) => string;
 export const adbIsStreamClosed: (adbId: number, streamId: number) => boolean;
@@ -13,6 +15,16 @@ export const nativeStartStreams: (
     videoStreamId: number,
     audioStreamId: number,
     controlStreamId: number,
+    surfaceId: string,
+    audioSampleRate: number,
+    audioChannelCount: number,
+    cb: (type: string, data: string) => void
+) => number;
+export const nativeStartReverseStreams: (
+    adbId: number,
+    expectVideo: boolean,
+    expectAudio: boolean,
+    expectControl: boolean,
     surfaceId: string,
     audioSampleRate: number,
     audioChannelCount: number,
