@@ -426,10 +426,11 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
         throw std::runtime_error("Failed to open stream");
     }
 
-    // Check if the stream was closed immediately (Connection Refused)
+    // Treat only remoteId == 0 as immediate refusal.
+    // Short-lived service commands (for example "reverse:*") may legitimately
+    // open, send a reply, and close before open() returns.
     {
-        // std::lock_guard<std::mutex> lock(stream->readMutex); // usage removed
-        if (stream->closed || stream->remoteId == 0) {
+        if (stream->remoteId == 0) {
             OH_LOG_ERROR(LOG_APP, "[ADB] Stream opened but closed/refused (remoteId=%{public}d): localId=%{public}d", stream->remoteId, localId);
             // Cleanup
             {
@@ -480,7 +481,10 @@ std::string Adb::runServiceCommand(const std::string& destination) {
     }
 
     auto data = streamReadAllBeforeClose(streamId);
-    return std::string(data.begin(), data.end());
+    std::string reply(data.begin(), data.end());
+    OH_LOG_INFO(LOG_APP, "[ADB] Service reply: dest=%{public}s reply=%{public}s",
+                destination.c_str(), reply.c_str());
+    return reply;
 }
 
 bool Adb::reverseForward(const std::string& remote, const std::string& local) {
