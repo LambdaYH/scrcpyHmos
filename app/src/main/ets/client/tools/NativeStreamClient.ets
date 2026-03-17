@@ -13,6 +13,19 @@ export interface NativeStreamListener {
   onWaitAuth?: () => void;
 }
 
+type NativeEventCallback = (type: string, data: string) => void;
+type NativeStartReverseStreamsFn = (
+  adbId: number,
+  expectVideo: boolean,
+  expectAudio: boolean,
+  expectControl: boolean,
+  surfaceId: string,
+  audioSampleRate: number,
+  audioChannelCount: number,
+  callback: NativeEventCallback
+) => number;
+type AdbReverseFn = (adbId: number, socketName: string, port: number) => number;
+
 export class NativeStreamClient {
   private clientStream: ClientStream;
   private device: Device;
@@ -47,9 +60,14 @@ export class NativeStreamClient {
       
       LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
-      await this.openNativeStreams();
-
-      this.startNativeProcessing(surfaceId);
+      const eventCallback = this.createNativeEventCallback();
+      const reverseStarted = await this.tryStartReverse(surfaceId, eventCallback);
+      if (!reverseStarted) {
+        const args = ServerManager.buildServerArgs(this.device, true);
+        this.clientStream.startServer(args);
+        await this.openNativeStreams();
+        this.startNativeProcessing(surfaceId, eventCallback);
+      }
 
       if (this.device.lightOffOnConnect) {
         LoggerClientStream.info('[NativeStreamClient] Requesting device screen off after connection');
@@ -89,6 +107,42 @@ export class NativeStreamClient {
     } catch (err) {
       LoggerClientStream.error('[NativeStreamClient] Stop global error:', err);
     }
+  }
+
+  private async tryStartReverse(
+    surfaceId: string,
+    eventCallback: NativeEventCallback
+  ): Promise<boolean> {
+    const reverseArgs = ServerManager.buildServerArgs(this.device, false);
+    const socketName = ServerManager.getSocketName();
+
+    const reversePort: number = this.callNativeStartReverseStreams(
+      this.adbId,
+      true,
+      this.device.isAudio,
+      true,
+      surfaceId,
+      48000,
+      2,
+      eventCallback
+    );
+
+    if (reversePort <= 0) {
+      LoggerClientStream.warn(`[NativeStreamClient] Reverse listener start failed: ${reversePort}, fallback to forward`);
+      libscrcpy.nativeStopStreams();
+      return false;
+    }
+
+    const reverseResult: number = this.callAdbReverse(this.adbId, socketName, reversePort);
+    if (reverseResult !== 0) {
+      LoggerClientStream.warn(`[NativeStreamClient] adb reverse failed: ${reverseResult}, fallback to forward`);
+      libscrcpy.nativeStopStreams();
+      return false;
+    }
+
+    LoggerClientStream.info(`[NativeStreamClient] Reverse tunnel ready localabstract:${socketName} -> tcp:${reversePort}`);
+    this.clientStream.startServer(reverseArgs);
+    return true;
   }
 
   // Send control message (e.g. touch event)
@@ -138,11 +192,8 @@ export class NativeStreamClient {
     LoggerClientStream.info(`[NativeStreamClient] Control Stream Connected (ID: ${this.controlStreamId})`);
   }
 
-  private startNativeProcessing(surfaceId: string): void {
-    LoggerClientStream.info('[NativeStreamClient] Starting native threads...');
-    
-    // Callback to handle events from C++
-    const eventCallback = (type: string, data: string) => {
+  private createNativeEventCallback(): NativeEventCallback {
+    return (type: string, data: string) => {
         if (!this.listener) return;
 
         switch (type) {
@@ -173,6 +224,13 @@ export class NativeStreamClient {
                 break;
         }
     };
+  }
+
+  private startNativeProcessing(
+    surfaceId: string,
+    eventCallback: NativeEventCallback
+  ): void {
+    LoggerClientStream.info('[NativeStreamClient] Starting native threads...');
 
     const res: number = libscrcpy.nativeStartStreams(
         this.adbId,
@@ -188,5 +246,33 @@ export class NativeStreamClient {
     if (res !== 0) {
         throw new Error(`nativeStartStreams failed with code ${res}`);
     }
+  }
+
+  private callNativeStartReverseStreams(
+    adbId: number,
+    expectVideo: boolean,
+    expectAudio: boolean,
+    expectControl: boolean,
+    surfaceId: string,
+    audioSampleRate: number,
+    audioChannelCount: number,
+    callback: NativeEventCallback
+  ): number {
+    const nativeStartReverseStreams = libscrcpy.nativeStartReverseStreams as NativeStartReverseStreamsFn;
+    return nativeStartReverseStreams(
+      adbId,
+      expectVideo,
+      expectAudio,
+      expectControl,
+      surfaceId,
+      audioSampleRate,
+      audioChannelCount,
+      callback
+    );
+  }
+
+  private callAdbReverse(adbId: number, socketName: string, port: number): number {
+    const adbReverse = libscrcpy.adbReverse as AdbReverseFn;
+    return adbReverse(adbId, socketName, port);
   }
 }

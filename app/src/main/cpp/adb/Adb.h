@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -63,8 +64,15 @@ public:
     void pushFile(const uint8_t* fileData, size_t fileLen,
                   const std::string& remotePath, ProcessCallback callback = nullptr);
 
+    // 执行非 shell 的 ADB service 命令
+    std::string runServiceCommand(const std::string& destination);
+
     // 切换到TCP模式
     std::string restartOnTcpip(int port);
+
+    // 配置 adb reverse
+    bool reverseForward(const std::string& remote, const std::string& local);
+    bool reverseRemove(const std::string& remote);
 
     // TCP端口转发 - 返回stream id
     int32_t tcpForward(int port);
@@ -116,6 +124,14 @@ public:
 private:
     Adb(AdbChannel* channel);
 
+    struct ReverseBridge {
+        int fd = -1;
+        AdbStream* stream = nullptr;
+        std::thread socketToAdbThread;
+        std::thread adbToSocketThread;
+        std::atomic<bool> closed{false};
+    };
+
     // 后台消息处理线程
     void handleInLoop();
 
@@ -132,13 +148,18 @@ private:
     // 创建新的流
     AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend);
 
+    bool handleIncomingOpen(uint32_t remoteId, const std::vector<uint8_t>& payload);
+    int connectLocalTcpPort(uint16_t port);
+    void startReverseBridge(AdbStream* stream, int fd);
+    static std::string stripTrailingNulls(const std::vector<uint8_t>& payload);
+
     // 向流的底层channel写入数据（分块）
     void streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len);
 
     AdbChannel* channel_ = nullptr;
     std::atomic<bool> isClosed_{false};
     std::atomic<bool> handleInRunning_{false};
-    int32_t localIdPool_ = 1;
+    std::atomic<int32_t> localIdPool_{1};
     uint32_t maxData_ = AdbProtocol::CONNECT_MAXDATA;
 
     // 流管理
@@ -160,6 +181,9 @@ private:
 
     // Optimization cache for handleInLoop
     AdbStream* lastStream_ = nullptr;
+
+    std::mutex reverseBridgesMutex_;
+    std::vector<std::shared_ptr<ReverseBridge>> reverseBridges_;
 
     // channel写入锁 (由sendLoop管理)
     // std::mutex channelWriteMutex_; // Removed, managed by sendLoop

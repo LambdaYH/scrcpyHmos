@@ -27,6 +27,11 @@ public:
         std::string surfaceId;
         int32_t audioSampleRate = 48000;
         int32_t audioChannelCount = 2;
+        bool reverse = false;
+        bool expectVideo = true;
+        bool expectAudio = false;
+        bool expectControl = true;
+        bool sendDummyByte = true;
     };
 
     ScrcpyStreamManager();
@@ -34,6 +39,7 @@ public:
 
     // 启动流处理，adb 必须已连接且 stream 已打开
     int32_t start(Adb* adb, const Config& config, StreamEventCallback callback);
+    int32_t startReverse(Adb* adb, const Config& config, StreamEventCallback callback);
 
     // 向控制流发送数据
     void sendControl(const uint8_t* data, size_t len);
@@ -50,6 +56,7 @@ private:
     void controlThreadFunc();
     void videoProxyThreadFunc();
     void audioProxyThreadFunc();
+    void acceptThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
     std::vector<uint8_t> readExact(AdbChannel* channel, size_t size, int32_t timeoutMs = -1);
@@ -57,7 +64,9 @@ private:
     std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
     void readExactToBuffer(AdbStream* stream, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
     int32_t createLocalTunnel(AdbChannel*& channel, int& proxyFd);
+    int32_t createTcpListener(uint16_t& port);
     void closeLocalTunnels();
+    void closeListener();
     static void closeFd(int& fd);
 
     // 辅助：从字节读取大端整数
@@ -78,15 +87,18 @@ private:
     AdbStream* controlStream_ = nullptr;
     AdbChannel* videoChannel_ = nullptr;
     AdbChannel* audioChannel_ = nullptr;
+    AdbChannel* controlChannel_ = nullptr;
 
     int videoProxyFd_ = -1;
     int audioProxyFd_ = -1;
+    int listenFd_ = -1;
 
     std::thread videoThread_;
     std::thread audioThread_;
     std::thread controlThread_;
     std::thread videoProxyThread_;
     std::thread audioProxyThread_;
+    std::thread acceptThread_;
     std::atomic<bool> running_{false};
     std::mutex eventMutex_;
 };

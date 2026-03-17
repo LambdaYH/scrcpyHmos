@@ -19,7 +19,7 @@ export class ClientStream {
     this.device = device;
   }
 
-  // 为 Native 模式准备服务端：连接 ADB、推送服务端并启动 shell。
+  // 为 Native 模式准备服务端：连接 ADB 并推送服务端。
   async prepareServerForNative(
     context: Context, // 需要Context来获取AdbKeyManager
     serverJarData: ArrayBuffer | null,
@@ -87,26 +87,6 @@ export class ClientStream {
           LoggerClientStream.warn('[ClientStream] No server jar data, skipping push');
       }
 
-      // 4. 启动服务端
-      const args = ServerManager.buildServerArgs(this.device);
-      this.currentScid = ServerManager.getLastScid();
-      const socketName = `scrcpy_${this.currentScid}`;
-      
-      const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
-      LoggerClientStream.info(`[ClientStream] Starting server with command: ${cmd}`);
-      
-      this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
-      if (this.shellStreamId < 0) {
-          throw new Error('Native ADB Get Shell failed');
-      }
-      
-      const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
-      libscrcpy.adbStreamWrite(this.adbId, this.shellStreamId, cmdBytes.buffer);
-
-      LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
-
-      this.readShellOutputAsync();
-      
       return this.adbId;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -114,6 +94,26 @@ export class ClientStream {
       this.close();
       throw (err instanceof Error) ? err : new Error(String(err));
     }
+  }
+
+  startServer(args: string): void {
+    const serverPath = `/data/local/tmp/scrcpy-server-${ServerManager.getVersion()}`;
+    this.currentScid = ServerManager.getLastScid();
+    const socketName = `scrcpy_${this.currentScid}`;
+    const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
+
+    LoggerClientStream.info(`[ClientStream] Starting server with command: ${cmd}`);
+
+    this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
+    if (this.shellStreamId < 0) {
+      throw new Error('Native ADB Get Shell failed');
+    }
+
+    const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
+    libscrcpy.adbStreamWrite(this.adbId, this.shellStreamId, cmdBytes.buffer);
+
+    LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
+    this.readShellOutputAsync();
   }
 
   // 异步读取Shell输出

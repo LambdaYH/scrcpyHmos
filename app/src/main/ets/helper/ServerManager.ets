@@ -54,7 +54,7 @@ export class ServerManager {
   }
 
   // 构建scrcpy启动参数
-  static buildServerArgs(device: Device): string {
+  static buildServerArgs(device: Device, tunnelForward: boolean = true): string {
     const args: string[] = [];
     // 记录已添加的参数键，用于过滤 extraParams 中的重复项
     const reservedKeys = new Set<string>();
@@ -107,9 +107,9 @@ export class ServerManager {
     // 控制和行为参数
     addArg('control', true);
     
-    // Explicitly enable tunnel_forward to force "forward" mode (server listens)
-    // This allows our client (adb.localSocketForward) to connect to the listening socket.
-    addArg('tunnel_forward', true);
+    if (tunnelForward) {
+      addArg('tunnel_forward', true);
+    }
     
     addArg('show_touches', device.showTouches);
     addArg('stay_awake', device.stayAwake);

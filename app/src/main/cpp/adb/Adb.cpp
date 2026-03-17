@@ -6,10 +6,53 @@
 #include <stdexcept>
 #include <algorithm>
 #include <utility>
+#include <cerrno>
+#include <chrono>
+#include <memory>
+#include <netdb.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <hilog/log.h>
 
 #undef LOG_TAG
 #define LOG_TAG "Adb"
+
+namespace {
+void closeFdIfNeeded(int& fd) {
+    if (fd < 0) {
+        return;
+    }
+    ::shutdown(fd, SHUT_RDWR);
+    ::close(fd);
+    fd = -1;
+}
+
+void joinThreadIfNeeded(std::thread& thread) {
+    if (!thread.joinable()) {
+        return;
+    }
+    if (thread.get_id() == std::this_thread::get_id()) {
+        thread.detach();
+        return;
+    }
+    thread.join();
+}
+
+void writeAllToFd(int fd, const uint8_t* data, size_t len) {
+    size_t offset = 0;
+    while (offset < len) {
+        ssize_t n = ::send(fd, data + offset, len - offset, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            throw std::runtime_error("reverse bridge write failed");
+        }
+        offset += static_cast<size_t>(n);
+    }
+}
+}
 
 Adb::Adb(AdbChannel* channel) : channel_(channel) {
     sendRunning_.store(true);
@@ -205,6 +248,24 @@ void Adb::handleInLoop() {
 
             // OH_LOG_INFO(LOG_APP, "[ADB] Recv Header: cmd=0x%{public}x len=%{public}u", cmd, payloadLen);
 
+            if (cmd == AdbProtocol::CMD_OPEN) {
+                if (payloadLen > 0) {
+                    if (tempPayload.size() < payloadLen) tempPayload.resize(payloadLen);
+                    channel_->readWithTimeout(tempPayload.data(), payloadLen, -1);
+                    tempPayload.resize(payloadLen);
+                } else {
+                    tempPayload.clear();
+                }
+
+                if (arg0 != 0 && arg1 == 0) {
+                    if (!handleIncomingOpen(arg0, tempPayload)) {
+                        auto closeMsg = AdbProtocol::generateClose(0, static_cast<int32_t>(arg0));
+                        writeToChannel(std::move(closeMsg));
+                    }
+                }
+                continue;
+            }
+
             // 3. Handle Payload
             AdbStream* stream = nullptr;
             if (lastStream_ != nullptr && lastStream_->localId == static_cast<int32_t>(arg1) && !lastStream_->closed) {
@@ -320,8 +381,6 @@ void Adb::handleInLoop() {
                     notifyAll(); // Notify open() or read() that stream is closed
                 } else if (cmd == AdbProtocol::CMD_WRTE && !stream) {
                      // ...
-                } else if (cmd == AdbProtocol::CMD_OPEN && !stream) {
-                    // Reverse connection?
                 }
             }
                 
@@ -408,6 +467,38 @@ std::string Adb::restartOnTcpip(int port) {
 
     auto data = streamReadAllBeforeClose(streamId);
     return std::string(data.begin(), data.end());
+}
+
+std::string Adb::runServiceCommand(const std::string& destination) {
+    int32_t streamId = open(destination, true);
+
+    {
+        std::unique_lock<std::mutex> lock(waitMutex_);
+        while (!isStreamClosed(streamId) && !isClosed_.load()) {
+            waitCv_.wait_for(lock, std::chrono::milliseconds(100));
+        }
+    }
+
+    auto data = streamReadAllBeforeClose(streamId);
+    return std::string(data.begin(), data.end());
+}
+
+bool Adb::reverseForward(const std::string& remote, const std::string& local) {
+    const std::string reply = runServiceCommand("reverse:forward:" + remote + ";" + local);
+    if (reply.empty() || reply.rfind("OKAY", 0) == 0) {
+        return true;
+    }
+    OH_LOG_ERROR(LOG_APP, "[ADB] reverse forward failed: %{public}s", reply.c_str());
+    return false;
+}
+
+bool Adb::reverseRemove(const std::string& remote) {
+    const std::string reply = runServiceCommand("reverse:killforward:" + remote);
+    if (reply.empty() || reply.rfind("OKAY", 0) == 0) {
+        return true;
+    }
+    OH_LOG_WARN(LOG_APP, "[ADB] reverse remove failed: %{public}s", reply.c_str());
+    return false;
 }
 
 void Adb::pushFile(const uint8_t* fileData, size_t fileLen,
@@ -707,7 +798,14 @@ std::vector<uint8_t> Adb::streamReadAllBeforeClose(int32_t streamId) {
     {
         std::lock_guard<std::mutex> lock(streamsMutex_);
         auto it = connectionStreams_.find(streamId);
-        if (it != connectionStreams_.end()) stream = it->second;
+        if (it != connectionStreams_.end()) {
+            stream = it->second;
+        } else {
+            auto openIt = openStreams_.find(streamId);
+            if (openIt != openStreams_.end()) {
+                stream = openIt->second;
+            }
+        }
     }
     if (!stream) return {};
 
@@ -736,6 +834,19 @@ void Adb::close() {
 
     if (channel_) {
         channel_->close();
+    }
+
+    std::vector<std::shared_ptr<ReverseBridge>> reverseBridges;
+    {
+        std::lock_guard<std::mutex> lock(reverseBridgesMutex_);
+        reverseBridges = reverseBridges_;
+    }
+    for (const auto& bridge : reverseBridges) {
+        if (!bridge) {
+            continue;
+        }
+        bridge->closed.store(true);
+        closeFdIfNeeded(bridge->fd);
     }
 
     // Mark all streams closed and wake blocking readers.
@@ -767,6 +878,18 @@ void Adb::close() {
              OH_LOG_INFO(LOG_APP, "Adb::close called from handleInLoop, detaching thread");
              handleInThread_.detach();
         }
+    }
+
+    for (const auto& bridge : reverseBridges) {
+        if (!bridge) {
+            continue;
+        }
+        joinThreadIfNeeded(bridge->socketToAdbThread);
+        joinThreadIfNeeded(bridge->adbToSocketThread);
+    }
+    {
+        std::lock_guard<std::mutex> lock(reverseBridgesMutex_);
+        reverseBridges_.clear();
     }
 
     // 清理流
@@ -853,4 +976,164 @@ AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMulti
 
 void Adb::notifyAll() {
     waitCv_.notify_all();
+}
+
+std::string Adb::stripTrailingNulls(const std::vector<uint8_t>& payload) {
+    size_t end = payload.size();
+    while (end > 0 && payload[end - 1] == '\0') {
+        --end;
+    }
+    return std::string(reinterpret_cast<const char*>(payload.data()), end);
+}
+
+int Adb::connectLocalTcpPort(uint16_t port) {
+    struct addrinfo hints {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res = nullptr;
+    const std::string portStr = std::to_string(port);
+    int status = getaddrinfo("127.0.0.1", portStr.c_str(), &hints, &res);
+    if (status != 0) {
+        throw std::runtime_error("reverse bridge getaddrinfo failed");
+    }
+
+    int fd = -1;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next) {
+        fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (fd < 0) {
+            continue;
+        }
+
+        int flag = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+
+        if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) {
+            break;
+        }
+
+        closeFdIfNeeded(fd);
+    }
+
+    freeaddrinfo(res);
+
+    if (fd < 0) {
+        throw std::runtime_error("reverse bridge connect failed");
+    }
+    return fd;
+}
+
+void Adb::startReverseBridge(AdbStream* stream, int fd) {
+    auto bridge = std::make_shared<ReverseBridge>();
+    bridge->fd = fd;
+    bridge->stream = stream;
+
+    auto closeBridge = [bridge]() {
+        bool expected = false;
+        if (!bridge->closed.compare_exchange_strong(expected, true)) {
+            return;
+        }
+        closeFdIfNeeded(bridge->fd);
+    };
+
+    bridge->socketToAdbThread = std::thread([this, stream, bridge, closeBridge]() {
+        std::vector<uint8_t> buffer(64 * 1024);
+        try {
+            while (!bridge->closed.load() && !isClosed_.load()) {
+                ssize_t n = ::recv(bridge->fd, buffer.data(), buffer.size(), 0);
+                if (n < 0 && errno == EINTR) {
+                    continue;
+                }
+                if (n <= 0) {
+                    break;
+                }
+                streamWrite(stream, buffer.data(), static_cast<size_t>(n));
+            }
+        } catch (const std::exception& e) {
+            if (!isClosed_.load() && !bridge->closed.load()) {
+                OH_LOG_WARN(LOG_APP, "[ADB] reverse socket->adb exit: %{public}s", e.what());
+            }
+        }
+
+        closeBridge();
+        if (stream && !stream->closed.load()) {
+            streamClose(stream->localId);
+        }
+    });
+
+    bridge->adbToSocketThread = std::thread([this, stream, bridge, closeBridge]() {
+        std::vector<uint8_t> buffer(64 * 1024);
+        try {
+            while (!bridge->closed.load() && !isClosed_.load()) {
+                size_t n = streamReadToBuffer(stream, buffer.data(), buffer.size(), -1, false);
+                if (n == 0) {
+                    if (stream->closed.load()) {
+                        break;
+                    }
+                    continue;
+                }
+                writeAllToFd(bridge->fd, buffer.data(), n);
+            }
+        } catch (const std::exception& e) {
+            if (!isClosed_.load() && !bridge->closed.load()) {
+                OH_LOG_WARN(LOG_APP, "[ADB] reverse adb->socket exit: %{public}s", e.what());
+            }
+        }
+
+        closeBridge();
+        if (stream && !stream->closed.load()) {
+            streamClose(stream->localId);
+        }
+    });
+
+    std::lock_guard<std::mutex> lock(reverseBridgesMutex_);
+    reverseBridges_.push_back(std::move(bridge));
+}
+
+bool Adb::handleIncomingOpen(uint32_t remoteId, const std::vector<uint8_t>& payload) {
+    const std::string destination = stripTrailingNulls(payload);
+    if (destination.rfind("tcp:", 0) != 0) {
+        OH_LOG_WARN(LOG_APP, "[ADB] Unsupported incoming OPEN destination: %{public}s", destination.c_str());
+        return false;
+    }
+
+    const std::string portString = destination.substr(4);
+    if (portString.empty()) {
+        OH_LOG_WARN(LOG_APP, "[ADB] Invalid incoming OPEN destination: %{public}s", destination.c_str());
+        return false;
+    }
+
+    int port = 0;
+    try {
+        port = std::stoi(portString);
+    } catch (...) {
+        OH_LOG_WARN(LOG_APP, "[ADB] Invalid incoming OPEN tcp spec: %{public}s", destination.c_str());
+        return false;
+    }
+
+    if (port <= 0 || port > 65535) {
+        OH_LOG_WARN(LOG_APP, "[ADB] Incoming OPEN port out of range: %{public}d", port);
+        return false;
+    }
+
+    int fd = -1;
+    try {
+        fd = connectLocalTcpPort(static_cast<uint16_t>(port));
+    } catch (const std::exception& e) {
+        OH_LOG_WARN(LOG_APP, "[ADB] Incoming OPEN connect failed: %{public}s", e.what());
+        return false;
+    }
+
+    AdbStream* stream = nullptr;
+    int32_t localId = localIdPool_++;
+    {
+        std::lock_guard<std::mutex> lock(streamsMutex_);
+        stream = createNewStream(localId, static_cast<int32_t>(remoteId), true);
+        lastStream_ = stream;
+    }
+
+    auto okayMsg = AdbProtocol::generateOkay(localId, static_cast<int32_t>(remoteId));
+    writeToChannel(std::move(okayMsg));
+    startReverseBridge(stream, fd);
+    return true;
 }
