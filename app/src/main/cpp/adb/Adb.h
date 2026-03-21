@@ -33,7 +33,8 @@ struct AdbStream {
     int32_t remoteId = 0;
     bool canMultipleSend = false;
     std::atomic<bool> closed{false};
-    bool canWrite = false;
+    std::atomic<bool> canWrite{false};
+    std::mutex writeMutex;
 
     // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
     // 默认 16MB 容量 (50MB/s -> ~320ms buffer)
