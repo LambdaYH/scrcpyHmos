@@ -205,7 +205,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     }
 
 
-    maxData_ = message.arg0;
+    maxData_ = message.arg1;
     OH_LOG_INFO(LOG_APP, "ADB: connected, maxData=%{public}u", maxData_);
 
     // 启动后台消息处理
@@ -220,7 +220,6 @@ void Adb::handleInLoop() {
         const size_t HEADER_SIZE = 24;
         uint8_t headerBuf[24];
         std::vector<uint8_t> tempPayload;
-
         while (handleInRunning_.load() && !isClosed_.load()) {
             // 1. Read Header (24 bytes)
             try {
@@ -383,8 +382,6 @@ void Adb::handleInLoop() {
                      // ...
                 }
             }
-                
-
         }
         OH_LOG_INFO(LOG_APP, "[ADB] handleIn loop exited normally");
     } catch (const std::exception& e) {
