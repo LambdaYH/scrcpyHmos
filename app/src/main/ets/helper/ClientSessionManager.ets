@@ -42,13 +42,14 @@ export class ClientSessionManager {
   // Force stop the current client
   public stopAll(): void {
     if (this.currentClient) {
+      const client = this.currentClient;
+      this.currentClient = undefined;
       LoggerClientSession.info('[ClientSessionManager] Stopping active client session...');
       try {
-        this.currentClient.stop();
+        client.stop();
       } catch (e) {
         LoggerClientSession.error('[ClientSessionManager] Error stopping client:', e);
       }
-      this.currentClient = undefined;
     }
   }
 
