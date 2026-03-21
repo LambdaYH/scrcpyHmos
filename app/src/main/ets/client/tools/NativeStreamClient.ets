@@ -25,13 +25,18 @@ type NativeStartReverseStreamsFn = (
   callback: NativeEventCallback
 ) => number;
 type AdbReverseFn = (adbId: number, socketName: string, port: number) => number;
+type AdbReverseRemoveFn = (adbId: number, socketName: string) => number;
 
 export class NativeStreamClient {
+  private static readonly REVERSE_READY_TIMEOUT_MS: number = 10000;
   private clientStream: ClientStream;
   private device: Device;
   private context: Context;
   private adbId: number = -1;
   private listener?: NativeStreamListener;
+  private reverseReadyPending: boolean = false;
+  private reverseReadyResolve?: () => void;
+  private reverseReadyReject?: (error: Error) => void;
   
   // Stream IDs
   private videoStreamId: number = -1;
@@ -89,6 +94,7 @@ export class NativeStreamClient {
   stop(): void {
     try {
       LoggerClientStream.info('[NativeStreamClient] Stopping session...');
+      this.rejectReverseReady(new Error('Session stopped'));
       
       try {
         libscrcpy.nativeStopStreams();
@@ -144,8 +150,18 @@ export class NativeStreamClient {
     }
 
     LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: using reverse (localabstract:${socketName} -> tcp:${reversePort})`);
+    const reverseReadyPromise = this.waitForReverseReady();
     this.clientStream.startServer(reverseArgs);
-    return true;
+    try {
+      await reverseReadyPromise;
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerClientStream.warn(`[NativeStreamClient] Reverse startup incomplete: ${errMsg}, fallback to forward`);
+      this.callAdbReverseRemove(this.adbId, socketName);
+      libscrcpy.nativeStopStreams();
+      return false;
+    }
   }
 
   // Send control message (e.g. touch event)
@@ -197,7 +213,27 @@ export class NativeStreamClient {
 
   private createNativeEventCallback(): NativeEventCallback {
     return (type: string, data: string) => {
-        if (!this.listener) return;
+        switch (type) {
+            case 'reverse_ready':
+                this.resolveReverseReady();
+                return;
+            case 'disconnected':
+                if (this.reverseReadyPending) {
+                    this.rejectReverseReady(new Error('Reverse disconnected before ready'));
+                    return;
+                }
+                break;
+            case 'error':
+                if (this.reverseReadyPending) {
+                    this.rejectReverseReady(new Error(data));
+                    return;
+                }
+                break;
+        }
+
+        if (!this.listener) {
+            return;
+        }
 
         switch (type) {
             case 'video_config':
@@ -277,5 +313,51 @@ export class NativeStreamClient {
   private callAdbReverse(adbId: number, socketName: string, port: number): number {
     const adbReverse = libscrcpy.adbReverse as AdbReverseFn;
     return adbReverse(adbId, socketName, port);
+  }
+
+  private callAdbReverseRemove(adbId: number, socketName: string): number {
+    const adbReverseRemove = libscrcpy.adbReverseRemove as AdbReverseRemoveFn;
+    return adbReverseRemove(adbId, socketName);
+  }
+
+  private waitForReverseReady(): Promise<void> {
+    this.rejectReverseReady(new Error('Restarting reverse wait'));
+    this.reverseReadyPending = true;
+
+    return new Promise<void>((resolve, reject) => {
+      const timeoutId: number = setTimeout(() => {
+        this.rejectReverseReady(new Error('Timed out waiting for reverse sockets'));
+      }, NativeStreamClient.REVERSE_READY_TIMEOUT_MS) as number;
+
+      this.reverseReadyResolve = () => {
+        clearTimeout(timeoutId);
+        this.reverseReadyPending = false;
+        this.reverseReadyResolve = undefined;
+        this.reverseReadyReject = undefined;
+        resolve();
+      };
+
+      this.reverseReadyReject = (error: Error) => {
+        clearTimeout(timeoutId);
+        this.reverseReadyPending = false;
+        this.reverseReadyResolve = undefined;
+        this.reverseReadyReject = undefined;
+        reject(error);
+      };
+    });
+  }
+
+  private resolveReverseReady(): void {
+    if (!this.reverseReadyPending || !this.reverseReadyResolve) {
+      return;
+    }
+    this.reverseReadyResolve();
+  }
+
+  private rejectReverseReady(error: Error): void {
+    if (!this.reverseReadyPending || !this.reverseReadyReject) {
+      return;
+    }
+    this.reverseReadyReject(error);
   }
 }

@@ -134,22 +134,31 @@ void ScrcpyStreamManager::closeFd(int& fd) {
 void ScrcpyStreamManager::closeLocalTunnels() {
     if (videoChannel_) {
         videoChannel_->close();
-        delete videoChannel_;
-        videoChannel_ = nullptr;
     }
     if (audioChannel_) {
         audioChannel_->close();
-        delete audioChannel_;
-        audioChannel_ = nullptr;
     }
     if (controlChannel_) {
         controlChannel_->close();
-        delete controlChannel_;
-        controlChannel_ = nullptr;
     }
 
     closeFd(videoProxyFd_);
     closeFd(audioProxyFd_);
+}
+
+void ScrcpyStreamManager::releaseLocalTunnels() {
+    if (videoChannel_) {
+        delete videoChannel_;
+        videoChannel_ = nullptr;
+    }
+    if (audioChannel_) {
+        delete audioChannel_;
+        audioChannel_ = nullptr;
+    }
+    if (controlChannel_) {
+        delete controlChannel_;
+        controlChannel_ = nullptr;
+    }
 }
 
 void ScrcpyStreamManager::closeListener() {
@@ -193,15 +202,18 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     try {
         if (videoStream_ && createLocalTunnel(videoChannel_, videoProxyFd_) != 0) {
             closeLocalTunnels();
+            releaseLocalTunnels();
             return -6;
         }
         if (audioStream_ && createLocalTunnel(audioChannel_, audioProxyFd_) != 0) {
             closeLocalTunnels();
+            releaseLocalTunnels();
             return -7;
         }
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "[StreamManager] Create tunnel failed: %{public}s", e.what());
         closeLocalTunnels();
+        releaseLocalTunnels();
         videoStream_ = nullptr;
         audioStream_ = nullptr;
         controlStream_ = nullptr;
@@ -336,6 +348,7 @@ void ScrcpyStreamManager::stop() {
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
     joinThread(acceptThread_);
+    releaseLocalTunnels();
 
     if (videoDecoder_) {
         videoDecoder_->Release();
@@ -395,6 +408,7 @@ void ScrcpyStreamManager::acceptThreadFunc() {
             controlChannel_ = acceptChannel();
             controlThread_ = std::thread(&ScrcpyStreamManager::controlThreadFunc, this);
         }
+        emitEvent("reverse_ready", "");
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[StreamManager] Reverse accept failed: %{public}s", e.what());
