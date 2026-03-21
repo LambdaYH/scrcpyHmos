@@ -66,6 +66,7 @@ private:
     int32_t createLocalTunnel(AdbChannel*& channel, int& proxyFd);
     int32_t createTcpListener(uint16_t& port);
     void closeLocalTunnels();
+    void releaseLocalTunnels();
     void closeListener();
     static void closeFd(int& fd);
 
