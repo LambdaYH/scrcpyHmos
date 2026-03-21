@@ -394,7 +394,7 @@ void Adb::handleInLoop() {
     }
 }
 
-int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
+int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose) {
     int32_t localId = localIdPool_++;
     if (!canMultipleSend) localId = -localId;
 
@@ -423,12 +423,16 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
         throw std::runtime_error("Failed to open stream");
     }
 
-    // Treat only remoteId == 0 as immediate refusal.
-    // Short-lived service commands (for example "reverse:*") may legitimately
-    // open, send a reply, and close before open() returns.
+    // Service commands like "reverse:*" may legitimately open, send a reply,
+    // and close before open() returns. Normal data streams should still be
+    // rejected if they are already closed here.
     {
-        if (stream->remoteId == 0) {
-            OH_LOG_ERROR(LOG_APP, "[ADB] Stream opened but closed/refused (remoteId=%{public}d): localId=%{public}d", stream->remoteId, localId);
+        const bool refused = stream->remoteId == 0;
+        const bool closedTooEarly = stream->closed.load() && !allowImmediateClose;
+        if (refused || closedTooEarly) {
+            OH_LOG_ERROR(LOG_APP,
+                         "[ADB] Stream opened but closed/refused (remoteId=%{public}d closed=%{public}d): localId=%{public}d",
+                         stream->remoteId, stream->closed.load(), localId);
             // Cleanup
             {
                 std::lock_guard<std::mutex> slock(streamsMutex_);
@@ -445,7 +449,7 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend) {
                 }
             }
             delete stream;
-            throw std::runtime_error("Stream connection refused");
+            throw std::runtime_error(refused ? "Stream connection refused" : "Stream closed before ready");
         }
     }
 
@@ -468,7 +472,7 @@ std::string Adb::restartOnTcpip(int port) {
 }
 
 std::string Adb::runServiceCommand(const std::string& destination) {
-    int32_t streamId = open(destination, true);
+    int32_t streamId = open(destination, true, true);
 
     {
         std::unique_lock<std::mutex> lock(waitMutex_);

@@ -657,6 +657,18 @@
             "value": "配置项说明"
         },
         {
+            "name": "config_display_settings",
+            "value": "显示设置"
+        },
+        {
+            "name": "config_show_bottom_nav_bar_title",
+            "value": "底部显示导航栏"
+        },
+        {
+            "name": "config_show_bottom_nav_bar_desc",
+            "value": "控制设备时显示本应用底部导航栏。"
+        },
+        {
             "name": "config_video_settings",
             "value": "视频设置"
         },
@@ -758,7 +770,15 @@
         },
         {
             "name": "config_connection_actions",
-            "value": "连接/断开操作"
+            "value": "连接时操作"
+        },
+        {
+            "name": "config_turn_screen_on_connect_title",
+            "value": "连接时亮屏"
+        },
+        {
+            "name": "config_turn_screen_on_connect_desc",
+            "value": "建立连接时唤醒被控设备屏幕。"
         },
         {
             "name": "config_keep_screen_on_connected_title",
@@ -775,6 +795,10 @@
         {
             "name": "config_turn_screen_off_connect_desc",
             "value": "连接建立后关闭设备物理屏幕 (实际上是变黑)，节省电量。"
+        },
+        {
+            "name": "config_disconnection_actions",
+            "value": "断开时操作"
         },
         {
             "name": "config_turn_screen_off_close_title",
@@ -803,6 +827,14 @@
         {
             "name": "config_downsize_error_desc",
             "value": "如果因分辨率过高导致编码失败，自动降低分辨率重试。"
+        },
+        {
+            "name": "config_force_adb_forward_title",
+            "value": "强制使用 ADB Forward"
+        },
+        {
+            "name": "config_force_adb_forward_desc",
+            "value": "关闭 reverse 优先模式，始终使用传统 ADB forward 建链。"
         },
         {
             "name": "config_connect_start_title",

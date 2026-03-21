@@ -709,6 +709,18 @@
       "value": "Configuration Description"
     },
     {
+      "name": "config_display_settings",
+      "value": "Display Settings"
+    },
+    {
+      "name": "config_show_bottom_nav_bar_title",
+      "value": "Show Bottom Navigation"
+    },
+    {
+      "name": "config_show_bottom_nav_bar_desc",
+      "value": "Show the app's bottom navigation bar while controlling the device."
+    },
+    {
       "name": "config_video_settings",
       "value": "Video Settings"
     },
@@ -813,6 +825,14 @@
       "value": "Connection Actions"
     },
     {
+      "name": "config_turn_screen_on_connect_title",
+      "value": "Turn Screen On on Connect"
+    },
+    {
+      "name": "config_turn_screen_on_connect_desc",
+      "value": "Wake the controlled device screen when starting a connection."
+    },
+    {
       "name": "config_keep_screen_on_connected_title",
       "value": "Keep Screen On While Connected"
     },
@@ -827,6 +847,10 @@
     {
       "name": "config_turn_screen_off_connect_desc",
       "value": "Turn off device physical screen (black screen) after connection to save power."
+    },
+    {
+      "name": "config_disconnection_actions",
+      "value": "Disconnection Actions"
     },
     {
       "name": "config_turn_screen_off_close_title",
@@ -855,6 +879,14 @@
     {
       "name": "config_downsize_error_desc",
       "value": "Automatically reduce resolution and retry if encoding fails due to high resolution."
+    },
+    {
+      "name": "config_force_adb_forward_title",
+      "value": "Force ADB Forward"
+    },
+    {
+      "name": "config_force_adb_forward_desc",
+      "value": "Disable reverse-first mode and always use classic ADB forward connections."
     },
     {
       "name": "config_connect_start_title",
