@@ -365,6 +365,10 @@
       "value": "Downsize on Error"
     },
     {
+      "name": "force_adb_forward",
+      "value": "Force ADB Forward"
+    },
+    {
       "name": "connect_on_start",
       "value": "Connect on Start"
     },

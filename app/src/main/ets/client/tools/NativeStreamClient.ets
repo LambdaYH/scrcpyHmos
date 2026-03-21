@@ -66,8 +66,14 @@ export class NativeStreamClient {
       LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
       const eventCallback = this.createNativeEventCallback();
-      LoggerClientStream.info('[NativeStreamClient] Tunnel mode: trying reverse first');
-      const reverseStarted = await this.tryStartReverse(surfaceId, eventCallback);
+      if (this.device.forceAdbForward) {
+        LoggerClientStream.info('[NativeStreamClient] Tunnel mode: force-adb-forward enabled');
+      } else {
+        LoggerClientStream.info('[NativeStreamClient] Tunnel mode: trying reverse first');
+      }
+      const reverseStarted = this.device.forceAdbForward
+        ? false
+        : await this.tryStartReverse(surfaceId, eventCallback);
       if (!reverseStarted) {
         LoggerClientStream.info('[NativeStreamClient] Tunnel mode: using forward');
         const args = ServerManager.buildServerArgs(this.device, true);

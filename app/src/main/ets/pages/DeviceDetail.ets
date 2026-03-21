@@ -484,6 +484,16 @@ struct DeviceDetail {
             .justifyContent(FlexAlign.SpaceBetween)
 
             Row() {
+              Text($r('app.string.force_adb_forward'))
+              Toggle({ type: ToggleType.Switch, isOn: this.device.forceAdbForward })
+                .onChange((isOn: boolean) => {
+                  this.device.forceAdbForward = isOn;
+                })
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+
+            Row() {
               Text($r('app.string.connect_on_start'))
               Toggle({ type: ToggleType.Switch, isOn: this.device.connectOnStart })
                 .onChange((isOn: boolean) => {
