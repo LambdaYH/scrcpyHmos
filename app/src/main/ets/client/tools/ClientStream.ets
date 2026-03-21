@@ -8,6 +8,8 @@ import * as libscrcpy from 'libscrcpy_native.so';
 import fs from '@ohos.file.fs';
 
 export class ClientStream {
+  private static readonly SERVER_STOP_WAIT_MS: number = 1200;
+  private static readonly SERVER_STOP_POLL_INTERVAL_MS: number = 50;
   private adbId: number = -1;
   private shellStreamId: number = -1;
   
@@ -159,6 +161,32 @@ export class ClientStream {
     } catch (e) {
       LoggerClientStream.error('[ClientStream] stopServer failed', JSON.stringify(e));
     }
+  }
+
+  async stopServerAndWait(timeoutMs: number = ClientStream.SERVER_STOP_WAIT_MS): Promise<void> {
+    if (this.adbId < 0 || this.shellStreamId < 0) {
+      return;
+    }
+
+    const shellStreamId = this.shellStreamId;
+    this.stopServer();
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.adbId < 0 || libscrcpy.adbIsStreamClosed(this.adbId, shellStreamId)) {
+        return;
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, ClientStream.SERVER_STOP_POLL_INTERVAL_MS));
+    }
+
+    LoggerClientStream.warn('[ClientStream] Timed out waiting for server shell to close');
+  }
+
+  isServerShellAlive(): boolean {
+    if (this.adbId < 0 || this.shellStreamId < 0) {
+      return false;
+    }
+    return !libscrcpy.adbIsStreamClosed(this.adbId, this.shellStreamId);
   }
 
   close() {

@@ -29,6 +29,8 @@ type AdbReverseRemoveFn = (adbId: number, socketName: string) => number;
 
 export class NativeStreamClient {
   private static readonly REVERSE_READY_TIMEOUT_MS: number = 10000;
+  private static readonly FORWARD_CONNECT_RETRY_DELAY_MS: number = 100;
+  private static readonly FALLBACK_SERVER_COOLDOWN_MS: number = 300;
   private clientStream: ClientStream;
   private device: Device;
   private context: Context;
@@ -164,9 +166,10 @@ export class NativeStreamClient {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.warn(`[NativeStreamClient] Reverse startup incomplete: ${errMsg}, fallback to forward`);
-      this.clientStream.stopServer();
+      await this.clientStream.stopServerAndWait();
       this.callAdbReverseRemove(this.adbId, socketName);
       libscrcpy.nativeStopStreams();
+      await new Promise<void>(resolve => setTimeout(resolve, NativeStreamClient.FALLBACK_SERVER_COOLDOWN_MS));
       return false;
     }
   }
@@ -191,12 +194,15 @@ export class NativeStreamClient {
       if (this.videoStreamId >= 0) {
         break;
       }
+      if (!this.clientStream.isServerShellAlive()) {
+        throw new Error('Scrcpy server exited before video socket became ready');
+      }
       retries--;
       if (retries === 0) {
         throw new Error("Failed to connect Video stream after multiple retries");
       }
       LoggerClientStream.warn(`[NativeStreamClient] Video stream connect failed, retrying... (${retries} left)`);
-      await new Promise<void>(resolve => setTimeout(resolve, 100));
+      await new Promise<void>(resolve => setTimeout(resolve, NativeStreamClient.FORWARD_CONNECT_RETRY_DELAY_MS));
     }
     
     LoggerClientStream.info(`[NativeStreamClient] Video Stream Connected (ID: ${this.videoStreamId})`);
