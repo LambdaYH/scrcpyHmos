@@ -106,11 +106,14 @@ export class ServerManager {
 
     // 控制和行为参数
     addArg('control', true);
-    
+
+    // Always reserve this key so legacy extraParams cannot silently override
+    // the selected tunnel mode.
+    reservedKeys.add('tunnel_forward');
     if (tunnelForward) {
       addArg('tunnel_forward', true);
     }
-    
+
     addArg('show_touches', device.showTouches);
     addArg('stay_awake', device.stayAwake);
     if (!device.wakeOnConnect) {
