@@ -137,7 +137,7 @@ private:
     void handleInLoop();
 
     // 打开一个流
-    int32_t open(const std::string& destination, bool canMultipleSend);
+    int32_t open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose = false);
 
     // 通知机制
     void notifyAll();

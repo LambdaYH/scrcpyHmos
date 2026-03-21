@@ -68,6 +68,11 @@ struct ConfigDescPage {
               })
           }
           .width('100%')
+
+          this.ConfigSection($r('app.string.config_display_settings'), [
+            { title: $r('app.string.config_show_bottom_nav_bar_title'), desc: $r('app.string.config_show_bottom_nav_bar_desc') },
+            { title: $r('app.string.config_keep_screen_on_connected_title'), desc: $r('app.string.config_keep_screen_on_connected_desc') }
+          ] as ConfigItem[])
           
           this.ConfigSection($r('app.string.config_video_settings'), [
             { title: $r('app.string.config_video_codec_title'), desc: $r('app.string.config_video_codec_desc') },
@@ -90,13 +95,17 @@ struct ConfigDescPage {
           ] as ConfigItem[])
 
           this.ConfigSection($r('app.string.config_connection_actions'), [
-            { title: $r('app.string.config_keep_screen_on_connected_title'), desc: $r('app.string.config_keep_screen_on_connected_desc') },
+            { title: $r('app.string.config_turn_screen_on_connect_title'), desc: $r('app.string.config_turn_screen_on_connect_desc') },
             { title: $r('app.string.config_turn_screen_off_connect_title'), desc: $r('app.string.config_turn_screen_off_connect_desc') },
+          ] as ConfigItem[])
+
+          this.ConfigSection($r('app.string.config_disconnection_actions'), [
             { title: $r('app.string.config_turn_screen_off_close_title'), desc: $r('app.string.config_turn_screen_off_close_desc') }
           ] as ConfigItem[])
 
           this.ConfigSection($r('app.string.config_advanced_options'), [
             { title: $r('app.string.config_downsize_error_title'), desc: $r('app.string.config_downsize_error_desc') },
+            { title: $r('app.string.config_force_adb_forward_title'), desc: $r('app.string.config_force_adb_forward_desc') },
             { title: $r('app.string.config_connect_start_title'), desc: $r('app.string.config_connect_start_desc') },
             { title: $r('app.string.config_server_log_title'), desc: $r('app.string.config_server_log_desc') }
           ] as ConfigItem[])
