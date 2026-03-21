@@ -317,6 +317,10 @@
             "value": "错误时降低分辨率"
         },
         {
+            "name": "force_adb_forward",
+            "value": "强制使用 ADB Forward"
+        },
+        {
             "name": "connect_on_start",
             "value": "应用启动时自动连接"
         },

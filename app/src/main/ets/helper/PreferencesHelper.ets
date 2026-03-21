@@ -91,6 +91,7 @@ export class PreferencesHelper {
 
     // 高级选项
     target.downsizeOnError = source.downsizeOnError ?? true;
+    target.forceAdbForward = source.forceAdbForward ?? false;
     target.connectOnStart = source.connectOnStart ?? false;
     target.logLevel = source.logLevel ?? 'info';
     
