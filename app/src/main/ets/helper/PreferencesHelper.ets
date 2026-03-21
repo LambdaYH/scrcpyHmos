@@ -78,6 +78,7 @@ export class PreferencesHelper {
     // 连接时操作
     target.wakeOnConnect = source.wakeOnConnect ?? true;
     target.lightOffOnConnect = source.lightOffOnConnect ?? false;
+    target.keepScreenOnWhileConnected = source.keepScreenOnWhileConnected ?? true;
 
     // 运行时操作
     // 兼容旧数据：keepAwake -> stayAwake

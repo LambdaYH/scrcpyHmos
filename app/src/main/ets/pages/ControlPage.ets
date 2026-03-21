@@ -41,6 +41,8 @@ struct ControlPage {
   private nativeClient?: NativeStreamClient;
   private serverJarData: ArrayBuffer | null = null;
   private isStarted: boolean = false;
+  private isInitializingClient: boolean = false;
+  private isStartingSession: boolean = false;
   private xComponentController: XComponentController = new XComponentController();
   private surfaceReady: boolean = false;
   private context?: common.UIAbilityContext;
@@ -214,6 +216,8 @@ struct ControlPage {
   aboutToAppear() {
     this.isPageActive = true;
     this.isExiting = false;
+    this.isInitializingClient = false;
+    this.isStartingSession = false;
     try {
       const params = this.getUIContext().getRouter().getState().params as Record<string, Object>;
       if (params && params['device']) {
@@ -221,6 +225,7 @@ struct ControlPage {
 
         // 检查是否是从 Index 页面预连接后跳转的
         if (params['clientReady'] === true) {
+          ClientSessionManager.getInstance().stopAll();
           // 客户端已连接，从缓存获取
           this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
           // Note: Index already started connecting, so we might want to sync state if possible
@@ -249,9 +254,6 @@ struct ControlPage {
         this.exitPage();
       }, 1000);
     }
-
-    // 确保没有残留的会话
-    ClientSessionManager.getInstance().stopAll();
 
     // 设置全屏并隐藏导航条
     this.setFullScreen();
@@ -289,6 +291,7 @@ struct ControlPage {
     try {
       const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const windowClass = await window.getLastWindow(ctx);
+      await windowClass.setWindowKeepScreenOn(false);
       // 恢复状态栏和导航栏
       await windowClass.setWindowSystemBarEnable(['status', 'navigation']);
       // 保持全屏布局，避免跳动，因为主页也是全屏布局
@@ -297,6 +300,20 @@ struct ControlPage {
       await windowClass.setPreferredOrientation(window.Orientation.PORTRAIT);
     } catch (err) {
       LoggerControlPage.error('Restore window failed:', err);
+    }
+  }
+
+  private async setWindowKeepScreenOn(enabled: boolean): Promise<void> {
+    if (enabled && !this.device?.keepScreenOnWhileConnected) {
+      return;
+    }
+
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const windowClass = await window.getLastWindow(ctx);
+      await windowClass.setWindowKeepScreenOn(enabled);
+    } catch (err) {
+      LoggerControlPage.error('Set window keep-screen-on failed:', err);
     }
   }
 
@@ -361,7 +378,16 @@ struct ControlPage {
   // 从已连接的客户端初始化（Native 架构）
   private async initFromExistingClient(): Promise<void> {
     if (!this.device || !this.context) return;
+    if (this.isInitializingClient) {
+      LoggerControlPage.debug('ControlPage: Native client init already in progress');
+      return;
+    }
+    if (this.nativeClient && this.serverJarData) {
+      this.startNativeSession();
+      return;
+    }
 
+    this.isInitializingClient = true;
     try {
       LoggerControlPage.info('ControlPage: Initializing Native Client...');
 
@@ -386,25 +412,38 @@ struct ControlPage {
       setTimeout(() => {
         this.exitPage();
       }, 1500);
+    } finally {
+      this.isInitializingClient = false;
     }
   }
 
   // 初始化 Native Client 并设置监听器
   private initNativeClient(): void {
     if (!this.context || !this.device) return;
+    if (this.nativeClient) {
+      LoggerControlPage.debug('ControlPage: Native client already initialized');
+      return;
+    }
 
-    const listener: NativeStreamListener = {
+    const client = new NativeStreamClient(this.context, this.device, {
       onVideoConfig: (width: number, height: number) => {
+        if (this.nativeClient !== client) {
+          return;
+        }
         this.videoWidth = width;
         this.videoHeight = height;
         LoggerControlPage.info(`[ControlPage] Video dimensions: ${width}x${height}`);
         this.calcVideoDisplaySize();
       },
       onDisconnect: (reason: string) => {
+        if (this.nativeClient !== client) {
+          return;
+        }
         this.stopStepTimer(); // Stop timer on disconnect
         LoggerControlPage.warn('[ControlPage] Client disconnected:', reason);
         this.isConnected = false;
         this.connectionStatus = this.getResString($r('app.string.control_disconnected'));
+        void this.setWindowKeepScreenOn(false);
         try {
           this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
         } catch (err) {
@@ -415,8 +454,12 @@ struct ControlPage {
         }, 1500);
       },
       onError: (error: string) => {
+        if (this.nativeClient !== client) {
+          return;
+        }
         this.stopStepTimer(); // Stop timer on error
         LoggerControlPage.error('[ControlPage] Client error:', error);
+        void this.setWindowKeepScreenOn(false);
         try {
           this.getUIContext().getPromptAction().showToast({ message: error });
         } catch (err) {
@@ -427,9 +470,15 @@ struct ControlPage {
         }, 1500);
       },
       onClipboard: (text: string) => {
+        if (this.nativeClient !== client) {
+          return;
+        }
         this.syncClipboardToSystem(text);
       },
       onWaitAuth: () => {
+        if (this.nativeClient !== client) {
+          return;
+        }
         LoggerControlPage.info('[ControlPage] Waiting for ADB Authorization...');
         this.updateConnectionStatus(this.getResString($r('app.string.adb_auth_waiting')));
         try {
@@ -438,36 +487,47 @@ struct ControlPage {
           LoggerControlPage.error('Show toast failed:', e);
         }
       }
-    };
+    });
 
-    this.nativeClient = new NativeStreamClient(this.context, this.device, listener);
+    this.nativeClient = client;
     // 注册到 SessionManager
     ClientSessionManager.getInstance().register(this.nativeClient);
   }
 
   // 尝试启动 Native 会话
   private async startNativeSession(): Promise<void> {
-    if (this.isStarted) return;
+    if (this.isStarted || this.isStartingSession) {
+      LoggerControlPage.debug('ControlPage: Native session start skipped, already started/starting');
+      return;
+    }
     if (!this.serverJarData || !this.surfaceReady || !this.surfaceId || !this.nativeClient) {
       LoggerControlPage.debug('Wait for resources ready...');
       return;
     }
 
+    const client = this.nativeClient;
     this.isStarted = true;
+    this.isStartingSession = true;
     try {
       LoggerControlPage.info('[ControlPage] Starting Native Session...');
       this.updateConnectionStatus(this.getResString($r('app.string.connecting_status'))); // "正在连接..."
       
       // 启动会话 (异步)
-      await this.nativeClient.start(this.serverJarData, this.surfaceId);
+      await client.start(this.serverJarData, this.surfaceId);
+      if (this.nativeClient !== client || !this.isPageActive) {
+        LoggerControlPage.warn('[ControlPage] Start completed for stale/inactive client, ignoring');
+        return;
+      }
       
       this.isConnected = true;
+      await this.setWindowKeepScreenOn(true);
       this.stopStepTimer(); // Connection successful, stop timer
       this.connectionStatus = this.getResString($r('app.string.control_connected'));
       this.startAutoHideTimer();
       this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
     } catch (err) {
       this.stopStepTimer(); // Stop timer on failure
+      await this.setWindowKeepScreenOn(false);
       if (!this.isPageActive) {
           LoggerControlPage.warn('[ControlPage] Error ignored, page inactive:', err);
           return;
@@ -526,6 +586,8 @@ struct ControlPage {
             setTimeout(() => { this.exitPage(); }, 3000);
         }
       }
+    } finally {
+      this.isStartingSession = false;
     }
   }
 

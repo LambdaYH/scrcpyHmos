@@ -90,6 +90,7 @@ struct ConfigDescPage {
           ] as ConfigItem[])
 
           this.ConfigSection($r('app.string.config_connection_actions'), [
+            { title: $r('app.string.config_keep_screen_on_connected_title'), desc: $r('app.string.config_keep_screen_on_connected_desc') },
             { title: $r('app.string.config_turn_screen_off_connect_title'), desc: $r('app.string.config_turn_screen_off_connect_desc') },
             { title: $r('app.string.config_turn_screen_off_close_title'), desc: $r('app.string.config_turn_screen_off_close_desc') }
           ] as ConfigItem[])

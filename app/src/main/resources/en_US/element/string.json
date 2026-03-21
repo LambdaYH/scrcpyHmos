@@ -281,6 +281,14 @@
             "value": "Device clipboard syncs to this device automatically. Click button to send this device's clipboard to controlled device."
         },
         {
+            "name": "config_keep_screen_on_connected_title",
+            "value": "Keep Screen On While Connected"
+        },
+        {
+            "name": "config_keep_screen_on_connected_desc",
+            "value": "Keep this device screen awake during an active connection to avoid sleep."
+        },
+        {
             "name": "turn_screen_off_on_close",
             "value": "Turn Screen Off on Close"
         },
@@ -291,6 +299,10 @@
         {
             "name": "turn_screen_on",
             "value": "Turn Screen On"
+        },
+        {
+            "name": "keep_screen_on_while_connected",
+            "value": "Keep Screen On While Connected"
         },
         {
             "name": "turn_screen_off",
