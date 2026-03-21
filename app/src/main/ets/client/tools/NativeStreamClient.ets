@@ -164,6 +164,7 @@ export class NativeStreamClient {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.warn(`[NativeStreamClient] Reverse startup incomplete: ${errMsg}, fallback to forward`);
+      this.clientStream.stopServer();
       this.callAdbReverseRemove(this.adbId, socketName);
       libscrcpy.nativeStopStreams();
       return false;

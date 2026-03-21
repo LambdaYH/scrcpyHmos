@@ -103,31 +103,33 @@ export class ClientStream {
     const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
 
     LoggerClientStream.info(`[ClientStream] Starting server with command: ${cmd}`);
+    this.stopServer();
 
     this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
     if (this.shellStreamId < 0) {
       throw new Error('Native ADB Get Shell failed');
     }
+    const shellStreamId = this.shellStreamId;
 
     const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
-    libscrcpy.adbStreamWrite(this.adbId, this.shellStreamId, cmdBytes.buffer);
+    libscrcpy.adbStreamWrite(this.adbId, shellStreamId, cmdBytes.buffer);
 
     LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
-    this.readShellOutputAsync();
+    this.readShellOutputAsync(shellStreamId);
   }
 
   // 异步读取Shell输出
-  private async readShellOutputAsync() {
+  private async readShellOutputAsync(shellStreamId: number) {
     try {
         const decoder = util.TextDecoder.create('utf-8');
-        while (!this.isClosing && this.adbId >= 0 && this.shellStreamId >= 0) {
-            const isClosed: boolean = libscrcpy.adbIsStreamClosed(this.adbId, this.shellStreamId);
+        while (!this.isClosing && this.adbId >= 0) {
+            const isClosed: boolean = libscrcpy.adbIsStreamClosed(this.adbId, shellStreamId);
             if (isClosed) {
                 LoggerClientStream.info('[ClientStream] Shell stream closed by remote');
                 break;
             }
             
-            const data: ArrayBuffer = libscrcpy.adbStreamRead(this.adbId, this.shellStreamId, 1024);
+            const data: ArrayBuffer = libscrcpy.adbStreamRead(this.adbId, shellStreamId, 1024);
             if (data.byteLength > 0) {
                 const text = decoder.decodeToString(new Uint8Array(data));
                 LoggerClientStream.info('[ServerOutput] ' + text.trim());
@@ -140,13 +142,30 @@ export class ClientStream {
     }
     // Do not close the whole ADB connection here.
     // Native stream threads may still be running and own the shutdown order.
+    if (this.shellStreamId === shellStreamId) {
+      this.shellStreamId = -1;
+    }
+  }
+
+  stopServer(): void {
+    if (this.adbId < 0 || this.shellStreamId < 0) {
+      return;
+    }
+
+    const shellStreamId = this.shellStreamId;
     this.shellStreamId = -1;
+    try {
+      libscrcpy.adbStreamClose(this.adbId, shellStreamId);
+    } catch (e) {
+      LoggerClientStream.error('[ClientStream] stopServer failed', JSON.stringify(e));
+    }
   }
 
   close() {
       if (this.isClosing) return;
       this.isClosing = true;
       LoggerClientStream.info('[ClientStream] Closing...');
+      this.stopServer();
       
       if (this.adbId >= 0) {
           libscrcpy.adbClose(this.adbId);
