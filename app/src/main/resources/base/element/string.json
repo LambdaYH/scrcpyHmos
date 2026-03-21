@@ -337,6 +337,10 @@
       "value": "Turn Screen On"
     },
     {
+      "name": "keep_screen_on_while_connected",
+      "value": "Keep Screen On While Connected"
+    },
+    {
       "name": "turn_screen_off",
       "value": "Turn Screen Off"
     },
@@ -807,6 +811,14 @@
     {
       "name": "config_connection_actions",
       "value": "Connection Actions"
+    },
+    {
+      "name": "config_keep_screen_on_connected_title",
+      "value": "Keep Screen On While Connected"
+    },
+    {
+      "name": "config_keep_screen_on_connected_desc",
+      "value": "Keep this device screen awake during an active connection to avoid sleep."
     },
     {
       "name": "config_turn_screen_off_connect_title",

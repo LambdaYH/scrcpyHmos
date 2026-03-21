@@ -289,6 +289,10 @@
             "value": "唤醒屏幕"
         },
         {
+            "name": "keep_screen_on_while_connected",
+            "value": "连接时保持屏幕常亮"
+        },
+        {
             "name": "turn_screen_off",
             "value": "连接时熄屏"
         },
@@ -755,6 +759,14 @@
         {
             "name": "config_connection_actions",
             "value": "连接/断开操作"
+        },
+        {
+            "name": "config_keep_screen_on_connected_title",
+            "value": "连接时保持屏幕常亮"
+        },
+        {
+            "name": "config_keep_screen_on_connected_desc",
+            "value": "连接建立期间保持本机屏幕常亮，避免设备自动休眠。"
         },
         {
             "name": "config_turn_screen_off_connect_title",

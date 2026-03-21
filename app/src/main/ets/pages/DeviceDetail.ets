@@ -198,6 +198,16 @@ struct DeviceDetail {
           .width('100%')
           .justifyContent(FlexAlign.SpaceBetween)
 
+          Row() {
+            Text($r('app.string.keep_screen_on_while_connected'))
+            Toggle({ type: ToggleType.Switch, isOn: this.device.keepScreenOnWhileConnected })
+              .onChange((isOn: boolean) => {
+                this.device.keepScreenOnWhileConnected = isOn;
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.SpaceBetween)
+
           // 视频设置
           Column({ space: 12 }) {
             Text($r('app.string.video_settings'))

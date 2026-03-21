@@ -32,6 +32,7 @@ export class Device {
   // 连接时操作
   wakeOnConnect: boolean = true;
   lightOffOnConnect: boolean = false;
+  keepScreenOnWhileConnected: boolean = true;
 
   // 运行时操作
   stayAwake: boolean = true; // 原 keepAwake
