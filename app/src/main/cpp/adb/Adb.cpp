@@ -351,8 +351,12 @@ void Adb::handleInLoop() {
                 // Handle other commands
                 if (cmd == AdbProtocol::CMD_OKAY) {
                     if (stream) {
-                         stream->canWrite.store(true);
-                         notifyAll(); // Notify open() that stream is ready
+                         {
+                             std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+                             stream->canWrite.store(true);
+                             flushPendingWritesLocked(stream);
+                         }
+                         notifyAll(); // Notify open() or any waiters that stream is ready
                     }
                 } else if (cmd == AdbProtocol::CMD_CLSE) {
                     bool firstClose = true;
@@ -360,6 +364,11 @@ void Adb::handleInLoop() {
                     if (stream) {
                         firstClose = !stream->closed.exchange(true);
                         stream->readBuffer.close();
+                        {
+                            std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+                            stream->pendingWriteBuffer.clear();
+                            stream->pendingWriteOffset = 0;
+                        }
 
                         if (firstClose) {
                             std::lock_guard<std::mutex> lock(streamsMutex_);
@@ -758,12 +767,50 @@ void Adb::streamWrite(int32_t streamId, const uint8_t* data, size_t len) {
 void Adb::streamWrite(AdbStream* stream, const uint8_t* data, size_t len) {
     if (!stream) throw std::runtime_error("Stream not found");
     if (stream->closed.load()) throw std::runtime_error("Stream closed");
-    streamWriteRaw(stream, data, len);
+    if (!data && len > 0) throw std::runtime_error("Invalid write buffer");
+    if (len == 0) return;
+
+    std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+    if (stream->closed.load()) throw std::runtime_error("Stream closed");
+    stream->pendingWriteBuffer.insert(stream->pendingWriteBuffer.end(), data, data + len);
+    flushPendingWritesLocked(stream);
+}
+
+void Adb::flushPendingWritesLocked(AdbStream* stream) {
+    if (!stream) {
+        return;
+    }
+    while (!isClosed_.load() && !stream->closed.load() && stream->canWrite.load()) {
+        const size_t pendingSize = stream->pendingWriteBuffer.size();
+        if (stream->pendingWriteOffset >= pendingSize) {
+            if (stream->pendingWriteOffset > 0) {
+                stream->pendingWriteBuffer.clear();
+                stream->pendingWriteOffset = 0;
+            }
+            break;
+        }
+
+        size_t available = pendingSize - stream->pendingWriteOffset;
+        size_t chunkLimit = maxData_ > 128 ? static_cast<size_t>(maxData_ - 128) : 1;
+        size_t chunkSize = std::min(chunkLimit, available);
+        stream->canWrite.store(false);
+        auto writeMsg = AdbProtocol::generateWrite(
+            stream->localId,
+            stream->remoteId,
+            stream->pendingWriteBuffer.data() + stream->pendingWriteOffset,
+            chunkSize);
+        writeToChannel(std::move(writeMsg));
+        stream->pendingWriteOffset += chunkSize;
+
+        if (stream->pendingWriteOffset >= stream->pendingWriteBuffer.size()) {
+            stream->pendingWriteBuffer.clear();
+            stream->pendingWriteOffset = 0;
+            break;
+        }
+    }
 }
 
 void Adb::streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len) {
-    std::unique_lock<std::mutex> streamWriteLock(stream->writeMutex);
-
     size_t offset = 0;
     while (offset < len) {
         {
@@ -781,11 +828,20 @@ void Adb::streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len) {
         }
 
         size_t chunkSize = std::min(static_cast<size_t>(maxData_ - 128), len - offset);
-        stream->canWrite.store(false);
-        auto writeMsg = AdbProtocol::generateWrite(stream->localId, stream->remoteId,
-                                                    data + offset, chunkSize);
-        writeToChannel(std::move(writeMsg));
-        offset += chunkSize;
+        {
+            std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+            if (stream->closed.load()) {
+                throw std::runtime_error("Stream closed");
+            }
+            if (!stream->canWrite.load()) {
+                continue;
+            }
+            stream->canWrite.store(false);
+            auto writeMsg = AdbProtocol::generateWrite(stream->localId, stream->remoteId,
+                                                       data + offset, chunkSize);
+            writeToChannel(std::move(writeMsg));
+            offset += chunkSize;
+        }
     }
 }
 
@@ -805,6 +861,11 @@ void Adb::streamClose(int32_t streamId) {
 
         stream->closed = true;
         stream->readBuffer.close();
+        {
+            std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+            stream->pendingWriteBuffer.clear();
+            stream->pendingWriteOffset = 0;
+        }
     }
 }
 
