@@ -7,6 +7,7 @@
 #include "adb/AdbChannel.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
+#include "concurrentqueue/blockingconcurrentqueue.h"
 
 #include <cstdint>
 #include <string>
@@ -14,6 +15,7 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <vector>
 
 // 事件回调: type, data (JSON string)
 using StreamEventCallback = std::function<void(const std::string& type, const std::string& data)>;
@@ -54,6 +56,9 @@ private:
     void videoThreadFunc();
     void audioThreadFunc();
     void controlThreadFunc();
+    void controlSendThreadFunc();
+    void controlProxyToAdbThreadFunc();
+    void controlAdbToProxyThreadFunc();
     void videoProxyThreadFunc();
     void audioProxyThreadFunc();
     void acceptThreadFunc();
@@ -73,7 +78,6 @@ private:
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);
     static int64_t readInt64BE(const uint8_t* data);
-
     // 发送事件到 ArkTS
     void emitEvent(const std::string& type, const std::string& data = "");
 
@@ -92,16 +96,23 @@ private:
 
     int videoProxyFd_ = -1;
     int audioProxyFd_ = -1;
+    int controlProxyFd_ = -1;
     int listenFd_ = -1;
 
     std::thread videoThread_;
     std::thread audioThread_;
     std::thread controlThread_;
+    std::thread controlProxyToAdbThread_;
+    std::thread controlAdbToProxyThread_;
     std::thread videoProxyThread_;
     std::thread audioProxyThread_;
     std::thread acceptThread_;
+    std::thread controlSendThread_;
     std::atomic<bool> running_{false};
     std::mutex eventMutex_;
+    std::mutex controlProxyFdMutex_;
+    std::atomic<size_t> controlSendQueueSize_{0};
+    moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> controlSendQueue_;
 };
 
 #endif // SCRCPY_STREAM_MANAGER_H

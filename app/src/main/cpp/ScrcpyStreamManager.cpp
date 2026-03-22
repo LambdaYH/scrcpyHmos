@@ -5,6 +5,7 @@
 #include "adb/LocalSocketChannel.h"
 
 #include <arpa/inet.h>
+#include <chrono>
 #include <cerrno>
 #include <hilog/log.h>
 #include <netinet/in.h>
@@ -21,6 +22,7 @@
 
 namespace {
 constexpr size_t PROXY_CHUNK_SIZE = 64 * 1024;
+constexpr size_t CONTROL_MSG_QUEUE_MAX = 64;
 
 void writeAllFd(int fd, const uint8_t* data, size_t len) {
     size_t offset = 0;
@@ -131,6 +133,23 @@ void ScrcpyStreamManager::closeFd(int& fd) {
     fd = -1;
 }
 
+namespace {
+void closeLockedFd(int& fd, std::mutex& mutex) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (fd < 0) {
+        return;
+    }
+    ::shutdown(fd, SHUT_RDWR);
+    ::close(fd);
+    fd = -1;
+}
+
+int getLockedFd(int& fd, std::mutex& mutex) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return fd;
+}
+}
+
 void ScrcpyStreamManager::closeLocalTunnels() {
     if (videoChannel_) {
         videoChannel_->close();
@@ -144,6 +163,7 @@ void ScrcpyStreamManager::closeLocalTunnels() {
 
     closeFd(videoProxyFd_);
     closeFd(audioProxyFd_);
+    closeLockedFd(controlProxyFd_, controlProxyFdMutex_);
 }
 
 void ScrcpyStreamManager::releaseLocalTunnels() {
@@ -210,6 +230,11 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
             releaseLocalTunnels();
             return -7;
         }
+        if (controlStream_ && createLocalTunnel(controlChannel_, controlProxyFd_) != 0) {
+            closeLocalTunnels();
+            releaseLocalTunnels();
+            return -8;
+        }
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "[StreamManager] Create tunnel failed: %{public}s", e.what());
         closeLocalTunnels();
@@ -222,6 +247,7 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     }
 
     running_.store(true);
+    controlSendQueueSize_.store(0);
 
     OH_LOG_INFO(LOG_APP,
                 "[StreamManager] Starting with video=%{public}d, audio=%{public}d, control=%{public}d",
@@ -238,7 +264,10 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     }
 
     if (controlStream_) {
+        controlProxyToAdbThread_ = std::thread(&ScrcpyStreamManager::controlProxyToAdbThreadFunc, this);
+        controlAdbToProxyThread_ = std::thread(&ScrcpyStreamManager::controlAdbToProxyThreadFunc, this);
         controlThread_ = std::thread(&ScrcpyStreamManager::controlThreadFunc, this);
+        controlSendThread_ = std::thread(&ScrcpyStreamManager::controlSendThreadFunc, this);
     }
 
     return 0;
@@ -307,6 +336,7 @@ int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, Stream
     }
 
     running_.store(true);
+    controlSendQueueSize_.store(0);
     acceptThread_ = std::thread(&ScrcpyStreamManager::acceptThreadFunc, this);
 
     OH_LOG_INFO(LOG_APP,
@@ -320,12 +350,15 @@ int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, Stream
 void ScrcpyStreamManager::stop() {
     bool wasRunning = running_.exchange(false);
     if (!wasRunning && !videoThread_.joinable() && !audioThread_.joinable() &&
-        !controlThread_.joinable() && !videoProxyThread_.joinable() &&
-        !audioProxyThread_.joinable() && !acceptThread_.joinable()) {
+        !controlThread_.joinable() && !controlSendThread_.joinable() &&
+        !controlProxyToAdbThread_.joinable() && !controlAdbToProxyThread_.joinable() &&
+        !videoProxyThread_.joinable() && !audioProxyThread_.joinable() && !acceptThread_.joinable()) {
         return;
     }
 
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
+
+    controlSendQueueSize_.store(0);
 
     closeLocalTunnels();
     closeListener();
@@ -345,9 +378,16 @@ void ScrcpyStreamManager::stop() {
     joinThread(videoThread_);
     joinThread(audioThread_);
     joinThread(controlThread_);
+    joinThread(controlSendThread_);
+    joinThread(controlProxyToAdbThread_);
+    joinThread(controlAdbToProxyThread_);
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
     joinThread(acceptThread_);
+    std::vector<uint8_t> pendingPacket;
+    while (controlSendQueue_.try_dequeue(pendingPacket)) {
+    }
+    controlSendQueueSize_.store(0);
     releaseLocalTunnels();
 
     if (videoDecoder_) {
@@ -375,14 +415,37 @@ void ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
         return;
     }
 
-    try {
-        if (controlChannel_) {
-            controlChannel_->write(data, len);
-        } else if (adb_ && controlStream_) {
-            adb_->streamWrite(controlStream_, data, len);
+    size_t prevSize = controlSendQueueSize_.fetch_add(1, std::memory_order_acq_rel);
+    if (prevSize >= CONTROL_MSG_QUEUE_MAX) {
+        controlSendQueueSize_.fetch_sub(1, std::memory_order_acq_rel);
+        OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, dropping packet");
+        return;
+    }
+
+    controlSendQueue_.enqueue(std::vector<uint8_t>(data, data + len));
+}
+
+void ScrcpyStreamManager::controlSendThreadFunc() {
+    while (true) {
+        std::vector<uint8_t> packet;
+        bool dequeued = controlSendQueue_.wait_dequeue_timed(packet, std::chrono::milliseconds(50));
+        if (!dequeued) {
+            if (!running_.load()) {
+                break;
+            }
+            continue;
         }
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[StreamManager] sendControl error: %{public}s", e.what());
+        controlSendQueueSize_.fetch_sub(1, std::memory_order_acq_rel);
+
+        try {
+            if (controlChannel_) {
+                controlChannel_->write(packet.data(), packet.size());
+            }
+        } catch (const std::exception& e) {
+            if (running_.load()) {
+                OH_LOG_ERROR(LOG_APP, "[StreamManager] control send error: %{public}s", e.what());
+            }
+        }
     }
 }
 
@@ -407,6 +470,7 @@ void ScrcpyStreamManager::acceptThreadFunc() {
         if (config_.expectControl) {
             controlChannel_ = acceptChannel();
             controlThread_ = std::thread(&ScrcpyStreamManager::controlThreadFunc, this);
+            controlSendThread_ = std::thread(&ScrcpyStreamManager::controlSendThreadFunc, this);
         }
         emitEvent("reverse_ready", "");
     } catch (const std::exception& e) {
@@ -457,6 +521,58 @@ void ScrcpyStreamManager::audioProxyThreadFunc() {
     }
 
     closeFd(audioProxyFd_);
+}
+
+void ScrcpyStreamManager::controlProxyToAdbThreadFunc() {
+    std::vector<uint8_t> buffer(PROXY_CHUNK_SIZE);
+
+    try {
+        while (running_.load() && adb_ && controlStream_) {
+            int proxyFd = getLockedFd(controlProxyFd_, controlProxyFdMutex_);
+            if (proxyFd < 0) {
+                break;
+            }
+
+            ssize_t n = ::recv(proxyFd, buffer.data(), buffer.size(), 0);
+            if (n < 0 && errno == EINTR) {
+                continue;
+            }
+            if (n <= 0) {
+                break;
+            }
+
+            adb_->streamWrite(controlStream_, buffer.data(), static_cast<size_t>(n));
+        }
+    } catch (const std::exception& e) {
+        if (running_.load()) {
+            OH_LOG_WARN(LOG_APP, "[ControlProxy->ADB] Exit with error: %{public}s", e.what());
+        }
+    }
+}
+
+void ScrcpyStreamManager::controlAdbToProxyThreadFunc() {
+    std::vector<uint8_t> buffer(PROXY_CHUNK_SIZE);
+
+    try {
+        while (running_.load() && adb_ && controlStream_) {
+            int proxyFd = getLockedFd(controlProxyFd_, controlProxyFdMutex_);
+            if (proxyFd < 0) {
+                break;
+            }
+
+            size_t n = adb_->streamReadToBuffer(controlStream_, buffer.data(), buffer.size(), -1, false);
+            if (n == 0) {
+                continue;
+            }
+            writeAllFd(proxyFd, buffer.data(), n);
+        }
+    } catch (const std::exception& e) {
+        if (running_.load()) {
+            OH_LOG_WARN(LOG_APP, "[ControlADB->Proxy] Exit with error: %{public}s", e.what());
+        }
+    }
+
+    closeLockedFd(controlProxyFd_, controlProxyFdMutex_);
 }
 
 // ===================== Video Thread =====================
