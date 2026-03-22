@@ -1207,7 +1207,7 @@ static napi_value NativeStopStreams(napi_env env, napi_callback_info info) {
     return result;
 }
 
-// nativeSendControl(data: ArrayBuffer)
+// nativeSendControl(data: ArrayBuffer) => boolean
 static napi_value NativeSendControl(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value args[1];
@@ -1217,12 +1217,13 @@ static napi_value NativeSendControl(napi_env env, napi_callback_info info) {
     size_t dataSize;
     napi_get_arraybuffer_info(env, args[0], &data, &dataSize);
 
+    bool accepted = false;
     if (g_streamManager && dataSize > 0) {
-        g_streamManager->sendControl(static_cast<uint8_t*>(data), dataSize);
+        accepted = g_streamManager->sendControl(static_cast<uint8_t*>(data), dataSize);
     }
 
     napi_value result;
-    napi_get_undefined(env, &result);
+    napi_get_boolean(env, accepted, &result);
     return result;
 }
 

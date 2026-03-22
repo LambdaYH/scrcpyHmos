@@ -175,11 +175,12 @@ export class NativeStreamClient {
   }
 
   // Send control message (e.g. touch event)
-  sendControl(data: ArrayBuffer): void {
+  sendControl(data: ArrayBuffer): boolean {
     try {
-      libscrcpy.nativeSendControl(data);
+      return libscrcpy.nativeSendControl(data);
     } catch (err) {
       LoggerClientStream.error('[NativeStreamClient] Send control failed:', err);
+      return false;
     }
   }
 

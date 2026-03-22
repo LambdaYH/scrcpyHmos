@@ -45,7 +45,7 @@ public:
     int32_t startReverse(Adb* adb, const Config& config, StreamEventCallback callback);
 
     // 向控制流发送数据
-    void sendControl(const uint8_t* data, size_t len);
+    bool sendControl(const uint8_t* data, size_t len);
 
     // 停止所有线程并释放资源
     void stop();

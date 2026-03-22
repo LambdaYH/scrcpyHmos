@@ -56,5 +56,5 @@ declare module 'libscrcpy_native.so' {
         callback: (type: string, data: string) => void
     ): number;
     export function nativeStopStreams(): void;
-    export function nativeSendControl(data: ArrayBuffer): void;
+    export function nativeSendControl(data: ArrayBuffer): boolean;
 }

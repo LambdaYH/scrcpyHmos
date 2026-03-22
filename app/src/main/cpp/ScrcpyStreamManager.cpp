@@ -5,6 +5,7 @@
 #include "adb/LocalSocketChannel.h"
 
 #include <arpa/inet.h>
+#include <algorithm>
 #include <chrono>
 #include <cerrno>
 #include <hilog/log.h>
@@ -25,6 +26,8 @@ constexpr size_t PROXY_CHUNK_SIZE = 64 * 1024;
 constexpr size_t CONTROL_MSG_QUEUE_MAX = 64;
 constexpr uint8_t CONTROL_MSG_TYPE_TOUCH_EVENT = 2;
 constexpr uint8_t CONTROL_TOUCH_ACTION_MOVE = 2;
+constexpr size_t CONTROL_TOUCH_POINTER_OFFSET = 2;
+constexpr size_t CONTROL_TOUCH_POINTER_SIZE = 8;
 
 void writeAllFd(int fd, const uint8_t* data, size_t len) {
     size_t offset = 0;
@@ -161,15 +164,59 @@ bool isDroppableControlPacket(const std::vector<uint8_t>& packet) {
     return isDroppableControlPacket(packet.data(), packet.size());
 }
 
-bool dropQueuedMovePacket(std::deque<std::vector<uint8_t>>& queue) {
+bool tryReadMovePointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
+    if (!isDroppableControlPacket(data, len) ||
+        len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE) {
+        return false;
+    }
+
+    const uint8_t* pointerData = data + CONTROL_TOUCH_POINTER_OFFSET;
+    pointerId = (static_cast<int64_t>(pointerData[0]) << 56) |
+                (static_cast<int64_t>(pointerData[1]) << 48) |
+                (static_cast<int64_t>(pointerData[2]) << 40) |
+                (static_cast<int64_t>(pointerData[3]) << 32) |
+                (static_cast<int64_t>(pointerData[4]) << 24) |
+                (static_cast<int64_t>(pointerData[5]) << 16) |
+                (static_cast<int64_t>(pointerData[6]) << 8) |
+                (static_cast<int64_t>(pointerData[7]));
+    return true;
+}
+
+bool removeQueuedMovePacketForPointer(std::deque<std::vector<uint8_t>>& queue,
+                                      const uint8_t* data,
+                                      size_t len) {
+    int64_t pointerId = 0;
+    if (!tryReadMovePointerId(data, len, pointerId)) {
+        return false;
+    }
+
     for (auto it = queue.end(); it != queue.begin();) {
         --it;
+        int64_t queuedPointerId = 0;
+        if (tryReadMovePointerId(it->data(), it->size(), queuedPointerId) &&
+            queuedPointerId == pointerId) {
+            queue.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool dropQueuedMovePacket(std::deque<std::vector<uint8_t>>& queue) {
+    for (auto it = queue.begin(); it != queue.end(); ++it) {
         if (isDroppableControlPacket(*it)) {
             queue.erase(it);
             return true;
         }
     }
     return false;
+}
+
+void dropQueuedMovePackets(std::deque<std::vector<uint8_t>>& queue) {
+    queue.erase(std::remove_if(queue.begin(), queue.end(), [](const std::vector<uint8_t>& packet) {
+                   return isDroppableControlPacket(packet);
+               }),
+               queue.end());
 }
 }
 
@@ -439,37 +486,40 @@ void ScrcpyStreamManager::stop() {
 
 // ===================== sendControl =====================
 
-void ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
+bool ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
     if (!running_.load() || len == 0) {
-        return;
+        return false;
     }
 
     const bool droppable = isDroppableControlPacket(data, len);
     std::vector<uint8_t> packet(data, data + len);
 
     std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
-    while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
-        if (droppable) {
-            OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, dropping move packet");
-            return;
+    if (droppable) {
+        removeQueuedMovePacketForPointer(controlSendQueue_, data, len);
+        while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
+            if (!dropQueuedMovePacket(controlSendQueue_)) {
+                OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, rejecting move packet");
+                return false;
+            }
         }
-
-        if (dropQueuedMovePacket(controlSendQueue_)) {
-            break;
+    } else {
+        dropQueuedMovePackets(controlSendQueue_);
+        while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
+            controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
+                return !running_.load() || controlSendQueue_.size() < CONTROL_MSG_QUEUE_MAX;
+            });
         }
-
-        controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
-            return !running_.load() || controlSendQueue_.size() < CONTROL_MSG_QUEUE_MAX;
-        });
     }
 
     if (!running_.load()) {
-        return;
+        return false;
     }
 
     controlSendQueue_.push_back(std::move(packet));
     lock.unlock();
     controlSendQueueCv_.notify_one();
+    return true;
 }
 
 void ScrcpyStreamManager::controlSendThreadFunc() {
