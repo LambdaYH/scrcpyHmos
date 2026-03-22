@@ -19,6 +19,8 @@
 #define LOG_TAG "Adb"
 
 namespace {
+constexpr size_t MAX_PENDING_WRITE_BYTES = 256 * 1024;
+
 void closeFdIfNeeded(int& fd) {
     if (fd < 0) {
         return;
@@ -369,6 +371,7 @@ void Adb::handleInLoop() {
                             stream->pendingWriteBuffer.clear();
                             stream->pendingWriteOffset = 0;
                         }
+                        notifyAll();
 
                         if (firstClose) {
                             std::lock_guard<std::mutex> lock(streamsMutex_);
@@ -770,8 +773,36 @@ void Adb::streamWrite(AdbStream* stream, const uint8_t* data, size_t len) {
     if (!data && len > 0) throw std::runtime_error("Invalid write buffer");
     if (len == 0) return;
 
-    std::lock_guard<std::mutex> streamWriteLock(stream->writeMutex);
+    std::unique_lock<std::mutex> streamWriteLock(stream->writeMutex);
     if (stream->closed.load()) throw std::runtime_error("Stream closed");
+
+    while (!isClosed_.load() && !stream->closed.load()) {
+        compactPendingWritesLocked(stream);
+        flushPendingWritesLocked(stream);
+
+        if (pendingWriteBytesLocked(stream) + len <= MAX_PENDING_WRITE_BYTES) {
+            break;
+        }
+
+        streamWriteLock.unlock();
+        {
+            std::unique_lock<std::mutex> waitLock(waitMutex_);
+            waitCv_.wait_for(waitLock, std::chrono::milliseconds(100), [this, stream, len]() {
+                if (isClosed_.load() || stream->closed.load()) {
+                    return true;
+                }
+                std::lock_guard<std::mutex> streamLock(stream->writeMutex);
+                return pendingWriteBytesLocked(stream) + len <= MAX_PENDING_WRITE_BYTES ||
+                       stream->canWrite.load();
+            });
+        }
+        streamWriteLock.lock();
+    }
+
+    if (isClosed_.load()) throw std::runtime_error("ADB closed");
+    if (stream->closed.load()) throw std::runtime_error("Stream closed");
+
+    compactPendingWritesLocked(stream);
     stream->pendingWriteBuffer.insert(stream->pendingWriteBuffer.end(), data, data + len);
     flushPendingWritesLocked(stream);
 }
@@ -801,6 +832,7 @@ void Adb::flushPendingWritesLocked(AdbStream* stream) {
             chunkSize);
         writeToChannel(std::move(writeMsg));
         stream->pendingWriteOffset += chunkSize;
+        compactPendingWritesLocked(stream);
 
         if (stream->pendingWriteOffset >= stream->pendingWriteBuffer.size()) {
             stream->pendingWriteBuffer.clear();
@@ -866,6 +898,7 @@ void Adb::streamClose(int32_t streamId) {
             stream->pendingWriteBuffer.clear();
             stream->pendingWriteOffset = 0;
         }
+        notifyAll();
     }
 }
 
@@ -1059,6 +1092,30 @@ AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMulti
 
 void Adb::notifyAll() {
     waitCv_.notify_all();
+}
+
+size_t Adb::pendingWriteBytesLocked(const AdbStream* stream) const {
+    if (!stream || stream->pendingWriteOffset >= stream->pendingWriteBuffer.size()) {
+        return 0;
+    }
+    return stream->pendingWriteBuffer.size() - stream->pendingWriteOffset;
+}
+
+void Adb::compactPendingWritesLocked(AdbStream* stream) {
+    if (!stream || stream->pendingWriteOffset == 0) {
+        return;
+    }
+    if (stream->pendingWriteOffset >= stream->pendingWriteBuffer.size()) {
+        stream->pendingWriteBuffer.clear();
+        stream->pendingWriteOffset = 0;
+        return;
+    }
+    if (stream->pendingWriteOffset >= stream->pendingWriteBuffer.size() / 2 ||
+        stream->pendingWriteBuffer.size() > MAX_PENDING_WRITE_BYTES) {
+        stream->pendingWriteBuffer.erase(stream->pendingWriteBuffer.begin(),
+                                         stream->pendingWriteBuffer.begin() + stream->pendingWriteOffset);
+        stream->pendingWriteOffset = 0;
+    }
 }
 
 std::string Adb::stripTrailingNulls(const std::vector<uint8_t>& payload) {

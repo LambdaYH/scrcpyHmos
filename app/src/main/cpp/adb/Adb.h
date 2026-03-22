@@ -157,6 +157,8 @@ private:
     static std::string stripTrailingNulls(const std::vector<uint8_t>& payload);
 
     // 向流的底层channel写入数据（分块）
+    void compactPendingWritesLocked(AdbStream* stream);
+    size_t pendingWriteBytesLocked(const AdbStream* stream) const;
     void flushPendingWritesLocked(AdbStream* stream);
     void streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len);
 
