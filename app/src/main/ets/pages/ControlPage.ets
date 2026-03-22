@@ -1072,14 +1072,14 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
-      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
-      this.lastMoveX.set(pointerId, x);
-      this.lastMoveY.set(pointerId, y);
-
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_DOWN, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
       );
-      this.nativeClient?.sendControl(packet);
+      if (this.nativeClient?.sendControl(packet)) {
+        this.lastMoveSendTime.set(pointerId, eventTimestampMs);
+        this.lastMoveX.set(pointerId, x);
+        this.lastMoveY.set(pointerId, y);
+      }
     });
   }
 
@@ -1110,10 +1110,11 @@ struct ControlPage {
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
       );
-      this.nativeClient?.sendControl(packet);
-      this.lastMoveX.set(pointerId, x);
-      this.lastMoveY.set(pointerId, y);
-      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
+      if (this.nativeClient?.sendControl(packet)) {
+        this.lastMoveX.set(pointerId, x);
+        this.lastMoveY.set(pointerId, y);
+        this.lastMoveSendTime.set(pointerId, eventTimestampMs);
+      }
     });
   }
 
