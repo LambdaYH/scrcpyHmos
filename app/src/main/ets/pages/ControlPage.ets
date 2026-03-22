@@ -55,6 +55,8 @@ struct ControlPage {
   // 追踪是否正在滑动，防止 TapGesture 干扰滑动操作
   private isPanning: boolean = false;
   private panMoveCount: number = 0;  // 记录 MOVE 事件数量
+  private readonly moveMinIntervalMs: number = 5;
+  private lastMoveSendTime: Map<number, number> = new Map();
   private lastMoveX: Map<number, number> = new Map();
   private lastMoveY: Map<number, number> = new Map();
   
@@ -1060,6 +1062,7 @@ struct ControlPage {
     // 标记开始滑动
     this.isPanning = true;
     this.panMoveCount = 0;
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
 
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -1069,6 +1072,7 @@ struct ControlPage {
       const y = Math.round((localY / this.componentHeight) * this.videoHeight);
       const pointerId = finger.id;
 
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
       this.lastMoveX.set(pointerId, x);
       this.lastMoveY.set(pointerId, y);
 
@@ -1083,6 +1087,7 @@ struct ControlPage {
     if (!this.nativeClient || !this.isConnected) return;
 
     this.panMoveCount++;
+    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
 
     event.fingerList.forEach((finger) => {
       const localX = finger.localX;
@@ -1097,12 +1102,18 @@ struct ControlPage {
         return;
       }
 
+      const lastSend = this.lastMoveSendTime.get(pointerId) ?? 0;
+      if (eventTimestampMs - lastSend < this.moveMinIntervalMs) {
+        return;
+      }
+
       const packet = ControlPacket.createInjectTouchEvent(
         TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
       );
       this.nativeClient?.sendControl(packet);
       this.lastMoveX.set(pointerId, x);
       this.lastMoveY.set(pointerId, y);
+      this.lastMoveSendTime.set(pointerId, eventTimestampMs);
     });
   }
 
@@ -1127,6 +1138,7 @@ struct ControlPage {
       );
       this.nativeClient?.sendControl(packet);
 
+      this.lastMoveSendTime.delete(pointerId);
       this.lastMoveX.delete(pointerId);
       this.lastMoveY.delete(pointerId);
     });
