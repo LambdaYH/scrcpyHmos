@@ -1015,7 +1015,7 @@ struct ControlPage {
           })
         }
         .width('100%')
-        .height(70)
+        .height(47)
         .justifyContent(FlexAlign.Center)
         .backgroundColor($r('sys.color.ohos_id_color_background'))
       }
