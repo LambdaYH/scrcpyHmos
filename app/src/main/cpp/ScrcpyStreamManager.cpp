@@ -23,6 +23,8 @@
 namespace {
 constexpr size_t PROXY_CHUNK_SIZE = 64 * 1024;
 constexpr size_t CONTROL_MSG_QUEUE_MAX = 64;
+constexpr uint8_t CONTROL_MSG_TYPE_TOUCH_EVENT = 2;
+constexpr uint8_t CONTROL_TOUCH_ACTION_MOVE = 2;
 
 void writeAllFd(int fd, const uint8_t* data, size_t len) {
     size_t offset = 0;
@@ -148,6 +150,27 @@ int getLockedFd(int& fd, std::mutex& mutex) {
     std::lock_guard<std::mutex> lock(mutex);
     return fd;
 }
+
+bool isDroppableControlPacket(const uint8_t* data, size_t len) {
+    return len >= 2 &&
+           data[0] == CONTROL_MSG_TYPE_TOUCH_EVENT &&
+           data[1] == CONTROL_TOUCH_ACTION_MOVE;
+}
+
+bool isDroppableControlPacket(const std::vector<uint8_t>& packet) {
+    return isDroppableControlPacket(packet.data(), packet.size());
+}
+
+bool dropQueuedMovePacket(std::deque<std::vector<uint8_t>>& queue) {
+    for (auto it = queue.end(); it != queue.begin();) {
+        --it;
+        if (isDroppableControlPacket(*it)) {
+            queue.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
 }
 
 void ScrcpyStreamManager::closeLocalTunnels() {
@@ -247,7 +270,10 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     }
 
     running_.store(true);
-    controlSendQueueSize_.store(0);
+    {
+        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
+        controlSendQueue_.clear();
+    }
 
     OH_LOG_INFO(LOG_APP,
                 "[StreamManager] Starting with video=%{public}d, audio=%{public}d, control=%{public}d",
@@ -336,7 +362,10 @@ int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, Stream
     }
 
     running_.store(true);
-    controlSendQueueSize_.store(0);
+    {
+        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
+        controlSendQueue_.clear();
+    }
     acceptThread_ = std::thread(&ScrcpyStreamManager::acceptThreadFunc, this);
 
     OH_LOG_INFO(LOG_APP,
@@ -358,7 +387,7 @@ void ScrcpyStreamManager::stop() {
 
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
 
-    controlSendQueueSize_.store(0);
+    controlSendQueueCv_.notify_all();
 
     closeLocalTunnels();
     closeListener();
@@ -384,10 +413,10 @@ void ScrcpyStreamManager::stop() {
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
     joinThread(acceptThread_);
-    std::vector<uint8_t> pendingPacket;
-    while (controlSendQueue_.try_dequeue(pendingPacket)) {
+    {
+        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
+        controlSendQueue_.clear();
     }
-    controlSendQueueSize_.store(0);
     releaseLocalTunnels();
 
     if (videoDecoder_) {
@@ -415,31 +444,58 @@ void ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
         return;
     }
 
-    size_t prevSize = controlSendQueueSize_.fetch_add(1, std::memory_order_acq_rel);
-    if (prevSize >= CONTROL_MSG_QUEUE_MAX) {
-        controlSendQueueSize_.fetch_sub(1, std::memory_order_acq_rel);
-        OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, dropping packet");
+    const bool droppable = isDroppableControlPacket(data, len);
+    std::vector<uint8_t> packet(data, data + len);
+
+    std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
+    while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
+        if (droppable) {
+            OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, dropping move packet");
+            return;
+        }
+
+        if (dropQueuedMovePacket(controlSendQueue_)) {
+            break;
+        }
+
+        controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
+            return !running_.load() || controlSendQueue_.size() < CONTROL_MSG_QUEUE_MAX;
+        });
+    }
+
+    if (!running_.load()) {
         return;
     }
 
-    controlSendQueue_.enqueue(std::vector<uint8_t>(data, data + len));
+    controlSendQueue_.push_back(std::move(packet));
+    lock.unlock();
+    controlSendQueueCv_.notify_one();
 }
 
 void ScrcpyStreamManager::controlSendThreadFunc() {
     while (true) {
         std::vector<uint8_t> packet;
-        bool dequeued = controlSendQueue_.wait_dequeue_timed(packet, std::chrono::milliseconds(50));
-        if (!dequeued) {
-            if (!running_.load()) {
-                break;
+        {
+            std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
+            controlSendQueueCv_.wait(lock, [this]() {
+                return !controlSendQueue_.empty() || !running_.load();
+            });
+            if (controlSendQueue_.empty()) {
+                if (!running_.load()) {
+                    break;
+                }
+                continue;
             }
-            continue;
+            packet = std::move(controlSendQueue_.front());
+            controlSendQueue_.pop_front();
         }
-        controlSendQueueSize_.fetch_sub(1, std::memory_order_acq_rel);
+        controlSendQueueCv_.notify_all();
 
         try {
             if (controlChannel_) {
                 controlChannel_->write(packet.data(), packet.size());
+            } else if (!running_.load()) {
+                break;
             }
         } catch (const std::exception& e) {
             if (running_.load()) {
