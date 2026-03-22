@@ -35,6 +35,8 @@ struct AdbStream {
     std::atomic<bool> closed{false};
     std::atomic<bool> canWrite{false};
     std::mutex writeMutex;
+    std::vector<uint8_t> pendingWriteBuffer;
+    size_t pendingWriteOffset = 0;
 
     // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
     // 默认 16MB 容量 (50MB/s -> ~320ms buffer)
@@ -155,6 +157,7 @@ private:
     static std::string stripTrailingNulls(const std::vector<uint8_t>& payload);
 
     // 向流的底层channel写入数据（分块）
+    void flushPendingWritesLocked(AdbStream* stream);
     void streamWriteRaw(AdbStream* stream, const uint8_t* data, size_t len);
 
     AdbChannel* channel_ = nullptr;
