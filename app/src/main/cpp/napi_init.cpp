@@ -1079,20 +1079,20 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window) {
         return;
     }
 
-    if (touchEvent.type == OH_NATIVEXCOMPONENT_MOVE) {
-        int32_t historicalSize = 0;
-        OH_NativeXComponent_HistoricalPoint* historicalPoints = nullptr;
-        if (OH_NativeXComponent_GetHistoricalPoints(component, window, &historicalSize, &historicalPoints) ==
-            OH_NATIVEXCOMPONENT_RESULT_SUCCESS && historicalPoints && historicalSize > 0) {
-            for (int32_t i = 0; i < historicalSize; ++i) {
-                const OH_NativeXComponent_HistoricalPoint& point = historicalPoints[i];
-                if (point.id != touchEvent.id || point.type != OH_NATIVEXCOMPONENT_MOVE) {
-                    continue;
-                }
-                SendNativeTouchSample(point.id, point.x, point.y, point.type, point.force, componentWidth, componentHeight);
-            }
-        }
-    }
+//    if (touchEvent.type == OH_NATIVEXCOMPONENT_MOVE) {
+//        int32_t historicalSize = 0;
+//        OH_NativeXComponent_HistoricalPoint* historicalPoints = nullptr;
+//        if (OH_NativeXComponent_GetHistoricalPoints(component, window, &historicalSize, &historicalPoints) ==
+//            OH_NATIVEXCOMPONENT_RESULT_SUCCESS && historicalPoints && historicalSize > 0) {
+//            for (int32_t i = 0; i < historicalSize; ++i) {
+//                const OH_NativeXComponent_HistoricalPoint& point = historicalPoints[i];
+//                if (point.id != touchEvent.id || point.type != OH_NATIVEXCOMPONENT_MOVE) {
+//                    continue;
+//                }
+//                SendNativeTouchSample(point.id, point.x, point.y, point.type, point.force, componentWidth, componentHeight);
+//            }
+//        }
+//    }
 
     SendNativeTouchEvent(touchEvent, componentWidth, componentHeight);
 }

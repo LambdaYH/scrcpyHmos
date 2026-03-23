@@ -5,6 +5,7 @@
 
 #include "adb/Adb.h"
 #include "adb/AdbChannel.h"
+#include "concurrentqueue/blockingconcurrentqueue.h"
 #include "video_decoder_native.h"
 #include "audio_decoder_native.h"
 
@@ -14,9 +15,6 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
-#include <condition_variable>
-#include <deque>
-#include <unordered_map>
 #include <vector>
 
 // 事件回调: type, data (JSON string)
@@ -116,11 +114,7 @@ private:
     std::atomic<int32_t> videoHeight_{0};
     std::mutex eventMutex_;
     std::mutex controlProxyFdMutex_;
-    std::mutex controlSendQueueMutex_;
-    std::condition_variable controlSendQueueCv_;
-    std::deque<std::vector<uint8_t>> controlSendQueue_;
-    std::deque<int64_t> controlPendingMoveOrder_;
-    std::unordered_map<int64_t, std::vector<uint8_t>> controlPendingMovePackets_;
+    moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> controlReliableQueue_;
 };
 
 #endif // SCRCPY_STREAM_MANAGER_H
