@@ -1017,7 +1017,8 @@ float NormalizePressure(uint8_t action, float force) {
     return force > 0.0f ? std::min(force, 1.0f) : 1.0f;
 }
 
-void SendNativeTouchEvent(const OH_NativeXComponent_TouchEvent& event, uint64_t componentWidthVp, uint64_t componentHeightVp) {
+void SendNativeTouchSample(int32_t pointerId, float localX, float localY, OH_NativeXComponent_TouchEventType type,
+                           float force, uint64_t componentWidthVp, uint64_t componentHeightVp) {
     ScrcpyStreamManager* streamManager = g_streamManager;
     if (!streamManager || !streamManager->isRunning()) {
         return;
@@ -1029,21 +1030,21 @@ void SendNativeTouchEvent(const OH_NativeXComponent_TouchEvent& event, uint64_t 
         return;
     }
 
-    float clampedX = std::max(0.0f, std::min(event.x, static_cast<float>(componentWidthVp)));
-    float clampedY = std::max(0.0f, std::min(event.y, static_cast<float>(componentHeightVp)));
+    float clampedX = std::max(0.0f, std::min(localX, static_cast<float>(componentWidthVp)));
+    float clampedY = std::max(0.0f, std::min(localY, static_cast<float>(componentHeightVp)));
     int32_t x = static_cast<int32_t>(std::lround((clampedX / static_cast<float>(componentWidthVp)) * videoWidth));
     int32_t y = static_cast<int32_t>(std::lround((clampedY / static_cast<float>(componentHeightVp)) * videoHeight));
     x = std::max(0, std::min(x, videoWidth - 1));
     y = std::max(0, std::min(y, videoHeight - 1));
 
-    uint8_t action = ConvertNativeTouchAction(event.type);
-    float pressure = NormalizePressure(action, event.force);
+    uint8_t action = ConvertNativeTouchAction(type);
+    float pressure = NormalizePressure(action, force);
     uint16_t pressureU16 = static_cast<uint16_t>(std::lround(std::min(std::max(pressure, 0.0f), 1.0f) * 65535.0f));
 
     std::array<uint8_t, 32> packet{};
     packet[0] = CONTROL_MSG_TYPE_TOUCH_EVENT;
     packet[1] = action;
-    WriteInt64BE(packet.data() + 2, static_cast<int64_t>(event.id));
+    WriteInt64BE(packet.data() + 2, static_cast<int64_t>(pointerId));
     WriteInt32BE(packet.data() + 10, x);
     WriteInt32BE(packet.data() + 14, y);
     WriteUint16BE(packet.data() + 18, static_cast<uint16_t>(videoWidth));
@@ -1052,6 +1053,10 @@ void SendNativeTouchEvent(const OH_NativeXComponent_TouchEvent& event, uint64_t 
     WriteInt32BE(packet.data() + 24, 0);
     WriteInt32BE(packet.data() + 28, 0);
     streamManager->sendControl(packet.data(), packet.size());
+}
+
+void SendNativeTouchEvent(const OH_NativeXComponent_TouchEvent& event, uint64_t componentWidthVp, uint64_t componentHeightVp) {
+    SendNativeTouchSample(event.id, event.x, event.y, event.type, event.force, componentWidthVp, componentHeightVp);
 }
 
 void OnSurfaceCreated(OH_NativeXComponent*, void*) {}
@@ -1071,6 +1076,21 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window) {
     uint64_t componentHeight = 0;
     if (OH_NativeXComponent_GetXComponentSize(component, window, &componentWidth, &componentHeight) != OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
         return;
+    }
+
+    if (touchEvent.type == OH_NATIVEXCOMPONENT_MOVE) {
+        int32_t historicalSize = 0;
+        OH_NativeXComponent_HistoricalPoint* historicalPoints = nullptr;
+        if (OH_NativeXComponent_GetHistoricalPoints(component, window, &historicalSize, &historicalPoints) ==
+            OH_NATIVEXCOMPONENT_RESULT_SUCCESS && historicalPoints && historicalSize > 0) {
+            for (int32_t i = 0; i < historicalSize; ++i) {
+                const OH_NativeXComponent_HistoricalPoint& point = historicalPoints[i];
+                if (point.id != touchEvent.id || point.type != OH_NATIVEXCOMPONENT_MOVE) {
+                    continue;
+                }
+                SendNativeTouchSample(point.id, point.x, point.y, point.type, point.force, componentWidth, componentHeight);
+            }
+        }
     }
 
     SendNativeTouchEvent(touchEvent, componentWidth, componentHeight);
