@@ -23,11 +23,7 @@
 
 namespace {
 constexpr size_t PROXY_CHUNK_SIZE = 64 * 1024;
-constexpr size_t CONTROL_MSG_QUEUE_MAX = 64;
-constexpr uint8_t CONTROL_MSG_TYPE_TOUCH_EVENT = 2;
-constexpr uint8_t CONTROL_TOUCH_ACTION_MOVE = 2;
-constexpr size_t CONTROL_TOUCH_POINTER_OFFSET = 2;
-constexpr size_t CONTROL_TOUCH_POINTER_SIZE = 8;
+constexpr size_t CONTROL_MSG_QUEUE_MAX = 128;
 
 void writeAllFd(int fd, const uint8_t* data, size_t len) {
     size_t offset = 0;
@@ -154,79 +150,10 @@ int getLockedFd(int& fd, std::mutex& mutex) {
     return fd;
 }
 
-bool isDroppableControlPacket(const uint8_t* data, size_t len) {
-    return len >= 2 &&
-           data[0] == CONTROL_MSG_TYPE_TOUCH_EVENT &&
-           data[1] == CONTROL_TOUCH_ACTION_MOVE;
-}
-
-bool tryReadTouchPointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
-    if (len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE ||
-        data[0] != CONTROL_MSG_TYPE_TOUCH_EVENT) {
-        return false;
+void drainReliableQueue(moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>>& queue) {
+    std::vector<uint8_t> packet;
+    while (queue.try_dequeue(packet)) {
     }
-
-    const uint8_t* pointerData = data + CONTROL_TOUCH_POINTER_OFFSET;
-    pointerId = (static_cast<int64_t>(pointerData[0]) << 56) |
-                (static_cast<int64_t>(pointerData[1]) << 48) |
-                (static_cast<int64_t>(pointerData[2]) << 40) |
-                (static_cast<int64_t>(pointerData[3]) << 32) |
-                (static_cast<int64_t>(pointerData[4]) << 24) |
-                (static_cast<int64_t>(pointerData[5]) << 16) |
-                (static_cast<int64_t>(pointerData[6]) << 8) |
-                (static_cast<int64_t>(pointerData[7]));
-    return true;
-}
-
-bool tryReadMovePointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
-    if (!isDroppableControlPacket(data, len) ||
-        len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE) {
-        return false;
-    }
-
-    return tryReadTouchPointerId(data, len, pointerId);
-}
-
-size_t pendingControlPacketCount(const std::deque<std::vector<uint8_t>>& queue,
-                                const std::unordered_map<int64_t, std::vector<uint8_t>>& pendingMoves) {
-    return queue.size() + pendingMoves.size();
-}
-
-void erasePendingMovePacket(std::unordered_map<int64_t, std::vector<uint8_t>>& pendingMoves,
-                            std::deque<int64_t>& moveOrder,
-                            int64_t pointerId) {
-    pendingMoves.erase(pointerId);
-    moveOrder.erase(std::remove(moveOrder.begin(), moveOrder.end(), pointerId), moveOrder.end());
-}
-
-bool dropPendingMovePacket(std::unordered_map<int64_t, std::vector<uint8_t>>& pendingMoves,
-                           std::deque<int64_t>& moveOrder) {
-    while (!moveOrder.empty()) {
-        int64_t pointerId = moveOrder.front();
-        moveOrder.pop_front();
-        if (pendingMoves.erase(pointerId) > 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool popPendingMovePacket(std::unordered_map<int64_t, std::vector<uint8_t>>& pendingMoves,
-                          std::deque<int64_t>& moveOrder,
-                          std::vector<uint8_t>& packet) {
-    while (!moveOrder.empty()) {
-        int64_t pointerId = moveOrder.front();
-        moveOrder.pop_front();
-        auto it = pendingMoves.find(pointerId);
-        if (it == pendingMoves.end()) {
-            continue;
-        }
-
-        packet = std::move(it->second);
-        pendingMoves.erase(it);
-        return true;
-    }
-    return false;
 }
 
 }
@@ -328,12 +255,7 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     }
 
     running_.store(true);
-    {
-        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
-        controlSendQueue_.clear();
-        controlPendingMoveOrder_.clear();
-        controlPendingMovePackets_.clear();
-    }
+    drainReliableQueue(controlReliableQueue_);
 
     OH_LOG_INFO(LOG_APP,
                 "[StreamManager] Starting with video=%{public}d, audio=%{public}d, control=%{public}d",
@@ -421,12 +343,7 @@ int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, Stream
     }
 
     running_.store(true);
-    {
-        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
-        controlSendQueue_.clear();
-        controlPendingMoveOrder_.clear();
-        controlPendingMovePackets_.clear();
-    }
+    drainReliableQueue(controlReliableQueue_);
     acceptThread_ = std::thread(&ScrcpyStreamManager::acceptThreadFunc, this);
 
     OH_LOG_INFO(LOG_APP,
@@ -447,8 +364,6 @@ void ScrcpyStreamManager::stop() {
     }
 
     OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
-
-    controlSendQueueCv_.notify_all();
 
     closeLocalTunnels();
     closeListener();
@@ -473,12 +388,7 @@ void ScrcpyStreamManager::stop() {
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
     joinThread(acceptThread_);
-    {
-        std::lock_guard<std::mutex> lock(controlSendQueueMutex_);
-        controlSendQueue_.clear();
-        controlPendingMoveOrder_.clear();
-        controlPendingMovePackets_.clear();
-    }
+    drainReliableQueue(controlReliableQueue_);
     releaseLocalTunnels();
 
     if (videoDecoder_) {
@@ -506,91 +416,23 @@ bool ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
         return false;
     }
 
-    const bool droppable = isDroppableControlPacket(data, len);
-    std::vector<uint8_t> packet(data, data + len);
-    int64_t pointerId = 0;
-    const bool hasTouchPointerId = tryReadTouchPointerId(data, len, pointerId);
-
-    std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
-    if (droppable) {
-        if (!tryReadMovePointerId(data, len, pointerId)) {
-            return false;
-        }
-
-        const bool hadPendingMove = controlPendingMovePackets_.find(pointerId) != controlPendingMovePackets_.end();
-        while (running_.load() &&
-               !hadPendingMove &&
-               pendingControlPacketCount(controlSendQueue_, controlPendingMovePackets_) >= CONTROL_MSG_QUEUE_MAX) {
-            if (!dropPendingMovePacket(controlPendingMovePackets_, controlPendingMoveOrder_)) {
-                OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, rejecting move packet");
-                return false;
-            }
-        }
-
-        if (!running_.load()) {
-            return false;
-        }
-
-        if (!hadPendingMove) {
-            controlPendingMoveOrder_.push_back(pointerId);
-        }
-        controlPendingMovePackets_[pointerId] = std::move(packet);
-        lock.unlock();
-        controlSendQueueCv_.notify_one();
-        return true;
-    }
-
-    if (hasTouchPointerId) {
-        erasePendingMovePacket(controlPendingMovePackets_, controlPendingMoveOrder_, pointerId);
-    }
-
-    while (running_.load() &&
-           pendingControlPacketCount(controlSendQueue_, controlPendingMovePackets_) >= CONTROL_MSG_QUEUE_MAX) {
-        if (!dropPendingMovePacket(controlPendingMovePackets_, controlPendingMoveOrder_)) {
-            controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
-                return !running_.load() ||
-                       pendingControlPacketCount(controlSendQueue_, controlPendingMovePackets_) < CONTROL_MSG_QUEUE_MAX;
-            });
-        } else {
-            if (pendingControlPacketCount(controlSendQueue_, controlPendingMovePackets_) < CONTROL_MSG_QUEUE_MAX) {
-                break;
-            }
-        }
-    }
-
-    if (!running_.load()) {
+    if (controlReliableQueue_.size_approx() >= CONTROL_MSG_QUEUE_MAX) {
         return false;
     }
 
-    controlSendQueue_.push_back(std::move(packet));
-    lock.unlock();
-    controlSendQueueCv_.notify_one();
+    controlReliableQueue_.enqueue(std::vector<uint8_t>(data, data + len));
     return true;
 }
 
 void ScrcpyStreamManager::controlSendThreadFunc() {
     while (true) {
         std::vector<uint8_t> packet;
-        {
-            std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
-            controlSendQueueCv_.wait(lock, [this]() {
-                return !controlSendQueue_.empty() || !controlPendingMovePackets_.empty() || !running_.load();
-            });
-            if (controlSendQueue_.empty() && controlPendingMovePackets_.empty()) {
-                if (!running_.load()) {
-                    break;
-                }
-                continue;
+        if (!controlReliableQueue_.wait_dequeue_timed(packet, std::chrono::milliseconds(1))) {
+            if (!running_.load()) {
+                break;
             }
-
-            if (!controlSendQueue_.empty()) {
-                packet = std::move(controlSendQueue_.front());
-                controlSendQueue_.pop_front();
-            } else if (!popPendingMovePacket(controlPendingMovePackets_, controlPendingMoveOrder_, packet)) {
-                continue;
-            }
+            continue;
         }
-        controlSendQueueCv_.notify_all();
 
         try {
             if (adb_ && controlStream_) {
