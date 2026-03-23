@@ -965,6 +965,7 @@ static napi_value AdbIsStreamClosed(napi_env env, napi_callback_info info) {
 
 static ScrcpyStreamManager* g_streamManager = nullptr;
 static OH_NativeXComponent_Callback g_xComponentCallback;
+static std::atomic<bool> g_nativeXComponentCallbacksRegistered{false};
 
 namespace {
 constexpr uint8_t CONTROL_MSG_TYPE_TOUCH_EVENT = 2;
@@ -1115,7 +1116,9 @@ bool RegisterNativeXComponentCallbacks(napi_env env, napi_value exports) {
 
     int32_t ret = OH_NativeXComponent_RegisterCallback(nativeXComponent, &g_xComponentCallback);
     OH_LOG_INFO(LOG_APP, "[NAPI] Native XComponent callback register ret=%{public}d", ret);
-    return ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS;
+    bool registered = ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS;
+    g_nativeXComponentCallbacksRegistered.store(registered, std::memory_order_release);
+    return registered;
 }
 }
 static napi_threadsafe_function g_streamCallback = nullptr;
@@ -1239,6 +1242,13 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
     napi_get_value_int32(env, args[5], &audioSampleRate);
     napi_get_value_int32(env, args[6], &audioChannelCount);
 
+    if (!g_nativeXComponentCallbacksRegistered.load(std::memory_order_acquire)) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] Native XComponent callbacks are not registered");
+        napi_value result;
+        napi_create_int32(env, -3, &result);
+        return result;
+    }
+
     if (!PrepareStreamCallback(env, args[7])) {
         OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to create threadsafe function");
         napi_value result;
@@ -1303,6 +1313,13 @@ static napi_value NativeStartReverseStreams(napi_env env, napi_callback_info inf
     napi_get_value_string_utf8(env, args[4], surfaceId, sizeof(surfaceId), nullptr);
     napi_get_value_int32(env, args[5], &audioSampleRate);
     napi_get_value_int32(env, args[6], &audioChannelCount);
+
+    if (!g_nativeXComponentCallbacksRegistered.load(std::memory_order_acquire)) {
+        OH_LOG_ERROR(LOG_APP, "[NAPI] Native XComponent callbacks are not registered");
+        napi_value result;
+        napi_create_int32(env, -3, &result);
+        return result;
+    }
 
     if (!PrepareStreamCallback(env, args[7])) {
         OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to create reverse threadsafe function");
@@ -1434,7 +1451,7 @@ static napi_value Init(napi_env env, napi_value exports) {
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     if (!RegisterNativeXComponentCallbacks(env, exports)) {
-        OH_LOG_WARN(LOG_APP, "[NAPI] Failed to register Native XComponent callbacks");
+        OH_LOG_ERROR(LOG_APP, "[NAPI] Failed to register Native XComponent callbacks");
     }
     return exports;
 }
