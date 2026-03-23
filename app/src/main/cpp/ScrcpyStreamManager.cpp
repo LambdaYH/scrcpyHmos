@@ -1009,39 +1009,25 @@ void ScrcpyStreamManager::controlThreadFunc() {
     OH_LOG_INFO(LOG_APP, "[ControlThread] Started");
 
     try {
-        AdbStream* stream = controlStream_;
         AdbChannel* channel = controlChannel_;
-        if (!stream && !channel) throw std::runtime_error("control stream not found");
+        if (!channel) throw std::runtime_error("control channel not found");
 
         uint8_t typeByte[1];
         uint8_t lenData[4];
         uint8_t ackData[8];
         uint8_t uhidHeader[4];
         while (running_.load()) {
-            size_t n = 0;
-            if (channel) {
-                readExactToBuffer(channel, typeByte, 1);
-                n = 1;
-            } else {
-                n = adb_->streamReadToBuffer(stream, typeByte, 1, -1, true);
-                if (n < 1) {
-                    break;
-                }
-            }
-            uint8_t eventType = typeByte[0];
+            readExactToBuffer(channel, typeByte, 1);
+            const uint8_t eventType = typeByte[0];
 
             if (!running_.load()) break;
 
             switch (eventType) {
                 case 0: {
-                    if (channel) {
-                        readExactToBuffer(channel, lenData, 4);
-                    } else {
-                        readExactToBuffer(stream, lenData, 4);
-                    }
+                    readExactToBuffer(channel, lenData, 4);
                     int32_t clipLen = readInt32BE(lenData);
                     if (clipLen > 0 && clipLen <= 100000) {
-                        auto clipTextData = channel ? readExact(channel, clipLen) : readExact(stream, clipLen);
+                        auto clipTextData = readExact(channel, clipLen);
                         std::string text(reinterpret_cast<char*>(clipTextData.data()), clipTextData.size());
                         OH_LOG_DEBUG(LOG_APP, "[ControlThread] Clipboard received: %{public}zu bytes", text.size());
                         emitEvent("clipboard", text);
@@ -1049,27 +1035,15 @@ void ScrcpyStreamManager::controlThreadFunc() {
                     break;
                 }
                 case 1: {
-                    if (channel) {
-                        readExactToBuffer(channel, ackData, sizeof(ackData));
-                    } else {
-                        readExactToBuffer(stream, ackData, sizeof(ackData));
-                    }
+                    readExactToBuffer(channel, ackData, sizeof(ackData));
                     break;
                 }
                 case 2: {
-                    if (channel) {
-                        readExactToBuffer(channel, uhidHeader, sizeof(uhidHeader));
-                    } else {
-                        readExactToBuffer(stream, uhidHeader, sizeof(uhidHeader));
-                    }
+                    readExactToBuffer(channel, uhidHeader, sizeof(uhidHeader));
                     int32_t size = (static_cast<int32_t>(uhidHeader[2]) << 8) |
                                    static_cast<int32_t>(uhidHeader[3]);
                     if (size > 0) {
-                        if (channel) {
-                            readExact(channel, size);
-                        } else {
-                            readExact(stream, size);
-                        }
+                        readExact(channel, size);
                     }
                     break;
                 }
