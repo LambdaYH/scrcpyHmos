@@ -16,6 +16,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <deque>
+#include <unordered_map>
 #include <vector>
 
 // 事件回调: type, data (JSON string)
@@ -120,6 +121,8 @@ private:
     std::mutex controlSendQueueMutex_;
     std::condition_variable controlSendQueueCv_;
     std::deque<std::vector<uint8_t>> controlSendQueue_;
+    std::deque<int64_t> controlPendingMoveOrder_;
+    std::unordered_map<int64_t, std::vector<uint8_t>> controlPendingMovePackets_;
 };
 
 #endif // SCRCPY_STREAM_MANAGER_H
