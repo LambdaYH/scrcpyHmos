@@ -164,9 +164,9 @@ bool isDroppableControlPacket(const std::vector<uint8_t>& packet) {
     return isDroppableControlPacket(packet.data(), packet.size());
 }
 
-bool tryReadMovePointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
-    if (!isDroppableControlPacket(data, len) ||
-        len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE) {
+bool tryReadTouchPointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
+    if (len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE ||
+        data[0] != CONTROL_MSG_TYPE_TOUCH_EVENT) {
         return false;
     }
 
@@ -182,24 +182,23 @@ bool tryReadMovePointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
     return true;
 }
 
-bool removeQueuedMovePacketForPointer(std::deque<std::vector<uint8_t>>& queue,
-                                      const uint8_t* data,
-                                      size_t len) {
-    int64_t pointerId = 0;
-    if (!tryReadMovePointerId(data, len, pointerId)) {
+bool tryReadMovePointerId(const uint8_t* data, size_t len, int64_t& pointerId) {
+    if (!isDroppableControlPacket(data, len) ||
+        len < CONTROL_TOUCH_POINTER_OFFSET + CONTROL_TOUCH_POINTER_SIZE) {
         return false;
     }
 
-    for (auto it = queue.end(); it != queue.begin();) {
-        --it;
-        int64_t queuedPointerId = 0;
-        if (tryReadMovePointerId(it->data(), it->size(), queuedPointerId) &&
-            queuedPointerId == pointerId) {
-            queue.erase(it);
-            return true;
-        }
-    }
-    return false;
+    return tryReadTouchPointerId(data, len, pointerId);
+}
+
+void dropQueuedMovePacketsForPointer(std::deque<std::vector<uint8_t>>& queue,
+                                     int64_t pointerId) {
+    queue.erase(std::remove_if(queue.begin(), queue.end(), [pointerId](const std::vector<uint8_t>& packet) {
+                   int64_t queuedPointerId = 0;
+                   return tryReadMovePointerId(packet.data(), packet.size(), queuedPointerId) &&
+                          queuedPointerId == pointerId;
+               }),
+               queue.end());
 }
 
 bool dropQueuedMovePacket(std::deque<std::vector<uint8_t>>& queue) {
@@ -212,12 +211,13 @@ bool dropQueuedMovePacket(std::deque<std::vector<uint8_t>>& queue) {
     return false;
 }
 
-void dropQueuedMovePackets(std::deque<std::vector<uint8_t>>& queue) {
+void dropAllQueuedMovePackets(std::deque<std::vector<uint8_t>>& queue) {
     queue.erase(std::remove_if(queue.begin(), queue.end(), [](const std::vector<uint8_t>& packet) {
                    return isDroppableControlPacket(packet);
                }),
                queue.end());
 }
+
 }
 
 void ScrcpyStreamManager::closeLocalTunnels() {
@@ -496,7 +496,10 @@ bool ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
 
     std::unique_lock<std::mutex> lock(controlSendQueueMutex_);
     if (droppable) {
-        removeQueuedMovePacketForPointer(controlSendQueue_, data, len);
+        int64_t pointerId = 0;
+        if (tryReadMovePointerId(data, len, pointerId)) {
+            dropQueuedMovePacketsForPointer(controlSendQueue_, pointerId);
+        }
         while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
             if (!dropQueuedMovePacket(controlSendQueue_)) {
                 OH_LOG_WARN(LOG_APP, "[StreamManager] Control queue full, rejecting move packet");
@@ -504,11 +507,13 @@ bool ScrcpyStreamManager::sendControl(const uint8_t* data, size_t len) {
             }
         }
     } else {
-        dropQueuedMovePackets(controlSendQueue_);
+        dropAllQueuedMovePackets(controlSendQueue_);
         while (running_.load() && controlSendQueue_.size() >= CONTROL_MSG_QUEUE_MAX) {
-            controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
-                return !running_.load() || controlSendQueue_.size() < CONTROL_MSG_QUEUE_MAX;
-            });
+            if (!dropQueuedMovePacket(controlSendQueue_)) {
+                controlSendQueueCv_.wait_for(lock, std::chrono::milliseconds(20), [this]() {
+                    return !running_.load() || controlSendQueue_.size() < CONTROL_MSG_QUEUE_MAX;
+                });
+            }
         }
     }
 
@@ -708,6 +713,8 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
         OH_LOG_INFO(LOG_APP, "[VideoThread] Codec=%{public}d, Size=%{public}dx%{public}d",
                     codecId, width, height);
+        videoWidth_.store(width);
+        videoHeight_.store(height);
 
         std::string codecType = "h264";
         if (codecId == 1 || codecId == 1748121141) codecType = "h265";
@@ -725,6 +732,8 @@ void ScrcpyStreamManager::videoThreadFunc() {
 
         videoDecoder_ = new VideoDecoderNative();
         videoDecoder_->SetSizeChangeCallback([this, codecId, codecType, deviceName](int32_t w, int32_t h) {
+            this->videoWidth_.store(w);
+            this->videoHeight_.store(h);
             std::ostringstream oss;
             oss << "{\"codecId\":" << codecId
                 << ",\"width\":" << w

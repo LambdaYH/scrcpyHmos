@@ -47,6 +47,9 @@ public:
     // 向控制流发送数据
     bool sendControl(const uint8_t* data, size_t len);
 
+    int32_t getVideoWidth() const { return videoWidth_.load(); }
+    int32_t getVideoHeight() const { return videoHeight_.load(); }
+
     // 停止所有线程并释放资源
     void stop();
 
@@ -110,6 +113,8 @@ private:
     std::thread acceptThread_;
     std::thread controlSendThread_;
     std::atomic<bool> running_{false};
+    std::atomic<int32_t> videoWidth_{0};
+    std::atomic<int32_t> videoHeight_{0};
     std::mutex eventMutex_;
     std::mutex controlProxyFdMutex_;
     std::mutex controlSendQueueMutex_;

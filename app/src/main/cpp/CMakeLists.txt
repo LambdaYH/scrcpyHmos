@@ -20,6 +20,7 @@ add_library(scrcpy_native SHARED
 )
 
 target_link_libraries(scrcpy_native PUBLIC
+    libace_ndk.z.so
     libace_napi.z.so
     libhilog_ndk.z.so
     libnative_media_codecbase.so

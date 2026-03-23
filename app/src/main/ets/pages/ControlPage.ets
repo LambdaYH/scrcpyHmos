@@ -1,5 +1,5 @@
 ﻿import { Device } from '../entity/Device';
-import { TouchAction, KeyCode, ControlPacket } from '../client/tools/ControlPacket';
+import { KeyCode, ControlPacket } from '../client/tools/ControlPacket';
 import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
 import { ServerManager } from '../helper/ServerManager';
@@ -16,10 +16,8 @@ struct ControlPage {
   @State surfaceId: string = '';
   @State videoWidth: number = 1920;
   @State videoHeight: number = 1080;
-  @State componentWidth: number = 0;  // 实际组件宽度(px)
-  @State componentHeight: number = 0;  // 实际组件高度(px)
-  @State containerWidth: number = 0;    // 容器宽度(px)
-  @State containerHeight: number = 0;   // 容器高度(px)
+  @State containerWidth: number = 0;    // 容器宽度(vp)
+  @State containerHeight: number = 0;   // 容器高度(vp)
   @State displayXComponentWidth: number = 0; // 计算后的显示宽度
   @State displayXComponentHeight: number = 0; // 计算后的显示高度
 
@@ -52,14 +50,6 @@ struct ControlPage {
   // 临时存储拖动开始时的位置
   private dragStartX: number = 0;
   private dragStartY: number = 0;
-  // 追踪是否正在滑动，防止 TapGesture 干扰滑动操作
-  private isPanning: boolean = false;
-  private panMoveCount: number = 0;  // 记录 MOVE 事件数量
-  private readonly moveMinIntervalMs: number = 5;
-  private lastMoveSendTime: Map<number, number> = new Map();
-  private lastMoveX: Map<number, number> = new Map();
-  private lastMoveY: Map<number, number> = new Map();
-  
   @State stepTime: number = 0;
   private stepTimer: number = -1;
 
@@ -263,6 +253,7 @@ struct ControlPage {
     this.isPageActive = false;
     this.stopStepTimer(); // Clean up timer
     LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
+
 
     if (!this.isExiting && (this.isConnected || ClientSessionManager.getInstance().hasActiveSession())) {
       try {
@@ -707,11 +698,6 @@ struct ControlPage {
       this.displayXComponentWidth = this.containerWidth;
       this.displayXComponentHeight = this.containerWidth / videoRatio;
     }
-    
-    // 更新组件实际尺寸，用于触摸映射和UI布局
-    this.componentWidth = this.displayXComponentWidth;
-    this.componentHeight = this.displayXComponentHeight;
-    
     LoggerControlPage.debug(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
     
     // 重新校准悬浮按钮位置（如果有必要）
@@ -764,7 +750,8 @@ struct ControlPage {
           XComponent({
             id: 'video_surface',
             type: XComponentType.SURFACE,
-            controller: this.xComponentController
+            controller: this.xComponentController,
+            libraryname: 'scrcpy_native'
           })
             .onLoad(() => {
               this.surfaceId = this.xComponentController.getXComponentSurfaceId();
@@ -777,34 +764,12 @@ struct ControlPage {
             .width(this.displayXComponentWidth > 0 ? this.displayXComponentWidth : '100%')
             .height(this.displayXComponentHeight > 0 ? this.displayXComponentHeight : '100%')
             .backgroundColor($r('sys.color.black'))
-            .gesture(
-              GestureGroup(GestureMode.Parallel,
-                // 触摸手势
-                TapGesture({ count: 1, fingers: 1 })
-                  .onAction((event: GestureEvent) => {
-                    this.handleTap(event);
-                  }),
-                // 多指触摸
-                PanGesture({ fingers: 1, distance: 0 })
-                  .onActionStart((event: GestureEvent) => {
-                    this.handleTouchStart(event);
-                  }),
-                PanGesture({ fingers: 1, distance: 0 })
-                  .onActionUpdate((event: GestureEvent) => {
-                    this.handleTouchMove(event);
-                  }),
-                PanGesture({ fingers: 1, distance: 0 })
-                  .onActionEnd((event: GestureEvent) => {
-                    this.handleTouchEnd(event);
-                  })
-              )
-            )
         }
         .width('100%')
         .height('100%')
         .backgroundColor('#000000') // 背景黑色，作为信箱模式的黑边
         .onAreaChange((_: Area, newArea: Area) => {
-          // 获取容器容器实际尺寸(px)
+          // 获取容器实际尺寸(vp)
           this.containerWidth = newArea.width as number;
           this.containerHeight = newArea.height as number;
           LoggerControlPage.debug(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
@@ -1027,123 +992,4 @@ struct ControlPage {
     .backgroundColor($r('sys.color.ohos_id_color_background'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
-  
-  handleTap(event: GestureEvent) {
-    if (!this.nativeClient || !this.isConnected) return;
-
-    // 如果正在滑动或刚滑动过（有MOVE事件），忽略 TAP 事件
-    if (this.isPanning || this.panMoveCount > 0) {
-      return;
-    }
-
-    if (event.fingerList.length === 0) return;
-    const localX = event.fingerList[0].localX;
-    const localY = event.fingerList[0].localY;
-
-    // Scrcpy uses absolute pixel coordinates mapped to video dimensions
-    const x = Math.round((localX / this.componentWidth) * this.videoWidth);
-    const y = Math.round((localY / this.componentHeight) * this.videoHeight);
-
-    // 模拟点击（按下-抬起）
-    // 发送 ACTION_DOWN
-    const packetDown = ControlPacket.createInjectTouchEvent(
-      TouchAction.ACTION_DOWN, BigInt(0), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
-    );
-    this.nativeClient.sendControl(packetDown);
-    const packetUp = ControlPacket.createInjectTouchEvent(
-      TouchAction.ACTION_UP, BigInt(0), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
-    );
-    this.nativeClient.sendControl(packetUp);
-  }
-
-  handleTouchStart(event: GestureEvent) {
-    if (!this.nativeClient || !this.isConnected) return;
-
-    // 标记开始滑动
-    this.isPanning = true;
-    this.panMoveCount = 0;
-    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
-
-    event.fingerList.forEach((finger) => {
-      const localX = finger.localX;
-      const localY = finger.localY;
-
-      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
-      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
-      const pointerId = finger.id;
-
-      const packet = ControlPacket.createInjectTouchEvent(
-        TouchAction.ACTION_DOWN, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
-      );
-      if (this.nativeClient?.sendControl(packet)) {
-        this.lastMoveSendTime.set(pointerId, eventTimestampMs);
-        this.lastMoveX.set(pointerId, x);
-        this.lastMoveY.set(pointerId, y);
-      }
-    });
-  }
-
-  handleTouchMove(event: GestureEvent) {
-    if (!this.nativeClient || !this.isConnected) return;
-
-    this.panMoveCount++;
-    const eventTimestampMs = event.timestamp > 0 ? Math.floor(event.timestamp / 1000000) : Date.now();
-
-    event.fingerList.forEach((finger) => {
-      const localX = finger.localX;
-      const localY = finger.localY;
-
-      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
-      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
-      const pointerId = finger.id;
-      const lastX = this.lastMoveX.get(pointerId);
-      const lastY = this.lastMoveY.get(pointerId);
-      if (lastX === x && lastY === y) {
-        return;
-      }
-
-      const lastSend = this.lastMoveSendTime.get(pointerId) ?? 0;
-      if (eventTimestampMs - lastSend < this.moveMinIntervalMs) {
-        return;
-      }
-
-      const packet = ControlPacket.createInjectTouchEvent(
-        TouchAction.ACTION_MOVE, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 1.0, 1, 1
-      );
-      if (this.nativeClient?.sendControl(packet)) {
-        this.lastMoveX.set(pointerId, x);
-        this.lastMoveY.set(pointerId, y);
-        this.lastMoveSendTime.set(pointerId, eventTimestampMs);
-      }
-    });
-  }
-
-  handleTouchEnd(event: GestureEvent) {
-    if (!this.nativeClient || !this.isConnected) return;
-
-    this.isPanning = false;
-    setTimeout(() => {
-      this.panMoveCount = 0;
-    }, 100);
-
-    event.fingerList.forEach((finger) => {
-      const localX = finger.localX;
-      const localY = finger.localY;
-
-      const x = Math.round((localX / this.componentWidth) * this.videoWidth);
-      const y = Math.round((localY / this.componentHeight) * this.videoHeight);
-      const pointerId = finger.id;
-
-      const packet = ControlPacket.createInjectTouchEvent(
-        TouchAction.ACTION_UP, BigInt(pointerId), x, y, this.videoWidth, this.videoHeight, 0.0, 1, 0
-      );
-      this.nativeClient?.sendControl(packet);
-
-      this.lastMoveSendTime.delete(pointerId);
-      this.lastMoveX.delete(pointerId);
-      this.lastMoveY.delete(pointerId);
-    });
-  }
-
 }
-

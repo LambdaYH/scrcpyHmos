@@ -957,8 +957,147 @@ static napi_value AdbIsStreamClosed(napi_env env, napi_callback_info info) {
 // ============== ScrcpyStreamManager Module ==============
 
 #include "ScrcpyStreamManager.h"
+#include <ace/xcomponent/native_interface_xcomponent.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstring>
 
 static ScrcpyStreamManager* g_streamManager = nullptr;
+static OH_NativeXComponent_Callback g_xComponentCallback;
+
+namespace {
+constexpr uint8_t CONTROL_MSG_TYPE_TOUCH_EVENT = 2;
+constexpr uint8_t CONTROL_TOUCH_ACTION_DOWN = 0;
+constexpr uint8_t CONTROL_TOUCH_ACTION_UP = 1;
+constexpr uint8_t CONTROL_TOUCH_ACTION_MOVE = 2;
+constexpr uint8_t CONTROL_TOUCH_ACTION_CANCEL = 3;
+
+void WriteInt32BE(uint8_t* dest, int32_t value) {
+    dest[0] = static_cast<uint8_t>((value >> 24) & 0xFF);
+    dest[1] = static_cast<uint8_t>((value >> 16) & 0xFF);
+    dest[2] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    dest[3] = static_cast<uint8_t>(value & 0xFF);
+}
+
+void WriteInt64BE(uint8_t* dest, int64_t value) {
+    dest[0] = static_cast<uint8_t>((value >> 56) & 0xFF);
+    dest[1] = static_cast<uint8_t>((value >> 48) & 0xFF);
+    dest[2] = static_cast<uint8_t>((value >> 40) & 0xFF);
+    dest[3] = static_cast<uint8_t>((value >> 32) & 0xFF);
+    dest[4] = static_cast<uint8_t>((value >> 24) & 0xFF);
+    dest[5] = static_cast<uint8_t>((value >> 16) & 0xFF);
+    dest[6] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    dest[7] = static_cast<uint8_t>(value & 0xFF);
+}
+
+void WriteUint16BE(uint8_t* dest, uint16_t value) {
+    dest[0] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    dest[1] = static_cast<uint8_t>(value & 0xFF);
+}
+
+uint8_t ConvertNativeTouchAction(OH_NativeXComponent_TouchEventType type) {
+    switch (type) {
+        case OH_NATIVEXCOMPONENT_DOWN:
+            return CONTROL_TOUCH_ACTION_DOWN;
+        case OH_NATIVEXCOMPONENT_UP:
+            return CONTROL_TOUCH_ACTION_UP;
+        case OH_NATIVEXCOMPONENT_MOVE:
+            return CONTROL_TOUCH_ACTION_MOVE;
+        case OH_NATIVEXCOMPONENT_CANCEL:
+        default:
+            return CONTROL_TOUCH_ACTION_CANCEL;
+    }
+}
+
+float NormalizePressure(uint8_t action, float force) {
+    if (action == CONTROL_TOUCH_ACTION_UP || action == CONTROL_TOUCH_ACTION_CANCEL) {
+        return 0.0f;
+    }
+    return force > 0.0f ? std::min(force, 1.0f) : 1.0f;
+}
+
+void SendNativeTouchEvent(const OH_NativeXComponent_TouchEvent& event, uint64_t componentWidthVp, uint64_t componentHeightVp) {
+    ScrcpyStreamManager* streamManager = g_streamManager;
+    if (!streamManager || !streamManager->isRunning()) {
+        return;
+    }
+
+    int32_t videoWidth = streamManager->getVideoWidth();
+    int32_t videoHeight = streamManager->getVideoHeight();
+    if (videoWidth <= 0 || videoHeight <= 0 || componentWidthVp == 0 || componentHeightVp == 0) {
+        return;
+    }
+
+    float clampedX = std::max(0.0f, std::min(event.x, static_cast<float>(componentWidthVp)));
+    float clampedY = std::max(0.0f, std::min(event.y, static_cast<float>(componentHeightVp)));
+    int32_t x = static_cast<int32_t>(std::lround((clampedX / static_cast<float>(componentWidthVp)) * videoWidth));
+    int32_t y = static_cast<int32_t>(std::lround((clampedY / static_cast<float>(componentHeightVp)) * videoHeight));
+    x = std::max(0, std::min(x, videoWidth - 1));
+    y = std::max(0, std::min(y, videoHeight - 1));
+
+    uint8_t action = ConvertNativeTouchAction(event.type);
+    float pressure = NormalizePressure(action, event.force);
+    uint16_t pressureU16 = static_cast<uint16_t>(std::lround(std::min(std::max(pressure, 0.0f), 1.0f) * 65535.0f));
+
+    std::array<uint8_t, 32> packet{};
+    packet[0] = CONTROL_MSG_TYPE_TOUCH_EVENT;
+    packet[1] = action;
+    WriteInt64BE(packet.data() + 2, static_cast<int64_t>(event.id));
+    WriteInt32BE(packet.data() + 10, x);
+    WriteInt32BE(packet.data() + 14, y);
+    WriteUint16BE(packet.data() + 18, static_cast<uint16_t>(videoWidth));
+    WriteUint16BE(packet.data() + 20, static_cast<uint16_t>(videoHeight));
+    WriteUint16BE(packet.data() + 22, pressureU16);
+    WriteInt32BE(packet.data() + 24, 0);
+    WriteInt32BE(packet.data() + 28, 0);
+    streamManager->sendControl(packet.data(), packet.size());
+}
+
+void OnSurfaceCreated(OH_NativeXComponent*, void*) {}
+
+void OnSurfaceChanged(OH_NativeXComponent*, void*) {}
+
+void OnSurfaceDestroyed(OH_NativeXComponent*, void*) {}
+
+void DispatchTouchEvent(OH_NativeXComponent* component, void* window) {
+    OH_NativeXComponent_TouchEvent touchEvent;
+    std::memset(&touchEvent, 0, sizeof(touchEvent));
+    if (OH_NativeXComponent_GetTouchEvent(component, window, &touchEvent) != OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
+        return;
+    }
+
+    uint64_t componentWidth = 0;
+    uint64_t componentHeight = 0;
+    if (OH_NativeXComponent_GetXComponentSize(component, window, &componentWidth, &componentHeight) != OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
+        return;
+    }
+
+    SendNativeTouchEvent(touchEvent, componentWidth, componentHeight);
+}
+
+bool RegisterNativeXComponentCallbacks(napi_env env, napi_value exports) {
+    napi_value exportInstance = nullptr;
+    if (napi_get_named_property(env, exports, OH_NATIVE_XCOMPONENT_OBJ, &exportInstance) != napi_ok) {
+        return false;
+    }
+
+    OH_NativeXComponent* nativeXComponent = nullptr;
+    if (napi_unwrap(env, exportInstance, reinterpret_cast<void**>(&nativeXComponent)) != napi_ok || !nativeXComponent) {
+        return false;
+    }
+
+    std::memset(&g_xComponentCallback, 0, sizeof(g_xComponentCallback));
+    g_xComponentCallback.OnSurfaceCreated = OnSurfaceCreated;
+    g_xComponentCallback.OnSurfaceChanged = OnSurfaceChanged;
+    g_xComponentCallback.OnSurfaceDestroyed = OnSurfaceDestroyed;
+    g_xComponentCallback.DispatchTouchEvent = DispatchTouchEvent;
+
+    int32_t ret = OH_NativeXComponent_RegisterCallback(nativeXComponent, &g_xComponentCallback);
+    OH_LOG_INFO(LOG_APP, "[NAPI] Native XComponent callback register ret=%{public}d", ret);
+    return ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS;
+}
+}
 static napi_threadsafe_function g_streamCallback = nullptr;
 
 // 事件数据结构（传给 threadsafe function）
@@ -1274,6 +1413,9 @@ static napi_value Init(napi_env env, napi_value exports) {
     };
 
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+    if (!RegisterNativeXComponentCallbacks(env, exports)) {
+        OH_LOG_WARN(LOG_APP, "[NAPI] Failed to register Native XComponent callbacks");
+    }
     return exports;
 }
 EXTERN_C_END
