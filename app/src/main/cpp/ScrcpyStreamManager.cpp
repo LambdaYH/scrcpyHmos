@@ -441,7 +441,7 @@ void ScrcpyStreamManager::stop() {
     bool wasRunning = running_.exchange(false);
     if (!wasRunning && !videoThread_.joinable() && !audioThread_.joinable() &&
         !controlThread_.joinable() && !controlSendThread_.joinable() &&
-        !controlProxyToAdbThread_.joinable() && !controlAdbToProxyThread_.joinable() &&
+        !controlAdbToProxyThread_.joinable() &&
         !videoProxyThread_.joinable() && !audioProxyThread_.joinable() && !acceptThread_.joinable()) {
         return;
     }
@@ -469,7 +469,6 @@ void ScrcpyStreamManager::stop() {
     joinThread(audioThread_);
     joinThread(controlThread_);
     joinThread(controlSendThread_);
-    joinThread(controlProxyToAdbThread_);
     joinThread(controlAdbToProxyThread_);
     joinThread(videoProxyThread_);
     joinThread(audioProxyThread_);
@@ -681,33 +680,6 @@ void ScrcpyStreamManager::audioProxyThreadFunc() {
     }
 
     closeFd(audioProxyFd_);
-}
-
-void ScrcpyStreamManager::controlProxyToAdbThreadFunc() {
-    std::vector<uint8_t> buffer(PROXY_CHUNK_SIZE);
-
-    try {
-        while (running_.load() && adb_ && controlStream_) {
-            int proxyFd = getLockedFd(controlProxyFd_, controlProxyFdMutex_);
-            if (proxyFd < 0) {
-                break;
-            }
-
-            ssize_t n = ::recv(proxyFd, buffer.data(), buffer.size(), 0);
-            if (n < 0 && errno == EINTR) {
-                continue;
-            }
-            if (n <= 0) {
-                break;
-            }
-
-            adb_->streamWrite(controlStream_, buffer.data(), static_cast<size_t>(n));
-        }
-    } catch (const std::exception& e) {
-        if (running_.load()) {
-            OH_LOG_WARN(LOG_APP, "[ControlProxy->ADB] Exit with error: %{public}s", e.what());
-        }
-    }
 }
 
 void ScrcpyStreamManager::controlAdbToProxyThreadFunc() {

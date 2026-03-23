@@ -62,7 +62,6 @@ private:
     void audioThreadFunc();
     void controlThreadFunc();
     void controlSendThreadFunc();
-    void controlProxyToAdbThreadFunc();
     void controlAdbToProxyThreadFunc();
     void videoProxyThreadFunc();
     void audioProxyThreadFunc();
@@ -107,7 +106,6 @@ private:
     std::thread videoThread_;
     std::thread audioThread_;
     std::thread controlThread_;
-    std::thread controlProxyToAdbThread_;
     std::thread controlAdbToProxyThread_;
     std::thread videoProxyThread_;
     std::thread audioProxyThread_;
