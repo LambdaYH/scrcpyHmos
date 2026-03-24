@@ -269,8 +269,12 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     }
 
 
-    maxData_ = message.arg1;
-    OH_LOG_INFO(LOG_APP, "ADB: connected, maxData=%{public}u", maxData_);
+    maxData_ = std::min<uint32_t>(message.arg1, AdbProtocol::CONNECT_MAXDATA);
+    OH_LOG_INFO(LOG_APP,
+                "ADB: connected, peerMaxData=%{public}u, localMaxData=%{public}u, effectiveMaxData=%{public}u",
+                message.arg1,
+                AdbProtocol::CONNECT_MAXDATA,
+                maxData_);
 
     // 启动后台消息处理
     handleInRunning_.store(true);

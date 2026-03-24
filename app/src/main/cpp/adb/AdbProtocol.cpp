@@ -8,6 +8,9 @@
 #undef LOG_TAG
 #define LOG_TAG "AdbProtocol"
 
+constexpr uint32_t AdbProtocol::CONNECT_VERSION;
+constexpr uint32_t AdbProtocol::CONNECT_MAXDATA;
+
 // 辅助：从fd精确读取指定字节数
 static void readExact(int fd, uint8_t* buf, size_t len) {
     size_t offset = 0;

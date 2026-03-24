@@ -39,8 +39,8 @@ public:
     static constexpr uint32_t CMD_WRTE = 0x45545257; // "WRTE"
 
     static constexpr uint32_t CONNECT_VERSION = 0x01000000;
-    // 最大数据大小，有些设备USB仅支持最大16*1024，所以限制ADB协议最大为15k
-    static constexpr uint32_t CONNECT_MAXDATA = 15 * 1024;
+    // 当前工程仅走 TCP/IP，主机侧接收窗口宣告为 1 MiB。
+    static constexpr uint32_t CONNECT_MAXDATA = 1024 * 1024;
 
     static std::vector<uint8_t> generateConnect();
     static std::vector<uint8_t> generateAuth(uint32_t type, const uint8_t* data, size_t len);
