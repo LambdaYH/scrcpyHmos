@@ -1,5 +1,6 @@
-#include "video_decoder_native.h"
+#include "decoder/VideoDecoderNative.h"
 #include <hilog/log.h>
+#include <algorithm>
 #include <queue>
 #include <mutex>
 #include <cstring>
@@ -13,6 +14,26 @@
 #define LOG_TAG "VideoDecoderNative"
 #define LOG_DOMAIN 0x3200
 
+namespace {
+struct DecoderOutputStats {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point last;
+    uint32_t frames = 0;
+    double jitterTotalMs = 0.0;
+    double jitterMinMs = 0.0;
+    double jitterMaxMs = 0.0;
+    uint32_t jitterSamples = 0;
+    uint32_t over25Ms = 0;
+    uint32_t over33Ms = 0;
+    bool hasLast = false;
+};
+
+double elapsedMs(const std::chrono::steady_clock::time_point& start,
+                 const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+}
+
 // DecoderContext - 使用 BlockingConcurrentQueue
 struct DecoderContext {
     VideoDecoderNative* decoder = nullptr;
@@ -22,6 +43,7 @@ struct DecoderContext {
     bool isDecFirstFrame = true;
     int32_t outputWidth = 0;
     int32_t outputHeight = 0;
+    DecoderOutputStats outputStats;
 };
 
 VideoDecoderNative::VideoDecoderNative()
@@ -87,6 +109,50 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     DecoderContext* ctx = static_cast<DecoderContext*>(userData);
     if (ctx == nullptr) return;
+
+    auto now = std::chrono::steady_clock::now();
+    if (ctx->outputStats.hasLast) {
+        double jitterMs = elapsedMs(ctx->outputStats.last, now);
+        if (ctx->outputStats.jitterSamples == 0) {
+            ctx->outputStats.jitterMinMs = jitterMs;
+            ctx->outputStats.jitterMaxMs = jitterMs;
+        } else {
+            ctx->outputStats.jitterMinMs = std::min(ctx->outputStats.jitterMinMs, jitterMs);
+            ctx->outputStats.jitterMaxMs = std::max(ctx->outputStats.jitterMaxMs, jitterMs);
+        }
+        ctx->outputStats.jitterTotalMs += jitterMs;
+        ++ctx->outputStats.jitterSamples;
+        if (jitterMs > 25.0) {
+            ++ctx->outputStats.over25Ms;
+        }
+        if (jitterMs > 33.0) {
+            ++ctx->outputStats.over33Ms;
+        }
+    } else {
+        ctx->outputStats.hasLast = true;
+    }
+    ctx->outputStats.last = now;
+    ++ctx->outputStats.frames;
+
+    double windowMs = elapsedMs(ctx->outputStats.start, now);
+    if (windowMs >= 1000.0) {
+        double fps = ctx->outputStats.frames * 1000.0 / windowMs;
+        OH_LOG_INFO(LOG_APP, "[DecoderOut] Rate: 0.00 MiB/s, %{public}.2f fps, bytes=0, frames=%{public}u",
+                    fps, ctx->outputStats.frames);
+        if (ctx->outputStats.jitterSamples > 0) {
+            OH_LOG_INFO(LOG_APP,
+                        "[DecoderOutJitter] avg=%{public}.2f ms, min=%{public}.2f ms, max=%{public}.2f ms, >25ms=%{public}u, >33ms=%{public}u",
+                        ctx->outputStats.jitterTotalMs / ctx->outputStats.jitterSamples,
+                        ctx->outputStats.jitterMinMs,
+                        ctx->outputStats.jitterMaxMs,
+                        ctx->outputStats.over25Ms,
+                        ctx->outputStats.over33Ms);
+        }
+        ctx->outputStats = {};
+        ctx->outputStats.start = now;
+        ctx->outputStats.last = now;
+        ctx->outputStats.hasLast = true;
+    }
 
     if (ctx->isDecFirstFrame) {
         OH_AVFormat* format = OH_VideoDecoder_GetOutputDescription(codec);

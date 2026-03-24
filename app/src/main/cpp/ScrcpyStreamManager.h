@@ -6,8 +6,11 @@
 #include "adb/Adb.h"
 #include "adb/AdbChannel.h"
 #include "concurrentqueue/blockingconcurrentqueue.h"
-#include "video_decoder_native.h"
-#include "audio_decoder_native.h"
+#include "stream/EncodedPacket.h"
+#include "stream/MediaPacketStore.h"
+#include "stream/StreamIO.h"
+#include "decoder/VideoDecoderNative.h"
+#include "decoder/AudioDecoderNative.h"
 
 #include <cstdint>
 #include <string>
@@ -22,19 +25,6 @@
 
 // 事件回调: type, data (JSON string)
 using StreamEventCallback = std::function<void(const std::string& type, const std::string& data)>;
-
-struct EncodedVideoPacket {
-    std::vector<uint8_t> data;
-    int64_t pts = 0;
-    uint32_t submitFlags = 0;
-    bool isKeyFrame = false;
-};
-
-struct EncodedAudioPacket {
-    std::vector<uint8_t> data;
-    int64_t pts = 0;
-    uint32_t submitFlags = 0;
-};
 
 class ScrcpyStreamManager {
 public:
@@ -81,10 +71,8 @@ private:
     void acceptThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
-    std::vector<uint8_t> readExact(AdbChannel* channel, size_t size, int32_t timeoutMs = -1);
-    void readExactToBuffer(AdbChannel* channel, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
-    std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
-    void readExactToBuffer(AdbStream* stream, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
+    std::vector<uint8_t> readExact(IByteStream* source, size_t size, int32_t timeoutMs = -1);
+    void readExactToBuffer(IByteStream* source, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
     int32_t createTcpListener(uint16_t& port);
     void closeLocalTunnels();
     void releaseLocalTunnels();
@@ -92,22 +80,7 @@ private:
     static void closeFd(int& fd);
     void initPacketPools();
     void resetPacketPools();
-    EncodedVideoPacket* acquireVideoPacket();
-    void enqueueVideoPacket(EncodedVideoPacket* packet);
-    bool waitDequeueVideoPacket(EncodedVideoPacket*& packet);
-    void recycleVideoPacket(EncodedVideoPacket* packet);
-    void cacheVideoConfig(const uint8_t* data, size_t len, uint32_t flags);
-    bool copyPendingVideoConfig(std::vector<uint8_t>& out, uint32_t& flags, uint64_t& serial, uint64_t lastSerial);
-    EncodedAudioPacket* acquireAudioPacket();
-    void enqueueAudioPacket(EncodedAudioPacket* packet);
-    bool waitDequeueAudioPacket(EncodedAudioPacket*& packet);
-    void recycleAudioPacket(EncodedAudioPacket* packet);
-    void cacheAudioConfig(const uint8_t* data, size_t len, uint32_t flags);
-    bool copyPendingAudioConfig(std::vector<uint8_t>& out, uint32_t& flags, uint64_t& serial, uint64_t lastSerial);
 
-    // 辅助：从字节读取大端整数
-    static int32_t readInt32BE(const uint8_t* data);
-    static int64_t readInt64BE(const uint8_t* data);
     // 发送事件到 ArkTS
     void emitEvent(const std::string& type, const std::string& data = "");
 
@@ -140,26 +113,8 @@ private:
     std::atomic<int32_t> videoHeight_{0};
     std::mutex eventMutex_;
     moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> controlReliableQueue_;
-
-    std::mutex videoPacketMutex_;
-    std::condition_variable videoPacketCv_;
-    std::deque<EncodedVideoPacket*> videoPacketQueue_;
-    std::deque<EncodedVideoPacket*> freeVideoPackets_;
-    std::vector<std::unique_ptr<EncodedVideoPacket>> videoPacketStorage_;
-    std::vector<uint8_t> latestVideoConfig_;
-    uint32_t latestVideoConfigFlags_ = 0;
-    uint64_t latestVideoConfigSerial_ = 0;
-    uint64_t droppedVideoPackets_ = 0;
-
-    std::mutex audioPacketMutex_;
-    std::condition_variable audioPacketCv_;
-    std::deque<EncodedAudioPacket*> audioPacketQueue_;
-    std::deque<EncodedAudioPacket*> freeAudioPackets_;
-    std::vector<std::unique_ptr<EncodedAudioPacket>> audioPacketStorage_;
-    std::vector<uint8_t> latestAudioConfig_;
-    uint32_t latestAudioConfigFlags_ = 0;
-    uint64_t latestAudioConfigSerial_ = 0;
-    uint64_t droppedAudioPackets_ = 0;
+    MediaPacketStore<EncodedVideoPacket> videoPackets_;
+    MediaPacketStore<EncodedAudioPacket> audioPackets_;
 };
 
 #endif // SCRCPY_STREAM_MANAGER_H

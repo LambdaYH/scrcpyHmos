@@ -1,6 +1,6 @@
 #include "napi/native_api.h"
-#include "video_decoder_native.h"
-#include "audio_decoder_native.h"
+#include "decoder/VideoDecoderNative.h"
+#include "decoder/AudioDecoderNative.h"
 #include "concurrentqueue/concurrentqueue.h"
 
 
