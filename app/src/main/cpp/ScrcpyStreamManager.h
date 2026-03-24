@@ -16,9 +16,25 @@
 #include <functional>
 #include <mutex>
 #include <vector>
+#include <deque>
+#include <condition_variable>
+#include <memory>
 
 // 事件回调: type, data (JSON string)
 using StreamEventCallback = std::function<void(const std::string& type, const std::string& data)>;
+
+struct EncodedVideoPacket {
+    std::vector<uint8_t> data;
+    int64_t pts = 0;
+    uint32_t submitFlags = 0;
+    bool isKeyFrame = false;
+};
+
+struct EncodedAudioPacket {
+    std::vector<uint8_t> data;
+    int64_t pts = 0;
+    uint32_t submitFlags = 0;
+};
 
 class ScrcpyStreamManager {
 public:
@@ -57,12 +73,11 @@ public:
 private:
     // 线程函数
     void videoThreadFunc();
+    void videoDecodeThreadFunc();
     void audioThreadFunc();
+    void audioDecodeThreadFunc();
     void controlThreadFunc();
     void controlSendThreadFunc();
-    void controlAdbToProxyThreadFunc();
-    void videoProxyThreadFunc();
-    void audioProxyThreadFunc();
     void acceptThreadFunc();
 
     // 精确读取 N 字节（阻塞），抛出异常表示流关闭或超时
@@ -70,12 +85,25 @@ private:
     void readExactToBuffer(AdbChannel* channel, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
     std::vector<uint8_t> readExact(AdbStream* stream, size_t size, int32_t timeoutMs = -1);
     void readExactToBuffer(AdbStream* stream, uint8_t* dest, size_t size, int32_t timeoutMs = -1);
-    int32_t createLocalTunnel(AdbChannel*& channel, int& proxyFd);
     int32_t createTcpListener(uint16_t& port);
     void closeLocalTunnels();
     void releaseLocalTunnels();
     void closeListener();
     static void closeFd(int& fd);
+    void initPacketPools();
+    void resetPacketPools();
+    EncodedVideoPacket* acquireVideoPacket();
+    void enqueueVideoPacket(EncodedVideoPacket* packet);
+    bool waitDequeueVideoPacket(EncodedVideoPacket*& packet);
+    void recycleVideoPacket(EncodedVideoPacket* packet);
+    void cacheVideoConfig(const uint8_t* data, size_t len, uint32_t flags);
+    bool copyPendingVideoConfig(std::vector<uint8_t>& out, uint32_t& flags, uint64_t& serial, uint64_t lastSerial);
+    EncodedAudioPacket* acquireAudioPacket();
+    void enqueueAudioPacket(EncodedAudioPacket* packet);
+    bool waitDequeueAudioPacket(EncodedAudioPacket*& packet);
+    void recycleAudioPacket(EncodedAudioPacket* packet);
+    void cacheAudioConfig(const uint8_t* data, size_t len, uint32_t flags);
+    bool copyPendingAudioConfig(std::vector<uint8_t>& out, uint32_t& flags, uint64_t& serial, uint64_t lastSerial);
 
     // 辅助：从字节读取大端整数
     static int32_t readInt32BE(const uint8_t* data);
@@ -96,25 +124,42 @@ private:
     AdbChannel* audioChannel_ = nullptr;
     AdbChannel* controlChannel_ = nullptr;
 
-    int videoProxyFd_ = -1;
-    int audioProxyFd_ = -1;
-    int controlProxyFd_ = -1;
     int listenFd_ = -1;
 
     std::thread videoThread_;
+    std::thread videoDecodeThread_;
     std::thread audioThread_;
+    std::thread audioDecodeThread_;
     std::thread controlThread_;
-    std::thread controlAdbToProxyThread_;
-    std::thread videoProxyThread_;
-    std::thread audioProxyThread_;
     std::thread acceptThread_;
     std::thread controlSendThread_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> videoReaderDone_{false};
+    std::atomic<bool> audioReaderDone_{false};
     std::atomic<int32_t> videoWidth_{0};
     std::atomic<int32_t> videoHeight_{0};
     std::mutex eventMutex_;
-    std::mutex controlProxyFdMutex_;
     moodycamel::BlockingConcurrentQueue<std::vector<uint8_t>> controlReliableQueue_;
+
+    std::mutex videoPacketMutex_;
+    std::condition_variable videoPacketCv_;
+    std::deque<EncodedVideoPacket*> videoPacketQueue_;
+    std::deque<EncodedVideoPacket*> freeVideoPackets_;
+    std::vector<std::unique_ptr<EncodedVideoPacket>> videoPacketStorage_;
+    std::vector<uint8_t> latestVideoConfig_;
+    uint32_t latestVideoConfigFlags_ = 0;
+    uint64_t latestVideoConfigSerial_ = 0;
+    uint64_t droppedVideoPackets_ = 0;
+
+    std::mutex audioPacketMutex_;
+    std::condition_variable audioPacketCv_;
+    std::deque<EncodedAudioPacket*> audioPacketQueue_;
+    std::deque<EncodedAudioPacket*> freeAudioPackets_;
+    std::vector<std::unique_ptr<EncodedAudioPacket>> audioPacketStorage_;
+    std::vector<uint8_t> latestAudioConfig_;
+    uint32_t latestAudioConfigFlags_ = 0;
+    uint64_t latestAudioConfigSerial_ = 0;
+    uint64_t droppedAudioPackets_ = 0;
 };
 
 #endif // SCRCPY_STREAM_MANAGER_H
