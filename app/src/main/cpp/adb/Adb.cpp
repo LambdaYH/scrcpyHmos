@@ -21,6 +21,68 @@
 namespace {
 constexpr size_t MAX_PENDING_WRITE_BYTES = 256 * 1024;
 
+struct AdbReadStats {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    double totalMs = 0.0;
+    double minMs = 0.0;
+    double maxMs = 0.0;
+    size_t totalBytes = 0;
+    uint32_t calls = 0;
+    uint32_t over5Ms = 0;
+    uint32_t over16Ms = 0;
+};
+
+std::mutex g_adbReadStatsMutex;
+AdbReadStats g_adbReadExactStats;
+AdbReadStats g_adbReadChunkStats;
+
+double elapsedMs(const std::chrono::steady_clock::time_point& start,
+                 const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+int32_t remainingTimeoutMs(const std::chrono::steady_clock::time_point& deadline) {
+    auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+        return 0;
+    }
+    return static_cast<int32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+}
+
+void recordAdbReadStats(AdbReadStats& stats, const char* tag, double ms, size_t bytes) {
+    auto now = std::chrono::steady_clock::now();
+    if (stats.calls == 0) {
+        stats.minMs = ms;
+        stats.maxMs = ms;
+    } else {
+        stats.minMs = std::min(stats.minMs, ms);
+        stats.maxMs = std::max(stats.maxMs, ms);
+    }
+    stats.totalMs += ms;
+    stats.totalBytes += bytes;
+    ++stats.calls;
+    if (ms > 5.0) {
+        ++stats.over5Ms;
+    }
+    if (ms > 16.0) {
+        ++stats.over16Ms;
+    }
+
+    if (elapsedMs(stats.start, now) < 1000.0) {
+        return;
+    }
+
+    double avgMs = stats.totalMs / stats.calls;
+    double avgBytes = stats.calls > 0 ? static_cast<double>(stats.totalBytes) / stats.calls : 0.0;
+    OH_LOG_INFO(LOG_APP,
+                "[%{public}s] avg=%{public}.2f ms, min=%{public}.2f ms, max=%{public}.2f ms, avgBytes=%{public}.1f, bytes=%{public}zu, calls=%{public}u, >5ms=%{public}u, >16ms=%{public}u",
+                tag, avgMs, stats.minMs, stats.maxMs, avgBytes, stats.totalBytes, stats.calls,
+                stats.over5Ms, stats.over16Ms);
+    stats = {};
+    stats.start = now;
+}
+
 void closeFdIfNeeded(int& fd) {
     if (fd < 0) {
         return;
@@ -636,23 +698,30 @@ std::vector<uint8_t> Adb::streamRead(int32_t streamId, size_t size, int32_t time
     // RingBuffer handles waiting and copying
     // My RingBuffer implementation: waitForData, copyTo
     
-    auto startTime = std::chrono::steady_clock::now();
+    const bool hasDeadline = timeoutMs > 0;
+    const auto deadline = hasDeadline ? std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs)
+                                      : std::chrono::steady_clock::time_point{};
 
     while (totalRead < size) {
         size_t needed = size - totalRead;
+        size_t waitTarget = exact ? std::min(needed, static_cast<size_t>(maxData_)) : 1;
+        int32_t waitTimeout = timeoutMs;
+        if (hasDeadline) {
+            waitTimeout = remainingTimeoutMs(deadline);
+        }
         
         // Wait for data
         // If timeoutMs < 0, wait indefinitely.
         // If timeoutMs == 0, check immediately (non-blocking).
         // If timeoutMs > 0, wait for given duration.
-        bool hasData = stream->readBuffer.waitForData(1, timeoutMs);
+        bool hasData = stream->readBuffer.waitForData(waitTarget, waitTimeout);
         
         if (!hasData) {
              if (stream->readBuffer.isClosed()) {
                   if (!exact && totalRead > 0) break;
                   throw std::runtime_error("Stream closed");
              }
-             if (timeoutMs == 0) { // Non-blocking read returned nothing
+             if (waitTimeout == 0) { // Non-blocking read returned nothing
                   if (!exact && totalRead > 0) break;
                   // If explicit non-blocking read and no data, we could just return partial/empty result
                   // usually expected to return whatever is available.
@@ -668,7 +737,7 @@ std::vector<uint8_t> Adb::streamRead(int32_t streamId, size_t size, int32_t time
                   if (!exact) break;
                   throw std::runtime_error("Stream read timeout (no data)");
              }
-             if (timeoutMs > 0) { // Specific timeout occurred
+             if (hasDeadline || timeoutMs > 0) { // Specific timeout occurred
                   if (!exact && totalRead > 0) break;
                   throw std::runtime_error("Stream read timeout");
              }
@@ -688,14 +757,9 @@ std::vector<uint8_t> Adb::streamRead(int32_t streamId, size_t size, int32_t time
         if (!exact && n > 0) break; // Return what we have if not exact
         
         // Timeout check for next iteration
-        if (timeoutMs > 0 && totalRead < size) {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
-            if (elapsed >= timeoutMs) {
-                 if (!exact) break;
-                 throw std::runtime_error("Stream read timeout");
-            }
-            timeoutMs -= static_cast<int32_t>(elapsed); // rough update
+        if (hasDeadline && totalRead < size && remainingTimeoutMs(deadline) == 0) {
+             if (!exact) break;
+             throw std::runtime_error("Stream read timeout");
         }
     }
 
@@ -713,24 +777,32 @@ size_t Adb::streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize
     if (!stream) throw std::runtime_error("Stream not found");
     if (stream->closed.load()) throw std::runtime_error("Stream closed");
 
+    auto callStart = std::chrono::steady_clock::now();
     size_t totalRead = 0;
-    auto startTime = std::chrono::steady_clock::now();
+    const bool hasDeadline = timeoutMs > 0;
+    const auto deadline = hasDeadline ? std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs)
+                                      : std::chrono::steady_clock::time_point{};
 
     while (totalRead < destSize) {
         size_t needed = destSize - totalRead;
+        size_t waitTarget = exact ? std::min(needed, static_cast<size_t>(maxData_)) : 1;
+        int32_t waitTimeout = timeoutMs;
+        if (hasDeadline) {
+            waitTimeout = remainingTimeoutMs(deadline);
+        }
         
-        bool hasData = stream->readBuffer.waitForData(1, timeoutMs);
+        bool hasData = stream->readBuffer.waitForData(waitTarget, waitTimeout);
         
         if (!hasData) {
              if (stream->readBuffer.isClosed()) {
                   if (!exact && totalRead > 0) break;
                   throw std::runtime_error("Stream closed");
              }
-             if (timeoutMs == 0) {
+             if (waitTimeout == 0) {
                   if (!exact) break;
                   throw std::runtime_error("Stream read timeout (no data)");
              }
-             if (timeoutMs > 0) {
+             if (hasDeadline || timeoutMs > 0) {
                   if (!exact && totalRead > 0) break;
                   throw std::runtime_error("Stream read timeout");
              }
@@ -748,15 +820,19 @@ size_t Adb::streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize
         
         if (!exact && n > 0) break; // Return what we have if not exact
         
-        if (timeoutMs > 0 && totalRead < destSize) {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
-            if (elapsed >= timeoutMs) {
-                 if (!exact) break;
-                 throw std::runtime_error("Stream read timeout");
-            }
-            timeoutMs -= static_cast<int32_t>(elapsed);
+        if (hasDeadline && totalRead < destSize && remainingTimeoutMs(deadline) == 0) {
+             if (!exact) break;
+             throw std::runtime_error("Stream read timeout");
         }
+    }
+
+    double readMs = elapsedMs(callStart, std::chrono::steady_clock::now());
+    {
+        std::lock_guard<std::mutex> lock(g_adbReadStatsMutex);
+        recordAdbReadStats(exact ? g_adbReadExactStats : g_adbReadChunkStats,
+                           exact ? "AdbReadExact" : "AdbReadChunk",
+                           readMs,
+                           totalRead);
     }
     return totalRead;
 }

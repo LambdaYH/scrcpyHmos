@@ -1,4 +1,4 @@
-#include "audio_decoder_native.h"
+#include "decoder/AudioDecoderNative.h"
 
 #include <hilog/log.h>
 #include <cstring>
