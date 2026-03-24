@@ -2,6 +2,7 @@
 #define SCRCPY_MEDIA_PACKET_STORE_H
 
 #include "stream/EncodedPacket.h"
+#include "concurrentqueue/concurrentqueue.h"
 
 #include <algorithm>
 #include <atomic>
@@ -69,7 +70,7 @@ public:
         storage_.reserve(poolSize);
         for (size_t i = 0; i < poolSize; ++i) {
             auto packet = std::make_unique<PacketT>();
-            freePackets_.push_back(packet.get());
+            freePackets_.enqueue(packet.get());
             storage_.push_back(std::move(packet));
         }
     }
@@ -78,23 +79,25 @@ public:
         {
             std::lock_guard<std::mutex> lock(mutex_);
             queue_.clear();
-            freePackets_.clear();
             storage_.clear();
             latestConfig_.clear();
             latestConfigFlags_ = 0;
             latestConfigSerial_ = 0;
             droppedCount_ = 0;
         }
+        PacketT* packet = nullptr;
+        while (freePackets_.try_dequeue(packet)) {
+        }
         cv_.notify_all();
     }
 
     PacketT* acquireForWrite() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!freePackets_.empty()) {
-            PacketT* packet = freePackets_.front();
-            freePackets_.pop_front();
+        PacketT* packet = nullptr;
+        if (freePackets_.try_dequeue(packet)) {
             return packet;
         }
+
+        std::lock_guard<std::mutex> lock(mutex_);
         return PacketStoreTraits<PacketT>::reclaimQueuedPacket(queue_, droppedCount_);
     }
 
@@ -145,8 +148,7 @@ public:
             return;
         }
         PacketStoreTraits<PacketT>::reset(packet);
-        std::lock_guard<std::mutex> lock(mutex_);
-        freePackets_.push_back(packet);
+        freePackets_.enqueue(packet);
     }
 
     void cacheConfig(const uint8_t* data, size_t len, uint32_t flags) {
@@ -183,7 +185,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<PacketT*> queue_;
-    std::deque<PacketT*> freePackets_;
+    moodycamel::ConcurrentQueue<PacketT*> freePackets_;
     std::vector<std::unique_ptr<PacketT>> storage_;
     std::vector<uint8_t> latestConfig_;
     uint32_t latestConfigFlags_ = 0;
