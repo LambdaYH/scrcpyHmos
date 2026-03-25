@@ -57,10 +57,6 @@ int32_t ScrcpyStreamManager::start(Adb* adb, const Config& config, StreamEventCa
     drainQueue(controlReliableQueue_);
     initPacketPools();
 
-    OH_LOG_INFO(LOG_APP,
-                "[StreamManager] Starting with video=%{public}d, audio=%{public}d, control=%{public}d",
-                config_.videoStreamId, config_.audioStreamId, config_.controlStreamId);
-
     if (videoStream_) {
         videoThread_ = std::thread(&ScrcpyStreamManager::videoThreadFunc, this);
     }
@@ -106,9 +102,6 @@ int32_t ScrcpyStreamManager::startReverse(Adb* adb, const Config& config, Stream
     initPacketPools();
     acceptThread_ = std::thread(&ScrcpyStreamManager::acceptThreadFunc, this);
 
-    OH_LOG_INFO(LOG_APP,
-                "[StreamManager] Reverse listener started on port=%{public}u, video=%{public}d, audio=%{public}d, control=%{public}d",
-                port, config_.expectVideo, config_.expectAudio, config_.expectControl);
     return static_cast<int32_t>(port);
 }
 
@@ -120,8 +113,6 @@ void ScrcpyStreamManager::stop() {
         !acceptThread_.joinable()) {
         return;
     }
-
-    OH_LOG_INFO(LOG_APP, "[StreamManager] Stopping...");
 
     closeLocalTunnels();
     closeListener();
@@ -168,5 +159,4 @@ void ScrcpyStreamManager::stop() {
     audioStream_ = nullptr;
     controlStream_ = nullptr;
     adb_ = nullptr;
-    OH_LOG_INFO(LOG_APP, "[StreamManager] Stopped");
 }

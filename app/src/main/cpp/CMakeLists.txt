@@ -18,7 +18,6 @@ add_library(scrcpy_native SHARED
     stream/adapters/ForwardStreamAdapter.cpp
     stream/adapters/ReverseStreamAdapter.cpp
     stream/StreamIO.cpp
-    stream/StreamStats.cpp
     adb/AdbProtocol.cpp
     adb/AdbBase64.cpp
     adb/LocalSocketChannel.cpp

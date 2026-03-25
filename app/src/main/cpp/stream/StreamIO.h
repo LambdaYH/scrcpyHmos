@@ -4,7 +4,6 @@
 #include "adb/Adb.h"
 #include "adb/AdbChannel.h"
 #include "stream/EncodedPacket.h"
-#include "stream/StreamStats.h"
 
 #include <cstdint>
 #include <memory>
@@ -48,21 +47,11 @@ ScrcpyPacketMeta readScrcpyPacketMeta(ReadFn&& readToBuffer,
                                       uint8_t* ptsBuf,
                                       uint8_t* sizeBuf,
                                       int32_t maxFrameSize,
-                                      const char* threadTag,
-                                      DurationStats* headerStats = nullptr,
-                                      DurationStats* sizeStats = nullptr) {
-    auto headerStart = std::chrono::steady_clock::now();
+                                      const char* threadTag) {
     readToBuffer(ptsBuf, 8);
-    if (headerStats) {
-        recordDuration(*headerStats, elapsedMs(headerStart, std::chrono::steady_clock::now()));
-    }
     int64_t ptsRaw = readInt64BEValue(ptsBuf);
 
-    auto sizeStart = std::chrono::steady_clock::now();
     readToBuffer(sizeBuf, 4);
-    if (sizeStats) {
-        recordDuration(*sizeStats, elapsedMs(sizeStart, std::chrono::steady_clock::now()));
-    }
     int32_t frameSize = readInt32BEValue(sizeBuf);
     if (frameSize <= 0 || frameSize > maxFrameSize) {
         throw std::runtime_error(std::string(threadTag) + " invalid frame size");
@@ -87,9 +76,7 @@ PacketT* readScrcpyPacketPayload(ReadFn&& readToBuffer,
                                  AcquireFn&& acquirePacket,
                                  const ScrcpyPacketMeta& meta,
                                  const char* threadTag,
-                                 const char* dropLabel,
-                                 DurationStats* payloadStats = nullptr,
-                                 JitterStats* readJitterStats = nullptr) {
+                                 const char* dropLabel) {
     (void)threadTag;
     (void)dropLabel;
     PacketT* packet = acquirePacket();
@@ -106,15 +93,7 @@ PacketT* readScrcpyPacketPayload(ReadFn&& readToBuffer,
     }
 
     packet->data.resize(static_cast<size_t>(meta.frameSize));
-    auto payloadStart = std::chrono::steady_clock::now();
     readToBuffer(packet->data.data(), static_cast<size_t>(meta.frameSize));
-    auto payloadEnd = std::chrono::steady_clock::now();
-    if (payloadStats) {
-        recordDuration(*payloadStats, elapsedMs(payloadStart, payloadEnd));
-    }
-    if (readJitterStats) {
-        recordJitter(*readJitterStats, payloadEnd);
-    }
 
     return packet;
 }

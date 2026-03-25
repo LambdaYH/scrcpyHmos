@@ -14,26 +14,6 @@
 #define LOG_TAG "VideoDecoderNative"
 #define LOG_DOMAIN 0x3200
 
-namespace {
-struct DecoderOutputStats {
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point last;
-    uint32_t frames = 0;
-    double jitterTotalMs = 0.0;
-    double jitterMinMs = 0.0;
-    double jitterMaxMs = 0.0;
-    uint32_t jitterSamples = 0;
-    uint32_t over25Ms = 0;
-    uint32_t over33Ms = 0;
-    bool hasLast = false;
-};
-
-double elapsedMs(const std::chrono::steady_clock::time_point& start,
-                 const std::chrono::steady_clock::time_point& end) {
-    return std::chrono::duration<double, std::milli>(end - start).count();
-}
-}
-
 // DecoderContext - 使用 BlockingConcurrentQueue
 struct DecoderContext {
     VideoDecoderNative* decoder = nullptr;
@@ -43,12 +23,11 @@ struct DecoderContext {
     bool isDecFirstFrame = true;
     int32_t outputWidth = 0;
     int32_t outputHeight = 0;
-    DecoderOutputStats outputStats;
 };
 
 VideoDecoderNative::VideoDecoderNative()
     : decoder_(nullptr), window_(nullptr), isStarted_(false),
-      width_(0), height_(0), frameCount_(0), codecType_("h264"), context_(nullptr) {
+      width_(0), height_(0), codecType_("h264"), context_(nullptr) {
 }
 
 VideoDecoderNative::~VideoDecoderNative() {
@@ -70,10 +49,8 @@ void VideoDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
     }
     int32_t width = 0;
     int32_t height = 0;
-    int32_t pixelFormat = 0;
     OH_AVFormat_GetIntValue(format, OH_MD_KEY_WIDTH, &width);
     OH_AVFormat_GetIntValue(format, OH_MD_KEY_HEIGHT, &height);
-    OH_AVFormat_GetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, &pixelFormat);
     
     // Also try video specific keys if generic ones fail or different
     int32_t videoWidth = 0;
@@ -81,16 +58,12 @@ void VideoDecoderNative::OnStreamChanged(OH_AVCodec* codec, OH_AVFormat* format,
     OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_WIDTH, &videoWidth);
     OH_AVFormat_GetIntValue(format, OH_MD_KEY_VIDEO_PIC_HEIGHT, &videoHeight);
 
-    OH_LOG_INFO(LOG_APP, "[Native] Stream format changed: %{public}dx%{public}d (video: %{public}dx%{public}d), fmt=%{public}d", 
-                width, height, videoWidth, videoHeight, pixelFormat);
-
     DecoderContext* ctx = static_cast<DecoderContext*>(userData);
     if (ctx != nullptr && ctx->decoder != nullptr && ctx->decoder->sizeChangeCallback_) {
         // Use video dimensions if available, otherwise fallback to container dimensions
         int32_t finalW = (videoWidth > 0) ? videoWidth : width;
         int32_t finalH = (videoHeight > 0) ? videoHeight : height;
         if (finalW > 0 && finalH > 0 && (finalW != ctx->decoder->width_ || finalH != ctx->decoder->height_)) {
-            OH_LOG_INFO(LOG_APP, "[Native] Notifying app of size change: %{public}dx%{public}d", finalW, finalH);
             ctx->decoder->width_ = finalW;
             ctx->decoder->height_ = finalH;
             ctx->decoder->sizeChangeCallback_(finalW, finalH);
@@ -109,50 +82,6 @@ void VideoDecoderNative::OnNeedInputBuffer(OH_AVCodec* codec, uint32_t index, OH
 void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* buffer, void* userData) {
     DecoderContext* ctx = static_cast<DecoderContext*>(userData);
     if (ctx == nullptr) return;
-
-    auto now = std::chrono::steady_clock::now();
-    if (ctx->outputStats.hasLast) {
-        double jitterMs = elapsedMs(ctx->outputStats.last, now);
-        if (ctx->outputStats.jitterSamples == 0) {
-            ctx->outputStats.jitterMinMs = jitterMs;
-            ctx->outputStats.jitterMaxMs = jitterMs;
-        } else {
-            ctx->outputStats.jitterMinMs = std::min(ctx->outputStats.jitterMinMs, jitterMs);
-            ctx->outputStats.jitterMaxMs = std::max(ctx->outputStats.jitterMaxMs, jitterMs);
-        }
-        ctx->outputStats.jitterTotalMs += jitterMs;
-        ++ctx->outputStats.jitterSamples;
-        if (jitterMs > 25.0) {
-            ++ctx->outputStats.over25Ms;
-        }
-        if (jitterMs > 33.0) {
-            ++ctx->outputStats.over33Ms;
-        }
-    } else {
-        ctx->outputStats.hasLast = true;
-    }
-    ctx->outputStats.last = now;
-    ++ctx->outputStats.frames;
-
-    double windowMs = elapsedMs(ctx->outputStats.start, now);
-    if (windowMs >= 1000.0) {
-        double fps = ctx->outputStats.frames * 1000.0 / windowMs;
-        OH_LOG_INFO(LOG_APP, "[DecoderOut] Rate: 0.00 MiB/s, %{public}.2f fps, bytes=0, frames=%{public}u",
-                    fps, ctx->outputStats.frames);
-        if (ctx->outputStats.jitterSamples > 0) {
-            OH_LOG_INFO(LOG_APP,
-                        "[DecoderOutJitter] avg=%{public}.2f ms, min=%{public}.2f ms, max=%{public}.2f ms, >25ms=%{public}u, >33ms=%{public}u",
-                        ctx->outputStats.jitterTotalMs / ctx->outputStats.jitterSamples,
-                        ctx->outputStats.jitterMinMs,
-                        ctx->outputStats.jitterMaxMs,
-                        ctx->outputStats.over25Ms,
-                        ctx->outputStats.over33Ms);
-        }
-        ctx->outputStats = {};
-        ctx->outputStats.start = now;
-        ctx->outputStats.last = now;
-        ctx->outputStats.hasLast = true;
-    }
 
     if (ctx->isDecFirstFrame) {
         OH_AVFormat* format = OH_VideoDecoder_GetOutputDescription(codec);
@@ -173,9 +102,6 @@ void VideoDecoderNative::OnNewOutputBuffer(OH_AVCodec* codec, uint32_t index, OH
 }
 
 int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, int32_t width, int32_t height) {
-    OH_LOG_INFO(LOG_APP, "[Native] Init: codec=%{public}s, size=%{public}dx%{public}d",
-                codecType, width, height);
-
     width_ = width;
     height_ = height;
     codecType_ = codecType ? codecType : "h264";
@@ -244,7 +170,6 @@ int32_t VideoDecoderNative::Init(const char* codecType, const char* surfaceId, i
         return ret;
     }
 
-    OH_LOG_INFO(LOG_APP, "[Native] Init complete");
     return 0;
 }
 
@@ -254,8 +179,6 @@ int32_t VideoDecoderNative::Start() {
     int32_t ret = OH_VideoDecoder_Start(decoder_);
     if (ret == AV_ERR_OK) {
         isStarted_ = true;
-        OH_LOG_INFO(LOG_APP, "[Native] Started");
-
         int waitCount = 0;
         while (waitCount < 200) {
             if (context_->inputQueue.size_approx() > 0) {
@@ -314,7 +237,6 @@ int32_t VideoDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts, u
         return -1;
     }
 
-    frameCount_++;
     return 0;
 }
 
@@ -362,7 +284,6 @@ int32_t VideoDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int6
         return -1;
     }
     
-    frameCount_++;
     return 0;
 }
 
@@ -370,7 +291,6 @@ int32_t VideoDecoderNative::Stop() {
     if (decoder_ != nullptr && isStarted_) {
         OH_VideoDecoder_Stop(decoder_);
         isStarted_ = false;
-        OH_LOG_INFO(LOG_APP, "[Native] Decoder stopped");
     }
     return 0;
 }
@@ -395,7 +315,6 @@ int32_t VideoDecoderNative::Release() {
         context_ = nullptr;
     }
 
-    OH_LOG_INFO(LOG_APP, "[Native] Released, total frames: %{public}u", frameCount_);
     return 0;
 }
 

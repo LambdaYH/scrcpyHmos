@@ -116,8 +116,6 @@ static napi_value PushVideoData(napi_env env, napi_callback_info info) {
         }
     }
 
-    // OH_LOG_DEBUG(LOG_APP, "[NAPI] PushVideoData: size=%{public}zu, pts=%{public}ld, flags=%{public}u", dataSize, (long)pts, flags);
-
     auto it = g_videoDecoders.find(decoderId);
     if (it != g_videoDecoders.end()) {
         int32_t ret = it->second->PushData(static_cast<uint8_t*>(data), static_cast<int32_t>(dataSize), pts, flags);
@@ -365,10 +363,6 @@ static void CompleteAdbCreateFull(napi_env env, napi_status status, void* data) 
         int64_t adbId = g_nextAdbId++;
         g_adbInstances[adbId] = context->adbInstance;
         napi_create_int64(env, adbId, &result);
-        
-        OH_LOG_INFO(LOG_APP, "[NAPI] AdbCreate success: id=%{public}lld, ip=%{public}s, port=%{public}d",
-                    (long long)adbId, context->ip.c_str(), context->port);
-        
         napi_resolve_deferred(env, context->deferred, result);
     } else {
         OH_LOG_ERROR(LOG_APP, "[NAPI] AdbCreate failed: %{public}s", context->errorMsg.c_str());
@@ -446,8 +440,6 @@ static void ExecuteAdbConnect(napi_env env, void* data) {
     }
 
     try {
-        OH_LOG_INFO(LOG_APP, "[NAPI] ExecuteAdbConnect: adbId=%{public}lld, adbPtr=%{public}p",
-                    static_cast<long long>(context->adbId), context->adbInstance.get());
         AdbKeyPair keyPair = AdbKeyPair::read(context->pubKeyPath, context->priKeyPath);
         
         auto onWaitAuth = [context]() {
@@ -1115,7 +1107,6 @@ bool RegisterNativeXComponentCallbacks(napi_env env, napi_value exports) {
     g_xComponentCallback.DispatchTouchEvent = DispatchTouchEvent;
 
     int32_t ret = OH_NativeXComponent_RegisterCallback(nativeXComponent, &g_xComponentCallback);
-    OH_LOG_INFO(LOG_APP, "[NAPI] Native XComponent callback register ret=%{public}d", ret);
     bool registered = ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS;
     g_nativeXComponentCallbacksRegistered.store(registered, std::memory_order_release);
     return registered;

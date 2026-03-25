@@ -56,17 +56,12 @@ export class NativeStreamClient {
   // Start the session
   async start(serverJarData: ArrayBuffer | null, surfaceId: string): Promise<void> {
     try {
-      LoggerClientStream.info('[NativeStreamClient] Starting session...');
-
       // 1. Prepare the server and reuse the connected ADB session.
       this.adbId = await this.clientStream.prepareServerForNative(this.context, serverJarData, () => {
-          LoggerClientStream.info('[NativeStreamClient] onWaitAuth callback received from ClientStream');
           if (this.listener && this.listener.onWaitAuth) {
               this.listener.onWaitAuth();
           }
       });
-      
-      LoggerClientStream.info(`[NativeStreamClient] Reusing ADB connection ID: ${this.adbId}`);
 
       const eventCallback = this.createNativeEventCallback();
       if (this.device.forceAdbForward) {
@@ -86,11 +81,8 @@ export class NativeStreamClient {
       }
 
       if (this.device.lightOffOnConnect) {
-        LoggerClientStream.info('[NativeStreamClient] Requesting device screen off after connection');
         this.sendControl(ControlPacket.createSetDisplayPower(false));
       }
-
-      LoggerClientStream.info('[NativeStreamClient] Session started successfully');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.error('[NativeStreamClient] Start failed:', errMsg);
@@ -102,7 +94,6 @@ export class NativeStreamClient {
   // Stop the session
   stop(): void {
     try {
-      LoggerClientStream.info('[NativeStreamClient] Stopping session...');
       this.rejectReverseReady(new Error('Session stopped'));
       
       try {
@@ -132,7 +123,6 @@ export class NativeStreamClient {
   ): Promise<boolean> {
     const reverseArgs = ServerManager.buildServerArgs(this.device, false);
     const socketName = ServerManager.getSocketName();
-    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: preparing reverse for localabstract:${socketName}`);
 
     const reversePort: number = this.callNativeStartReverseStreams(
       this.adbId,
@@ -158,7 +148,7 @@ export class NativeStreamClient {
       return false;
     }
 
-    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: using reverse (localabstract:${socketName} -> tcp:${reversePort})`);
+    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: using reverse`);
     const reverseReadyPromise = this.waitForReverseReady();
     this.clientStream.startServer(reverseArgs);
     try {
@@ -187,7 +177,6 @@ export class NativeStreamClient {
 
   private async openNativeStreams(): Promise<void> {
     const socketName = ServerManager.getSocketName(); // e.g. "scrcpy_12345678"
-    LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: forward streams to localabstract:${socketName}`);
 
     // Retry while waiting for the server to listen on the abstract socket.
     let retries = 50; // 50 * 100ms = 5 seconds
@@ -207,7 +196,7 @@ export class NativeStreamClient {
       await new Promise<void>(resolve => setTimeout(resolve, NativeStreamClient.FORWARD_CONNECT_RETRY_DELAY_MS));
     }
     
-    LoggerClientStream.info(`[NativeStreamClient] Video Stream Connected (ID: ${this.videoStreamId})`);
+    LoggerClientStream.info(`[NativeStreamClient] Video Stream Connected`);
 
     // 2. Audio Stream
     if (this.device.isAudio) {
@@ -216,14 +205,14 @@ export class NativeStreamClient {
             LoggerClientStream.warn("Failed to connect Audio stream, disabling audio");
             this.audioStreamId = -1;
         } else {
-            LoggerClientStream.info(`[NativeStreamClient] Audio Stream Connected (ID: ${this.audioStreamId})`);
+            LoggerClientStream.info(`[NativeStreamClient] Audio Stream Connected`);
         }
     }
 
     // 3. Control Stream
     this.controlStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
     if (this.controlStreamId < 0) throw new Error("Failed to connect Control stream");
-    LoggerClientStream.info(`[NativeStreamClient] Control Stream Connected (ID: ${this.controlStreamId})`);
+    LoggerClientStream.info(`[NativeStreamClient] Control Stream Connected`);
   }
 
   private createNativeEventCallback(): NativeEventCallback {
@@ -256,9 +245,6 @@ export class NativeStreamClient {
                 try {
                     interface VideoConfig { width: number; height: number; }
                     const config = JSON.parse(data) as VideoConfig;
-                    if (type === 'video_size_changed') {
-                        LoggerClientStream.info(`[NativeStreamClient] Dynamic Video Size Changed: ${config.width}x${config.height}`);
-                    }
                     this.listener.onVideoConfig(config.width, config.height);
                 } catch (e) {
                     LoggerClientStream.error('Parse video config/size failed:', JSON.stringify(e));
@@ -274,7 +260,6 @@ export class NativeStreamClient {
                 this.listener.onError(data);
                 break;
             case 'first_frame':
-                LoggerClientStream.info('First frame received');
                 if (this.listener.onFirstFrame) {
                     this.listener.onFirstFrame();
                 }
@@ -287,8 +272,6 @@ export class NativeStreamClient {
     surfaceId: string,
     eventCallback: NativeEventCallback
   ): void {
-    LoggerClientStream.info('[NativeStreamClient] Starting native threads...');
-
     const res: number = libscrcpy.nativeStartStreams(
         this.adbId,
         this.videoStreamId,

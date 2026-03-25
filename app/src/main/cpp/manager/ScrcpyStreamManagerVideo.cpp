@@ -1,7 +1,5 @@
 #include "ScrcpyStreamManager.h"
 
-#include "stream/StreamStats.h"
-
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -21,23 +19,19 @@ constexpr size_t VIDEO_REBUFFER_LOW_WATERMARK = 2;
 constexpr int32_t VIDEO_REBUFFER_TRIGGER_MS = 90;
 constexpr int32_t VIDEO_REBUFFER_MAX_WAIT_MS = 120;
 constexpr int32_t VIDEO_HANDSHAKE_TIMEOUT_MS = 10000;
+
+double elapsedMs(const std::chrono::steady_clock::time_point& start,
+                 const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
 }
 
 void ScrcpyStreamManager::videoThreadFunc() {
-    OH_LOG_INFO(LOG_APP, "[VideoThread] Started");
-
     try {
         auto source = ::createByteStream(adb_, videoChannel_, videoStream_, "video");
         if (!source) {
             throw std::runtime_error("video source not found");
         }
-        ThroughputStats readThroughput;
-        FrameStats frameStats;
-        DurationStats headerReadStats;
-        DurationStats sizeReadStats;
-        DurationStats payloadReadStats;
-        JitterStats readJitterStats;
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Using source: %{public}s", source->debugName());
 
         auto readToBuffer = [this, &source](uint8_t* dest, size_t size, int32_t timeoutMs = -1) {
             readExactToBuffer(source.get(), dest, size, timeoutMs);
@@ -47,27 +41,19 @@ void ScrcpyStreamManager::videoThreadFunc() {
             return readExact(source.get(), size, timeoutMs);
         };
 
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Waiting for startup handshake, timeout=%{public}d ms",
-                    VIDEO_HANDSHAKE_TIMEOUT_MS);
-
         if (config_.sendDummyByte) {
             auto dummy = readBytes(1, VIDEO_HANDSHAKE_TIMEOUT_MS);
             (void)dummy;
-            OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
         }
 
         auto deviceNameData = readBytes(64, VIDEO_HANDSHAKE_TIMEOUT_MS);
         std::string deviceName(reinterpret_cast<char*>(deviceNameData.data()), 64);
         deviceName = deviceName.c_str();
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Device: %{public}s", deviceName.c_str());
 
         auto codecMeta = readBytes(12, VIDEO_HANDSHAKE_TIMEOUT_MS);
         int32_t codecId = readInt32BEValue(codecMeta.data());
         int32_t width = readInt32BEValue(codecMeta.data() + 4);
         int32_t height = readInt32BEValue(codecMeta.data() + 8);
-
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Codec=%{public}d, Size=%{public}dx%{public}d",
-                    codecId, width, height);
         videoWidth_.store(width);
         videoHeight_.store(height);
 
@@ -117,51 +103,33 @@ void ScrcpyStreamManager::videoThreadFunc() {
         }
 
         videoDecodeThread_ = std::thread(&ScrcpyStreamManager::videoDecodeThreadFunc, this);
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Decoder started, entering frame loop");
 
         uint8_t ptsBuf[8];
         uint8_t sizeBuf[4];
 
         while (running_.load()) {
             ScrcpyPacketMeta meta = readScrcpyPacketMeta(readToBuffer, ptsBuf, sizeBuf, 20 * 1024 * 1024,
-                                                         "VideoThread", &headerReadStats, &sizeReadStats);
+                                                         "VideoThread");
             EncodedVideoPacket* packet = readScrcpyPacketPayload<EncodedVideoPacket>(
                 readToBuffer, [this]() { return videoPackets_.acquireForWrite(); }, meta,
-                "VideoThread", "frame", &payloadReadStats, &readJitterStats);
+                "VideoThread", "frame");
             if (!packet) {
                 continue;
             }
             applyPacketMeta(packet, meta);
 
-            readThroughput.bytes += packet->data.size();
-            frameStats.totalBytes += packet->data.size();
-            frameStats.maxBytes = std::max(frameStats.maxBytes, packet->data.size());
-            ++frameStats.frames;
-
-            maybeLogDurationStats("VideoHeaderRead", headerReadStats);
-            maybeLogDurationStats("VideoSizeRead", sizeReadStats);
-            maybeLogDurationStats("VideoPayloadRead", payloadReadStats);
-            maybeLogJitterStats("VideoReadJitter", readJitterStats);
-            maybeLogThroughput("VideoRead", readThroughput);
-            maybeLogFrameStats(frameStats);
-
             if (meta.isConfig) {
                 videoPackets_.cacheConfig(packet->data.data(), packet->data.size(), packet->submitFlags);
                 videoPackets_.recycle(packet);
-                OH_LOG_INFO(LOG_APP, "[VideoThread] Cached config packet (SPS/PPS)");
                 continue;
             }
 
             videoPackets_.enqueue(packet);
         }
-
-        OH_LOG_INFO(LOG_APP, "[VideoThread] Exiting");
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[VideoThread] Error: %{public}s", e.what());
             emitEvent("error", std::string("Video thread error: ") + e.what());
-        } else {
-            OH_LOG_INFO(LOG_APP, "[VideoThread] Exiting (stopped)");
         }
     }
 
@@ -174,8 +142,6 @@ void ScrcpyStreamManager::videoThreadFunc() {
 }
 
 void ScrcpyStreamManager::videoDecodeThreadFunc() {
-    OH_LOG_INFO(LOG_APP, "[VideoDecode] Started");
-
     uint64_t appliedConfigSerial = 0;
     bool firstFrameNotified = false;
     bool startupBuffered = false;
@@ -183,10 +149,6 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
     bool starvationActive = false;
     auto rebufferStart = std::chrono::steady_clock::now();
     auto starvationStart = std::chrono::steady_clock::now();
-    uint32_t frameCount = 0;
-    ThroughputStats decoderInThroughput;
-    JitterStats decoderInJitter;
-    DurationStats inputWaitStats;
 
     try {
         while (running_.load() || !videoReaderDone_.load()) {
@@ -197,9 +159,6 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
                 if (!videoReaderDone_.load() && queuedFrames < targetFrames) {
                     if (rebuffering &&
                         elapsedMs(rebufferStart, std::chrono::steady_clock::now()) >= VIDEO_REBUFFER_MAX_WAIT_MS) {
-                        OH_LOG_INFO(LOG_APP,
-                                    "[VideoDecode] Rebuffer timeout, continue with queued=%{public}zu",
-                                    queuedFrames);
                         rebuffering = false;
                     } else {
                         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -209,7 +168,6 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
                 startupBuffered = true;
                 rebuffering = false;
                 starvationActive = false;
-                OH_LOG_INFO(LOG_APP, "[VideoDecode] Buffer ready: queued=%{public}zu", queuedFrames);
             }
 
             EncodedVideoPacket* packet = nullptr;
@@ -230,7 +188,6 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
                     elapsedMs(starvationStart, now) >= VIDEO_REBUFFER_TRIGGER_MS) {
                     rebuffering = true;
                     rebufferStart = now;
-                    OH_LOG_INFO(LOG_APP, "[VideoDecode] Sustained starvation, enter rebuffer");
                 }
                 continue;
             }
@@ -270,14 +227,12 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
             int32_t bufCapacity = 0;
             void* bufHandle = nullptr;
             int32_t getBufRet = -1;
-            auto inputWaitStart = std::chrono::steady_clock::now();
             while (running_.load()) {
                 getBufRet = videoDecoder_->GetInputBuffer(&bufIndex, &bufData, &bufCapacity, &bufHandle, 10);
                 if (getBufRet == 0 || getBufRet != -2) {
                     break;
                 }
             }
-            recordDuration(inputWaitStats, elapsedMs(inputWaitStart, std::chrono::steady_clock::now()));
 
             if (getBufRet != 0) {
                 videoPackets_.recycle(packet);
@@ -305,16 +260,8 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
             videoPackets_.recycle(packet);
 
             if (submitRet == 0) {
-                ++frameCount;
-                decoderInThroughput.bytes += packet->data.size();
-                ++decoderInThroughput.frames;
-                recordJitter(decoderInJitter, std::chrono::steady_clock::now());
-                maybeLogDecoderRate("DecoderIn", decoderInThroughput);
-                maybeLogJitterStats("DecoderInJitter", decoderInJitter);
-                maybeLogDurationStats("VideoInputWait", inputWaitStats);
                 if (!firstFrameNotified) {
                     firstFrameNotified = true;
-                    OH_LOG_INFO(LOG_APP, "[VideoDecode] First frame submitted");
                     emitEvent("first_frame", "");
                 }
             } else {
@@ -326,6 +273,4 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
             OH_LOG_ERROR(LOG_APP, "[VideoDecode] Error: %{public}s", e.what());
         }
     }
-
-    OH_LOG_INFO(LOG_APP, "[VideoDecode] Exiting, total frames: %{public}u", frameCount);
 }

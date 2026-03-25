@@ -52,7 +52,6 @@ private:
     bool isStarted_;
     int32_t width_;
     int32_t height_;
-    uint32_t frameCount_;
     std::string codecType_;
     struct DecoderContext* context_;
 };
