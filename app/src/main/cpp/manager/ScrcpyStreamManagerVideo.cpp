@@ -20,6 +20,7 @@ constexpr size_t VIDEO_STARTUP_PREBUFFER_FRAMES = 10;
 constexpr size_t VIDEO_REBUFFER_LOW_WATERMARK = 2;
 constexpr int32_t VIDEO_REBUFFER_TRIGGER_MS = 90;
 constexpr int32_t VIDEO_REBUFFER_MAX_WAIT_MS = 120;
+constexpr int32_t VIDEO_HANDSHAKE_TIMEOUT_MS = 10000;
 }
 
 void ScrcpyStreamManager::videoThreadFunc() {
@@ -46,18 +47,21 @@ void ScrcpyStreamManager::videoThreadFunc() {
             return readExact(source.get(), size, timeoutMs);
         };
 
+        OH_LOG_INFO(LOG_APP, "[VideoThread] Waiting for startup handshake, timeout=%{public}d ms",
+                    VIDEO_HANDSHAKE_TIMEOUT_MS);
+
         if (config_.sendDummyByte) {
-            auto dummy = readBytes(1, 2000);
+            auto dummy = readBytes(1, VIDEO_HANDSHAKE_TIMEOUT_MS);
             (void)dummy;
             OH_LOG_DEBUG(LOG_APP, "[VideoThread] Dummy byte read");
         }
 
-        auto deviceNameData = readBytes(64, 2000);
+        auto deviceNameData = readBytes(64, VIDEO_HANDSHAKE_TIMEOUT_MS);
         std::string deviceName(reinterpret_cast<char*>(deviceNameData.data()), 64);
         deviceName = deviceName.c_str();
         OH_LOG_INFO(LOG_APP, "[VideoThread] Device: %{public}s", deviceName.c_str());
 
-        auto codecMeta = readBytes(12, 2000);
+        auto codecMeta = readBytes(12, VIDEO_HANDSHAKE_TIMEOUT_MS);
         int32_t codecId = readInt32BEValue(codecMeta.data());
         int32_t width = readInt32BEValue(codecMeta.data() + 4);
         int32_t height = readInt32BEValue(codecMeta.data() + 8);

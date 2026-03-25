@@ -368,23 +368,25 @@ void Adb::handleInLoop() {
 
             if (cmd == AdbProtocol::CMD_WRTE && stream && payloadLen > 0) {
                 // *** ZERO-COPY PATH ***
-                // Read directly into Stream's RingBuffer
+                // Read directly into Stream's RingBuffer.
+                // Do not drop bytes here: ADB must remain a reliable byte stream.
+                // Overload is handled later at the decoded-packet queue layer.
                 size_t remaining = payloadLen;
                 while (remaining > 0) {
                     auto writeInfo = stream->readBuffer.getWritePtr();
-                        if (writeInfo.second == 0) {
-                            // Buffer full!
-                            // DROP PACKET IMMEDIATELY to avoid blocking other streams (e.g. control, audio)
-                            // If we block here, a stalled video decoder could freeze the entire connection.
-                            OH_LOG_WARN(LOG_APP, "[ADB] Stream %{public}d buffer FULL! Dropping %{public}zu bytes", arg1, remaining);
-                            
-                            // Drain socket to temp buffer to keep stream in sync
-                            size_t toDrop = std::min(remaining, (size_t)4096);
-                            if (tempPayload.size() < toDrop) tempPayload.resize(toDrop);
-                            channel_->readWithTimeout(tempPayload.data(), toDrop, -1);
-                            remaining -= toDrop;
+                    if (writeInfo.second == 0) {
+                        bool hasSpace = stream->readBuffer.waitForSpace(1, -1);
+                        if (!hasSpace) {
+                            // The stream is closing while this payload is already in-flight.
+                            // Drain the remaining bytes to keep the ADB connection framed correctly.
+                            size_t toDrain = std::min(remaining, static_cast<size_t>(4096));
+                            if (tempPayload.size() < toDrain) tempPayload.resize(toDrain);
+                            channel_->readWithTimeout(tempPayload.data(), toDrain, -1);
+                            remaining -= toDrain;
                             continue;
                         }
+                        continue;
+                    }
 
                     size_t toRead = std::min(remaining, writeInfo.second);
                     channel_->readWithTimeout(writeInfo.first, toRead, -1);
@@ -392,9 +394,11 @@ void Adb::handleInLoop() {
                     remaining -= toRead;
                 }
 
-                // Send OKAY
-                auto okayMsg = AdbProtocol::generateOkay(static_cast<int32_t>(arg1), static_cast<int32_t>(arg0));
-                writeToChannel(std::move(okayMsg));
+                if (!stream->closed.load() && !isClosed_.load()) {
+                    auto okayMsg = AdbProtocol::generateOkay(static_cast<int32_t>(arg1),
+                                                             static_cast<int32_t>(arg0));
+                    writeToChannel(std::move(okayMsg));
+                }
 
             } else {
                 // *** NORMAL PATH ***
