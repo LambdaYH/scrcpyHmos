@@ -100,7 +100,7 @@ TcpChannel::TcpChannel(const std::string& host, int port) {
         int flags = fcntl(fd_, F_GETFL, 0);
         fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
 
-        OH_LOG_INFO(LOG_APP, "TcpChannel: Connecting (non-blocking)...");
+//        OH_LOG_INFO(LOG_APP, "TcpChannel: Connecting (non-blocking)...");
         int res = connect(fd_, p->ai_addr, p->ai_addrlen);
         
         if (res == 0) {
