@@ -94,8 +94,14 @@ PacketT* readScrcpyPacketPayload(ReadFn&& readToBuffer,
     (void)dropLabel;
     PacketT* packet = acquirePacket();
     if (!packet) {
-        std::vector<uint8_t> dropBuffer(static_cast<size_t>(meta.frameSize));
-        readToBuffer(dropBuffer.data(), static_cast<size_t>(meta.frameSize));
+        constexpr size_t DROP_CHUNK_SIZE = 64 * 1024;
+        std::vector<uint8_t> dropBuffer(std::min(static_cast<size_t>(meta.frameSize), DROP_CHUNK_SIZE));
+        size_t remaining = static_cast<size_t>(meta.frameSize);
+        while (remaining > 0) {
+            size_t chunk = std::min(remaining, dropBuffer.size());
+            readToBuffer(dropBuffer.data(), chunk);
+            remaining -= chunk;
+        }
         return nullptr;
     }
 

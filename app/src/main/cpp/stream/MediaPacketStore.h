@@ -98,6 +98,9 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(mutex_);
+        // No free packet available: reclaim a fully queued packet instead of
+        // blocking the upstream reader. This keeps overload handling at the
+        // frame level rather than pushing it back down to the raw ADB byte stream.
         return PacketStoreTraits<PacketT>::reclaimQueuedPacket(queue_, droppedCount_);
     }
 
@@ -175,6 +178,11 @@ public:
     size_t queuedSize() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return queue_.size();
+    }
+
+    uint64_t droppedCount() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return droppedCount_;
     }
 
     void notifyAll() {

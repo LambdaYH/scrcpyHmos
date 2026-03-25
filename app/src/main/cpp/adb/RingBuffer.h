@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
 #include <cstring>
 
 /**
@@ -16,11 +17,11 @@
  * - Indices (head_, tail_) are monotonic atomic<uint64_t> to avoid ABA and modulo complexity during indexing.
  * - Buffer size must be Power of 2 to use bitwise AND masking.
  * - "Fast Path": getWritePtr/getReadPtr/commit/consume use ONLY atomics. NO mutex.
- * - "Slow Path": waitForData uses Mutex/CV, but only when necessary.
+ * - "Slow Path": waitForData/waitForSpace use Mutex/CV, but only when necessary.
  */
 class RingBuffer {
 public:
-    explicit RingBuffer(size_t capacity) : head_(0), tail_(0), waiting_(false), closed_(false) {
+    explicit RingBuffer(size_t capacity) : head_(0), tail_(0), closed_(false) {
         // Ensure capacity is Power of 2
         if (capacity < 4096) capacity = 4096;
         size_t cap = 1;
@@ -50,19 +51,7 @@ public:
         uint64_t h = head_.load(std::memory_order_relaxed);
         // Release ordering ensures data is visible before head is updated
         head_.store(h + written, std::memory_order_release);
-
-        // Check if consumer is waiting (with full memory barrier to prevent reordering beyond store head)
-        // Store Head -> Fence -> Load Waiting
-        std::atomic_thread_fence(std::memory_order_seq_cst); // Ensure Head update is visible before load Waiting
-        
-        if (waiting_.load(std::memory_order_acquire)) {
-            std::unique_lock<std::mutex> lock(mutex_);
-            // Double check waiting inside lock to be safe/avoid spurious wakeups, 
-            // though strict necessity depends on exact waiting_ lifecycle.
-            // Simplified: Just notify if flag seen.
-            waiting_.store(false, std::memory_order_relaxed); // Clear flag as we are waking up
-            cv_.notify_all();
-        }
+        cv_.notify_all();
     }
 
     // Consumer: Get read pointer and available contiguous data
@@ -84,6 +73,7 @@ public:
         uint64_t t = tail_.load(std::memory_order_relaxed);
         // Release ordering ensures data read completion is theoretically ordered (though for SPSC read it's more about tail update visibility)
         tail_.store(t + consumed, std::memory_order_release);
+        cv_.notify_all();
     }
 
     // Consumer: Blocking wait for data
@@ -100,41 +90,43 @@ public:
         if (timeoutMs == 0) return false;
 
         std::unique_lock<std::mutex> lock(mutex_);
-        
-        // Set waiting flag BEFORE checking size a second time
-        waiting_.store(true, std::memory_order_release);
-        
-        // Full barrier to ensure Waiting stored before loading Head
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-
-        // Re-check state after setting flag to avoid race (lost wakeup)
-        // If producer wrote after our first check but before we set waiting, we might miss it
-        if (size() >= needed || closed_.load()) {
-            waiting_.store(false, std::memory_order_relaxed);
-            return size() >= needed;
-        }
 
         bool result = false;
         if (timeoutMs < 0) {
-            cv_.wait(lock, [this, needed] { 
-                // Inside wait, spurious wakeups handled by loop, but we need to create loop manually 
-                // or just rely on predicate.
-                bool ready = size() >= needed || closed_.load();
-                if (ready) waiting_.store(false, std::memory_order_relaxed);
-                return ready;
+            cv_.wait(lock, [this, needed] {
+                return size() >= needed || closed_.load();
             });
             result = size() >= needed;
         } else {
-            result = cv_.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this, needed] { 
-                bool ready = size() >= needed || closed_.load();
-                if (ready) waiting_.store(false, std::memory_order_relaxed);
-                return ready;
+            result = cv_.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this, needed] {
+                return size() >= needed || closed_.load();
             });
         }
-        
-        // Ensure flag cleared on exit (timeout case)
-        if (!result) waiting_.store(false, std::memory_order_relaxed);
-        
+
+        return result;
+    }
+
+    // Producer: Blocking wait for free space
+    // Returns true if enough space is available, false if closed or timeout
+    bool waitForSpace(size_t needed, int timeoutMs) {
+        if (needed == 0) needed = 1;
+        if (freeSpace() >= needed) return true;
+        if (closed_.load(std::memory_order_acquire)) return false;
+        if (timeoutMs == 0) return false;
+
+        std::unique_lock<std::mutex> lock(mutex_);
+        bool result = false;
+        if (timeoutMs < 0) {
+            cv_.wait(lock, [this, needed] {
+                return freeSpace() >= needed || closed_.load();
+            });
+            result = freeSpace() >= needed;
+        } else {
+            result = cv_.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this, needed] {
+                return freeSpace() >= needed || closed_.load();
+            });
+        }
+
         return result;
     }
 
@@ -171,6 +163,10 @@ public:
         return static_cast<size_t>(h - t);
     }
 
+    size_t freeSpace() const {
+        return capacity_ - size();
+    }
+
     bool empty() const {
         return size() == 0;
     }
@@ -189,7 +185,6 @@ private:
     // Synchronization for blocking wait
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::atomic<bool> waiting_; 
     std::atomic<bool> closed_;
 };
 

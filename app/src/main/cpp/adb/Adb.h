@@ -38,9 +38,10 @@ struct AdbStream {
     std::vector<uint8_t> pendingWriteBuffer;
     size_t pendingWriteOffset = 0;
 
-    // 读缓冲区 - 使用 RingBuffer 实现零拷贝 
-    // 默认 16MB 容量 (50MB/s -> ~320ms buffer)
-    RingBuffer readBuffer{16 * 1024 * 1024};
+    // 读缓冲区 - 使用 RingBuffer 实现零拷贝。
+    // 视频流可能在较短时间内出现大突发，默认放大到 64 MiB，
+    // 避免 ADB 层过早触发背压。
+    RingBuffer readBuffer{64 * 1024 * 1024};
     
     AdbStream() = default;
 };

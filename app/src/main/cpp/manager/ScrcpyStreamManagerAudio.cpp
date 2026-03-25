@@ -11,6 +11,10 @@
 #define LOG_TAG "StreamManager"
 #define LOG_DOMAIN 0x3200
 
+namespace {
+constexpr int32_t AUDIO_HANDSHAKE_TIMEOUT_MS = 10000;
+}
+
 void ScrcpyStreamManager::audioThreadFunc() {
     OH_LOG_INFO(LOG_APP, "[AudioThread] Started");
 
@@ -25,8 +29,11 @@ void ScrcpyStreamManager::audioThreadFunc() {
             readExactToBuffer(source.get(), dest, size, timeoutMs);
         };
 
+        OH_LOG_INFO(LOG_APP, "[AudioThread] Waiting for startup handshake, timeout=%{public}d ms",
+                    AUDIO_HANDSHAKE_TIMEOUT_MS);
+
         uint8_t codecBytes[4];
-        readToBuffer(codecBytes, 4, 2000);
+        readToBuffer(codecBytes, 4, AUDIO_HANDSHAKE_TIMEOUT_MS);
         int32_t codecId = readInt32BEValue(codecBytes);
 
         OH_LOG_INFO(LOG_APP, "[AudioThread] Audio codec ID: 0x%{public}x", codecId);
