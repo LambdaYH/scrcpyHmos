@@ -238,6 +238,7 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
                 videoPackets_.recycle(packet);
                 if (running_.load()) {
                     OH_LOG_ERROR(LOG_APP, "[VideoDecode] GetInputBuffer failed: %{public}d", getBufRet);
+                    emitEvent("error", std::string("Video decode input buffer failed: ") + std::to_string(getBufRet));
                 }
                 break;
             }
@@ -271,6 +272,7 @@ void ScrcpyStreamManager::videoDecodeThreadFunc() {
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[VideoDecode] Error: %{public}s", e.what());
+            emitEvent("error", std::string("Video decode thread error: ") + e.what());
         }
     }
 }
