@@ -465,6 +465,10 @@
       "value": "Connecting..."
     },
     {
+      "name": "waiting_first_frame_status",
+      "value": "Waiting for video..."
+    },
+    {
       "name": "getting_video_config",
       "value": "Getting video config..."
     },

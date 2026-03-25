@@ -421,6 +421,10 @@
             "value": "正在建立连接..."
         },
         {
+            "name": "waiting_first_frame_status",
+            "value": "正在等待画面"
+        },
+        {
             "name": "getting_video_config",
             "value": "正在获取视频配置..."
         },

@@ -10,6 +10,7 @@ export interface NativeStreamListener {
   onDisconnect: (reason: string) => void;
   onError: (error: string) => void;
   onClipboard: (text: string) => void;
+  onFirstFrame?: () => void;
   onWaitAuth?: () => void;
 }
 
@@ -274,6 +275,9 @@ export class NativeStreamClient {
                 break;
             case 'first_frame':
                 LoggerClientStream.info('First frame received');
+                if (this.listener.onFirstFrame) {
+                    this.listener.onFirstFrame();
+                }
                 break;
         }
     };
