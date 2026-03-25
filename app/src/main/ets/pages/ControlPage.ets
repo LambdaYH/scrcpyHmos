@@ -50,6 +50,7 @@ struct ControlPage {
   // 临时存储拖动开始时的位置
   private dragStartX: number = 0;
   private dragStartY: number = 0;
+  private hasReceivedFirstFrame: boolean = false;
   @State stepTime: number = 0;
   private stepTimer: number = -1;
 
@@ -191,6 +192,17 @@ struct ControlPage {
   private updateConnectionStatus(status: string) {
     this.connectionStatus = status;
     this.startStepTimer();
+  }
+
+  private applyWaitingForFirstFrameStatus(): void {
+    this.connectionStatus = this.getResString($r('app.string.waiting_first_frame_status'));
+  }
+
+  private applyConnectedStatus(): void {
+    this.stopStepTimer();
+    this.connectionStatus = this.getResString($r('app.string.control_connected'));
+    this.startAutoHideTimer();
+    this.showLoading = false;
   }
 
   // 辅助方法：将 Resource 引用解析为字符串
@@ -466,6 +478,13 @@ struct ControlPage {
         }
         this.syncClipboardToSystem(text);
       },
+      onFirstFrame: () => {
+        if (this.nativeClient !== client) {
+          return;
+        }
+        this.hasReceivedFirstFrame = true;
+        this.applyConnectedStatus();
+      },
       onWaitAuth: () => {
         if (this.nativeClient !== client) {
           return;
@@ -499,6 +518,8 @@ struct ControlPage {
     const client = this.nativeClient;
     this.isStarted = true;
     this.isStartingSession = true;
+    this.hasReceivedFirstFrame = false;
+    this.showLoading = true;
     try {
       LoggerControlPage.info('[ControlPage] Starting Native Session...');
       this.updateConnectionStatus(this.getResString($r('app.string.connecting_status'))); // "正在连接..."
@@ -512,10 +533,11 @@ struct ControlPage {
       
       this.isConnected = true;
       await this.setWindowKeepScreenOn(true);
-      this.stopStepTimer(); // Connection successful, stop timer
-      this.connectionStatus = this.getResString($r('app.string.control_connected'));
-      this.startAutoHideTimer();
-      this.showLoading = false; // 实际上等首帧会更好，但这里先隐藏Loading
+      if (this.hasReceivedFirstFrame) {
+        this.applyConnectedStatus();
+      } else {
+        this.applyWaitingForFirstFrameStatus();
+      }
     } catch (err) {
       this.stopStepTimer(); // Stop timer on failure
       await this.setWindowKeepScreenOn(false);
