@@ -168,6 +168,7 @@ void ScrcpyStreamManager::audioDecodeThreadFunc() {
                 audioPackets_.recycle(packet);
                 if (running_.load()) {
                     OH_LOG_ERROR(LOG_APP, "[AudioDecode] GetInputBuffer failed: %{public}d", getBufRet);
+                    emitEvent("error", std::string("Audio decode input buffer failed: ") + std::to_string(getBufRet));
                 }
                 break;
             }
@@ -195,6 +196,7 @@ void ScrcpyStreamManager::audioDecodeThreadFunc() {
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[AudioDecode] Error: %{public}s", e.what());
+            emitEvent("error", std::string("Audio decode thread error: ") + e.what());
         }
     }
 }
