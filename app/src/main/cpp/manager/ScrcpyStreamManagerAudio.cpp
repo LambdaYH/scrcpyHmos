@@ -16,27 +16,19 @@ constexpr int32_t AUDIO_HANDSHAKE_TIMEOUT_MS = 10000;
 }
 
 void ScrcpyStreamManager::audioThreadFunc() {
-    OH_LOG_INFO(LOG_APP, "[AudioThread] Started");
-
     try {
         auto source = ::createByteStream(adb_, audioChannel_, audioStream_, "audio");
         if (!source) {
             throw std::runtime_error("audio source not found");
         }
-        OH_LOG_INFO(LOG_APP, "[AudioThread] Using source: %{public}s", source->debugName());
 
         auto readToBuffer = [this, &source](uint8_t* dest, size_t size, int32_t timeoutMs = -1) {
             readExactToBuffer(source.get(), dest, size, timeoutMs);
         };
 
-        OH_LOG_INFO(LOG_APP, "[AudioThread] Waiting for startup handshake, timeout=%{public}d ms",
-                    AUDIO_HANDSHAKE_TIMEOUT_MS);
-
         uint8_t codecBytes[4];
         readToBuffer(codecBytes, 4, AUDIO_HANDSHAKE_TIMEOUT_MS);
         int32_t codecId = readInt32BEValue(codecBytes);
-
-        OH_LOG_INFO(LOG_APP, "[AudioThread] Audio codec ID: 0x%{public}x", codecId);
 
         if (codecId == 0) {
             OH_LOG_INFO(LOG_APP, "[AudioThread] Audio disabled by server");
@@ -86,7 +78,6 @@ void ScrcpyStreamManager::audioThreadFunc() {
         }
 
         audioDecodeThread_ = std::thread(&ScrcpyStreamManager::audioDecodeThreadFunc, this);
-        OH_LOG_INFO(LOG_APP, "[AudioThread] Decoder started, entering frame loop");
 
         uint8_t ptsBuf[8];
         uint8_t sizeBuf[4];
@@ -104,20 +95,15 @@ void ScrcpyStreamManager::audioThreadFunc() {
             if (meta.isConfig) {
                 audioPackets_.cacheConfig(packet->data.data(), packet->data.size(), packet->submitFlags);
                 audioPackets_.recycle(packet);
-                OH_LOG_INFO(LOG_APP, "[AudioThread] Cached config packet: %{public}d bytes", meta.frameSize);
                 continue;
             }
 
             audioPackets_.enqueue(packet);
         }
-
-        OH_LOG_INFO(LOG_APP, "[AudioThread] Exiting");
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[AudioThread] Error: %{public}s", e.what());
             emitEvent("error", std::string("Audio thread error: ") + e.what());
-        } else {
-            OH_LOG_INFO(LOG_APP, "[AudioThread] Exiting (stopped)");
         }
     }
 
@@ -126,8 +112,6 @@ void ScrcpyStreamManager::audioThreadFunc() {
 }
 
 void ScrcpyStreamManager::audioDecodeThreadFunc() {
-    OH_LOG_INFO(LOG_APP, "[AudioDecode] Started");
-
     uint64_t appliedConfigSerial = 0;
 
     try {
@@ -213,6 +197,4 @@ void ScrcpyStreamManager::audioDecodeThreadFunc() {
             OH_LOG_ERROR(LOG_APP, "[AudioDecode] Error: %{public}s", e.what());
         }
     }
-
-    OH_LOG_INFO(LOG_APP, "[AudioDecode] Exiting");
 }

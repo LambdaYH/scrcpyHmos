@@ -12,8 +12,6 @@ export class ClientStream {
   private static readonly SERVER_STOP_POLL_INTERVAL_MS: number = 50;
   private adbId: number = -1;
   private shellStreamId: number = -1;
-  
-  private currentScid: string = '';
   private isClosing: boolean = false;
   private device: Device;
 
@@ -29,7 +27,6 @@ export class ClientStream {
   ): Promise<number> {
     try {
       this.isClosing = false;
-      LoggerClientStream.info('[ClientStream] Preparing server for native mode (Native ADB)...');
 
       // 1. 初始化 ADB 密钥管理器
       const keyManager = AdbKeyManager.getInstance();
@@ -100,11 +97,8 @@ export class ClientStream {
 
   startServer(args: string): void {
     const serverPath = `/data/local/tmp/scrcpy-server-${ServerManager.getVersion()}`;
-    this.currentScid = ServerManager.getLastScid();
-    const socketName = `scrcpy_${this.currentScid}`;
     const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
 
-    LoggerClientStream.info(`[ClientStream] Starting server with command: ${cmd}`);
     this.stopServer();
 
     this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
@@ -116,7 +110,6 @@ export class ClientStream {
     const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
     libscrcpy.adbStreamWrite(this.adbId, shellStreamId, cmdBytes.buffer);
 
-    LoggerClientStream.info(`[ClientStream] Server started, SCID: ${this.currentScid}, socket: ${socketName}`);
     this.readShellOutputAsync(shellStreamId);
   }
 
@@ -192,7 +185,6 @@ export class ClientStream {
   close() {
       if (this.isClosing) return;
       this.isClosing = true;
-      LoggerClientStream.info('[ClientStream] Closing...');
       this.stopServer();
       
       if (this.adbId >= 0) {

@@ -1,5 +1,4 @@
-// Adb - 完整的ADB实现
-// 参考 Adb.ets 实现
+// Adb
 #include "Adb.h"
 #include "TcpChannel.h"
 #include <cstring>
@@ -21,26 +20,6 @@
 namespace {
 constexpr size_t MAX_PENDING_WRITE_BYTES = 256 * 1024;
 
-struct AdbReadStats {
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-    double totalMs = 0.0;
-    double minMs = 0.0;
-    double maxMs = 0.0;
-    size_t totalBytes = 0;
-    uint32_t calls = 0;
-    uint32_t over5Ms = 0;
-    uint32_t over16Ms = 0;
-};
-
-std::mutex g_adbReadStatsMutex;
-AdbReadStats g_adbReadExactStats;
-AdbReadStats g_adbReadChunkStats;
-
-double elapsedMs(const std::chrono::steady_clock::time_point& start,
-                 const std::chrono::steady_clock::time_point& end) {
-    return std::chrono::duration<double, std::milli>(end - start).count();
-}
-
 int32_t remainingTimeoutMs(const std::chrono::steady_clock::time_point& deadline) {
     auto now = std::chrono::steady_clock::now();
     if (now >= deadline) {
@@ -48,39 +27,6 @@ int32_t remainingTimeoutMs(const std::chrono::steady_clock::time_point& deadline
     }
     return static_cast<int32_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
-}
-
-void recordAdbReadStats(AdbReadStats& stats, const char* tag, double ms, size_t bytes) {
-    auto now = std::chrono::steady_clock::now();
-    if (stats.calls == 0) {
-        stats.minMs = ms;
-        stats.maxMs = ms;
-    } else {
-        stats.minMs = std::min(stats.minMs, ms);
-        stats.maxMs = std::max(stats.maxMs, ms);
-    }
-    stats.totalMs += ms;
-    stats.totalBytes += bytes;
-    ++stats.calls;
-    if (ms > 5.0) {
-        ++stats.over5Ms;
-    }
-    if (ms > 16.0) {
-        ++stats.over16Ms;
-    }
-
-    if (elapsedMs(stats.start, now) < 1000.0) {
-        return;
-    }
-
-    double avgMs = stats.totalMs / stats.calls;
-    double avgBytes = stats.calls > 0 ? static_cast<double>(stats.totalBytes) / stats.calls : 0.0;
-    OH_LOG_INFO(LOG_APP,
-                "[%{public}s] avg=%{public}.2f ms, min=%{public}.2f ms, max=%{public}.2f ms, avgBytes=%{public}.1f, bytes=%{public}zu, calls=%{public}u, >5ms=%{public}u, >16ms=%{public}u",
-                tag, avgMs, stats.minMs, stats.maxMs, avgBytes, stats.totalBytes, stats.calls,
-                stats.over5Ms, stats.over16Ms);
-    stats = {};
-    stats.start = now;
 }
 
 void closeFdIfNeeded(int& fd) {
@@ -834,14 +780,6 @@ size_t Adb::streamReadToBuffer(AdbStream* stream, uint8_t* dest, size_t destSize
         }
     }
 
-    double readMs = elapsedMs(callStart, std::chrono::steady_clock::now());
-    {
-        std::lock_guard<std::mutex> lock(g_adbReadStatsMutex);
-        recordAdbReadStats(exact ? g_adbReadExactStats : g_adbReadChunkStats,
-                           exact ? "AdbReadExact" : "AdbReadChunk",
-                           readMs,
-                           totalRead);
-    }
     return totalRead;
 }
 

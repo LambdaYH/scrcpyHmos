@@ -27,7 +27,7 @@ struct AudioDecoderContext {
 AudioDecoderNative::AudioDecoderNative()
     : decoder_(nullptr), renderer_(nullptr), builder_(nullptr),
       isStarted_(false), isRaw_(false),
-      sampleRate_(48000), channelCount_(2), frameCount_(0),
+      sampleRate_(48000), channelCount_(2),
       codecType_("opus"), context_(nullptr), currentFrame_(nullptr) {
     
     // Fill pool with initial frames
@@ -165,8 +165,6 @@ int32_t AudioDecoderNative::InitAudioRenderer() {
         return -1;
     }
 
-    OH_LOG_INFO(LOG_APP, "[AudioNative] AudioRenderer created: sampleRate=%{public}d, channels=%{public}d",
-                sampleRate_, channelCount_);
     return 0;
 }
 
@@ -181,7 +179,6 @@ int32_t AudioDecoderNative::Init(const char* codecType, int32_t sampleRate, int3
     // RAW格式不需要解码器，直接播放PCM
     if (strcmp(codecType_.c_str(), "raw") == 0) {
         isRaw_ = true;
-        OH_LOG_INFO(LOG_APP, "[AudioNative] RAW mode, no decoder needed");
 
         // 只初始化音频渲染器
         int32_t ret = InitAudioRenderer();
@@ -285,8 +282,6 @@ int32_t AudioDecoderNative::Start() {
             return ret;
         }
 
-        // 等待初始输入缓冲区可用（最多等待2秒）
-        OH_LOG_INFO(LOG_APP, "[AudioNative] Waiting for initial input buffers...");
         int waitCount = 0;
         constexpr int MAX_WAIT_COUNT = 200;  // 200 * 10ms = 2000ms
         while (waitCount < MAX_WAIT_COUNT) {
@@ -306,7 +301,6 @@ int32_t AudioDecoderNative::Start() {
     }
 
     isStarted_ = true;
-    OH_LOG_INFO(LOG_APP, "[AudioNative] Started (raw=%{public}d)", isRaw_);
     return 0;
 }
 
@@ -368,7 +362,6 @@ int32_t AudioDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int6
             frame->size = size;
             frame->offset = 0;
             pcmQueue_.enqueue(frame);
-            frameCount_++;
         }
         return 0;
     }
@@ -391,7 +384,6 @@ int32_t AudioDecoderNative::SubmitInputBuffer(uint32_t index, void* handle, int6
         return -1;
     }
 
-    frameCount_++;
     return 0;
 }
 
@@ -414,7 +406,6 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         frame->offset = 0;
         
         pcmQueue_.enqueue(frame);
-        frameCount_++;
         return 0;
     }
 
@@ -426,7 +417,6 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
 
     InputBufferInfo bufInfo;
     if (!context_->inputQueue.try_dequeue(bufInfo)) {
-        OH_LOG_DEBUG(LOG_APP, "[AudioNative] PushData: no available input buffer");
         return -2;
     }
     
@@ -464,11 +454,6 @@ int32_t AudioDecoderNative::PushData(uint8_t* data, int32_t size, int64_t pts) {
         return -1;
     }
 
-    frameCount_++;
-//    if (frameCount_ % 100 == 0) {
-//        OH_LOG_DEBUG(LOG_APP, "[AudioNative] Pushed %{public}u audio frames", frameCount_);
-//    }
-
     return 0;
 }
 
@@ -491,7 +476,6 @@ int32_t AudioDecoderNative::Stop() {
         OH_AudioCodec_Stop(decoder_);
     }
 
-    OH_LOG_INFO(LOG_APP, "[AudioNative] Stopped");
     return 0;
 }
 
@@ -529,7 +513,6 @@ int32_t AudioDecoderNative::Release() {
         currentFrame_ = nullptr;
     }
 
-    OH_LOG_INFO(LOG_APP, "[AudioNative] Released, total frames: %{public}u", frameCount_);
     return 0;
 }
 

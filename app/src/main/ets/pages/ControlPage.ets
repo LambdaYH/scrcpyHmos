@@ -264,8 +264,6 @@ struct ControlPage {
   aboutToDisappear() {
     this.isPageActive = false;
     this.stopStepTimer(); // Clean up timer
-    LoggerControlPage.info('ControlPage: aboutToDisappear - cleaning up');
-
 
     if (!this.isExiting && (this.isConnected || ClientSessionManager.getInstance().hasActiveSession())) {
       try {
@@ -282,7 +280,6 @@ struct ControlPage {
     }
 
     // 关闭 Native Client (使用 SessionManager 统一管理)
-    LoggerControlPage.info('ControlPage: aboutToDisappear - calling stopAll');
     ClientSessionManager.getInstance().stopAll();
     this.nativeClient = undefined;
 
@@ -332,7 +329,6 @@ struct ControlPage {
   // 统一退出页面逻辑
   async exitPage() {
     if (this.isExiting) {
-      LoggerControlPage.warn('ExitPage: Already exiting, ignoring call');
       return;
     }
     this.isExiting = true;
@@ -351,13 +347,10 @@ struct ControlPage {
       const router = this.getUIContext().getRouter();
       const length = router.getLength(); // 返回页面栈数量
       const lenNum = typeof length === 'string' ? parseInt(length) : Number(length);
-      
-      LoggerControlPage.info('ExitPage: Router length:', lenNum);
 
       if (lenNum > 1) {
         router.back();
       } else {
-        LoggerControlPage.warn('ExitPage: No previous page, replacing with Index');
         router.replaceUrl({ url: 'pages/Index' });
       }
     } catch (e) {
@@ -382,7 +375,6 @@ struct ControlPage {
   private async initFromExistingClient(): Promise<void> {
     if (!this.device || !this.context) return;
     if (this.isInitializingClient) {
-      LoggerControlPage.debug('ControlPage: Native client init already in progress');
       return;
     }
     if (this.nativeClient && this.serverJarData) {
@@ -392,11 +384,8 @@ struct ControlPage {
 
     this.isInitializingClient = true;
     try {
-      LoggerControlPage.info('ControlPage: Initializing Native Client...');
-
       // 1. 预加载 server.jar
       this.serverJarData = await ServerManager.loadServerFromRawfile(this.context);
-      LoggerControlPage.info('ControlPage: Server jar loaded, size:', this.serverJarData?.byteLength || 0);
 
       // 2. 初始化 Native Client
       this.initNativeClient();
@@ -424,7 +413,6 @@ struct ControlPage {
   private initNativeClient(): void {
     if (!this.context || !this.device) return;
     if (this.nativeClient) {
-      LoggerControlPage.debug('ControlPage: Native client already initialized');
       return;
     }
 
@@ -435,7 +423,6 @@ struct ControlPage {
         }
         this.videoWidth = width;
         this.videoHeight = height;
-        LoggerControlPage.info(`[ControlPage] Video dimensions: ${width}x${height}`);
         this.calcVideoDisplaySize();
       },
       onDisconnect: (reason: string) => {
@@ -489,7 +476,6 @@ struct ControlPage {
         if (this.nativeClient !== client) {
           return;
         }
-        LoggerControlPage.info('[ControlPage] Waiting for ADB Authorization...');
         this.updateConnectionStatus(this.getResString($r('app.string.adb_auth_waiting')));
         try {
              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.auth_required_toast') });
@@ -507,11 +493,9 @@ struct ControlPage {
   // 尝试启动 Native 会话
   private async startNativeSession(): Promise<void> {
     if (this.isStarted || this.isStartingSession) {
-      LoggerControlPage.debug('ControlPage: Native session start skipped, already started/starting');
       return;
     }
     if (!this.serverJarData || !this.surfaceReady || !this.surfaceId || !this.nativeClient) {
-      LoggerControlPage.debug('Wait for resources ready...');
       return;
     }
 
@@ -521,13 +505,11 @@ struct ControlPage {
     this.hasReceivedFirstFrame = false;
     this.showLoading = true;
     try {
-      LoggerControlPage.info('[ControlPage] Starting Native Session...');
       this.updateConnectionStatus(this.getResString($r('app.string.connecting_status'))); // "正在连接..."
       
       // 启动会话 (异步)
       await client.start(this.serverJarData, this.surfaceId);
       if (this.nativeClient !== client || !this.isPageActive) {
-        LoggerControlPage.warn('[ControlPage] Start completed for stale/inactive client, ignoring');
         return;
       }
       
@@ -542,7 +524,7 @@ struct ControlPage {
       this.stopStepTimer(); // Stop timer on failure
       await this.setWindowKeepScreenOn(false);
       if (!this.isPageActive) {
-          LoggerControlPage.warn('[ControlPage] Error ignored, page inactive:', err);
+          LoggerControlPage.debug('[ControlPage] Error ignored, page inactive:', err);
           return;
       }
       this.isStarted = false;
@@ -567,7 +549,6 @@ struct ControlPage {
                  errMsg = this.getResString($r('app.string.adb_auth_disconnected'));
              } else if (errMsg === 'app.string.connection_cancelled') {
                  // User cancelled, do not show error
-                 LoggerControlPage.info('Connection cancelled by user');
                  return;
              }
          } catch (e) {
@@ -720,7 +701,6 @@ struct ControlPage {
       this.displayXComponentWidth = this.containerWidth;
       this.displayXComponentHeight = this.containerWidth / videoRatio;
     }
-    LoggerControlPage.debug(`[ControlPage] Calculated Display Size: ${this.displayXComponentWidth}x${this.displayXComponentHeight} (Container: ${this.containerWidth}x${this.containerHeight}, Video: ${this.videoWidth}x${this.videoHeight})`);
     
     // 重新校准悬浮按钮位置（如果有必要）
     if (this.checkFabPosition) {
@@ -778,7 +758,6 @@ struct ControlPage {
             .onLoad(() => {
               this.surfaceId = this.xComponentController.getXComponentSurfaceId();
               this.surfaceReady = true;
-              LoggerControlPage.debug('XComponent surfaceId:', this.surfaceId);
 
               // 尝试启动 Native Session
               this.startNativeSession();
@@ -795,7 +774,7 @@ struct ControlPage {
           this.containerWidth = newArea.width as number;
           this.containerHeight = newArea.height as number;
           LoggerControlPage.debug(`Container size changed: ${this.containerWidth}x${this.containerHeight}`);
-          
+
           // 重新计算视频显示尺寸
           this.calcVideoDisplaySize();
           this.initFabPosition();

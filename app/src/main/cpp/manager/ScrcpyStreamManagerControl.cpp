@@ -34,7 +34,6 @@ void ScrcpyStreamManager::controlSendThreadFunc() {
         OH_LOG_WARN(LOG_APP, "[ControlSend] No sink available, thread exits");
         return;
     }
-    OH_LOG_INFO(LOG_APP, "[ControlSend] Using sink: %{public}s", sink->debugName());
 
     while (true) {
         std::vector<uint8_t> packet;
@@ -63,14 +62,11 @@ void ScrcpyStreamManager::controlSendThreadFunc() {
 }
 
 void ScrcpyStreamManager::controlThreadFunc() {
-    OH_LOG_INFO(LOG_APP, "[ControlThread] Started");
-
     try {
         auto source = ::createByteStream(adb_, controlChannel_, controlStream_, "control");
         if (!source) {
             throw std::runtime_error("control source not found");
         }
-        OH_LOG_INFO(LOG_APP, "[ControlThread] Using source: %{public}s", source->debugName());
 
         auto readToBuffer = [this, &source](uint8_t* dest, size_t size, int32_t timeoutMs = -1) {
             readExactToBuffer(source.get(), dest, size, timeoutMs);
@@ -122,14 +118,10 @@ void ScrcpyStreamManager::controlThreadFunc() {
                     break;
             }
         }
-
-        OH_LOG_INFO(LOG_APP, "[ControlThread] Exiting");
     } catch (const std::exception& e) {
         if (running_.load()) {
             OH_LOG_ERROR(LOG_APP, "[ControlThread] Error: %{public}s", e.what());
             emitEvent("error", std::string("Control thread error: ") + e.what());
-        } else {
-            OH_LOG_INFO(LOG_APP, "[ControlThread] Exiting (stopped)");
         }
     }
 }

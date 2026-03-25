@@ -60,7 +60,6 @@ private:
     bool isRaw_;
     int32_t sampleRate_;
     int32_t channelCount_;
-    uint32_t frameCount_;
     std::string codecType_;
 
     struct AudioDecoderContext* context_;
