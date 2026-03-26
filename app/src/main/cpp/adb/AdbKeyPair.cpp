@@ -305,13 +305,13 @@ void AdbKeyPair::generate(const std::string& publicKeyPath, const std::string& p
     // Base64编码公钥
     std::string pubKeyBase64 = AdbBase64::encodeToString(adbPubKey.data(), adbPubKey.size());
 
-    // 写入公钥文件 (去掉换行 + 追加 " one@Aphone")
+    // 写入公钥文件 (去掉换行 + 追加 comment)
     {
         std::string cleaned;
         for (char c : pubKeyBase64) {
             if (c != '\n') cleaned.push_back(c);
         }
-        cleaned += " one@Aphone";
+        cleaned += " scrcpyHmos@HarmonyOS";
 
         std::ofstream f(publicKeyPath, std::ios::binary | std::ios::trunc);
         if (!f) throw std::runtime_error("Cannot write public key file");
