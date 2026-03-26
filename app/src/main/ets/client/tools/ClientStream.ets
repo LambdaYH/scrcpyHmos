@@ -72,7 +72,7 @@ export class ClientStream {
           } else if (connectRes === -7) {
              throw new Error('app.string.adb_auth_disconnected');
           } else {
-             const nativeDetail = libscrcpy.adbGetLastConnectError(this.adbId);
+             const nativeDetail: string = libscrcpy.adbGetLastConnectError(this.adbId);
              throw new Error(this.mapNativeConnectError(connectRes, nativeDetail));
           }
       }

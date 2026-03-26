@@ -83,14 +83,27 @@ public:
         std::vector<uint8_t> buffer(size);
         size_t offset = 0;
         while (offset < size) {
-            int bytesRead = SSL_read(ssl_.get(), buffer.data() + offset,
-                                     static_cast<int>(std::min<size_t>(INT_MAX, size - offset)));
+            int bytesRead = ReadSome(buffer.data() + offset, size - offset);
             if (bytesRead <= 0) {
                 return {};
             }
             offset += static_cast<size_t>(bytesRead);
         }
         return buffer;
+    }
+
+    int ReadSome(uint8_t* buffer, size_t size) override {
+        if (!ssl_ || !buffer || size == 0) {
+            return -1;
+        }
+        return SSL_read(ssl_.get(), buffer, static_cast<int>(std::min<size_t>(INT_MAX, size)));
+    }
+
+    size_t PendingBytes() const override {
+        if (!ssl_) {
+            return 0;
+        }
+        return static_cast<size_t>(SSL_pending(ssl_.get()));
     }
 
     bool WriteFully(std::string_view data) override {
