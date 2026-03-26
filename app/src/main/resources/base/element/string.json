@@ -717,6 +717,34 @@
       "value": "Add device in this app: enter Android IP and port (5555). Configure and Connect."
     },
     {
+      "name": "help_tcpip_title",
+      "value": "Method 1: Traditional ADB TCP/IP"
+    },
+    {
+      "name": "help_wireless_pairing_title",
+      "value": "Method 2: Use Wireless ADB Pairing"
+    },
+    {
+      "name": "help_wireless_controlled_step_1",
+      "value": "On the Android device, open Developer options > Wireless debugging and turn it on."
+    },
+    {
+      "name": "help_wireless_controlled_step_2",
+      "value": "Tap 'Pair device with pairing code', then note the pairing address, pairing port, and 6-digit pairing code. After pairing succeeds, also note the connect port shown on the Wireless debugging page."
+    },
+    {
+      "name": "help_wireless_control_step_1",
+      "value": "In this app, open More > Wireless ADB Pairing, then enter the pairing address:pairing port and the 6-digit pairing code shown on Android."
+    },
+    {
+      "name": "help_wireless_control_step_2",
+      "value": "After pairing succeeds, add or edit the device in the device list. Use the Android device IP as the address and the connect port from the Wireless debugging page as the ADB port."
+    },
+    {
+      "name": "help_wireless_control_step_3",
+      "value": "Save and tap Connect. If Wireless debugging closes or the pairing expires, pair again."
+    },
+    {
       "name": "help_note",
       "value": "Note: First connection requires confirming 'Allow USB Debugging' on the Android device."
     },

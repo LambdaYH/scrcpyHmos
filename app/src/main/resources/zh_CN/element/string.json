@@ -653,6 +653,34 @@
             "value": "本应用添加设备，ip选取Android设备的IP地址，端口输入第三步设置的端口，按需启用各配置项后点击连接即可。"
         },
         {
+            "name": "help_tcpip_title",
+            "value": "方式一：传统 ADB TCP/IP"
+        },
+        {
+            "name": "help_wireless_pairing_title",
+            "value": "方式二：使用无线 ADB 配对"
+        },
+        {
+            "name": "help_wireless_controlled_step_1",
+            "value": "Android 设备进入 开发者选项 > 无线调试，开启无线调试。"
+        },
+        {
+            "name": "help_wireless_controlled_step_2",
+            "value": "点击“使用配对码配对设备”，记下显示的配对地址、配对端口和 6 位配对码；配对成功后，再记下“无线调试”页面显示的连接端口。"
+        },
+        {
+            "name": "help_wireless_control_step_1",
+            "value": "在本应用“更多”页进入“无线 ADB 配对”，填写 Android 端显示的配对地址:配对端口 和 6 位配对码完成配对。"
+        },
+        {
+            "name": "help_wireless_control_step_2",
+            "value": "配对成功后，在设备列表中添加或编辑设备，IP 填 Android 设备地址，ADB 端口填“无线调试”页面显示的连接端口。"
+        },
+        {
+            "name": "help_wireless_control_step_3",
+            "value": "保存后点击连接即可；如果无线调试页面关闭或配对过期，请重新进行无线 ADB 配对。"
+        },
+        {
             "name": "help_note",
             "value": "注：首次连接Android设备需在Android设备端弹出的确认框中允许USB调试。"
         },
