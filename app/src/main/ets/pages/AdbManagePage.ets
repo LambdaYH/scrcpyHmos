@@ -116,7 +116,7 @@ struct AdbManagePage {
           .onClick(() => {
             this.showCustomKeyDialog();
           })
-          
+
         Text($r('app.string.regenerate_note'))
           .fontSize(12)
           .fontColor($r('app.color.text_tertiary'))

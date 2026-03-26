@@ -1,12 +1,14 @@
 #include "napi/native_api.h"
 #include "decoder/VideoDecoderNative.h"
 #include "decoder/AudioDecoderNative.h"
+#include "adb/AdbPair.h"
 #include "concurrentqueue/concurrentqueue.h"
 
 
 #include <hilog/log.h>
 #include <atomic>
 #include <cstring>
+#include <string>
 #include <map>
 #include <memory>
 #include <unordered_map>
@@ -659,6 +661,88 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
         &context->work
     );
 
+    napi_queue_async_work(env, context->work);
+    return promise;
+}
+
+struct AdbPairContext {
+    napi_async_work work;
+    napi_deferred deferred;
+    std::string hostPort;
+    std::string pairingCode;
+    std::string pubKeyPath;
+    std::string priKeyPath;
+    std::string result;
+    std::string errorMsg;
+    bool success = false;
+};
+
+static void ExecuteAdbPair(napi_env env, void* data) {
+    AdbPairContext* context = static_cast<AdbPairContext*>(data);
+    try {
+        context->result = scrcpy::pairing::AdbPair(context->hostPort, context->pairingCode, context->pubKeyPath,
+                                                   context->priKeyPath);
+        context->success = true;
+    } catch (const std::exception& e) {
+        context->success = false;
+        context->errorMsg = e.what();
+    }
+}
+
+static void CompleteAdbPair(napi_env env, napi_status status, void* data) {
+    AdbPairContext* context = static_cast<AdbPairContext*>(data);
+    if (context->success) {
+        napi_value result;
+        napi_create_string_utf8(env, context->result.c_str(), NAPI_AUTO_LENGTH, &result);
+        napi_resolve_deferred(env, context->deferred, result);
+    } else {
+        napi_value errorMsg;
+        napi_value error;
+        napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+        napi_create_error(env, nullptr, errorMsg, &error);
+        napi_reject_deferred(env, context->deferred, error);
+    }
+
+    napi_delete_async_work(env, context->work);
+    delete context;
+}
+
+// adbPair(hostPort, pairingCode, pubKeyPath, priKeyPath) => Promise<string>
+static napi_value AdbPair(napi_env env, napi_callback_info info) {
+    size_t argc = 4;
+    napi_value args[4];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    if (argc < 4) {
+        napi_throw_error(env, nullptr, "adbPair requires hostPort, pairingCode, pubKeyPath and priKeyPath");
+        return nullptr;
+    }
+
+    char hostPort[256];
+    char pairingCode[128];
+    char pubKeyPath[512];
+    char priKeyPath[512];
+    size_t hostPortLen = 0;
+    size_t pairingCodeLen = 0;
+    size_t pubKeyLen = 0;
+    size_t priKeyLen = 0;
+
+    napi_get_value_string_utf8(env, args[0], hostPort, sizeof(hostPort), &hostPortLen);
+    napi_get_value_string_utf8(env, args[1], pairingCode, sizeof(pairingCode), &pairingCodeLen);
+    napi_get_value_string_utf8(env, args[2], pubKeyPath, sizeof(pubKeyPath), &pubKeyLen);
+    napi_get_value_string_utf8(env, args[3], priKeyPath, sizeof(priKeyPath), &priKeyLen);
+
+    auto* context = new AdbPairContext();
+    context->hostPort = hostPort;
+    context->pairingCode = pairingCode;
+    context->pubKeyPath = pubKeyPath;
+    context->priKeyPath = priKeyPath;
+
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbPair", NAPI_AUTO_LENGTH, &resourceName);
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+    napi_create_async_work(env, nullptr, resourceName, ExecuteAdbPair, CompleteAdbPair, context, &context->work);
     napi_queue_async_work(env, context->work);
     return promise;
 }
@@ -1786,6 +1870,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         // ADB API
         {"adbCreate", nullptr, AdbCreate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbConnect", nullptr, AdbConnect, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbPair", nullptr, AdbPair, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbRunCmd", nullptr, AdbRunCmd, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbTcpForward", nullptr, AdbTcpForward, nullptr, nullptr, nullptr, napi_default, nullptr},

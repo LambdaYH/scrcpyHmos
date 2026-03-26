@@ -65,6 +65,106 @@
             "value": "自定义密钥"
         },
         {
+            "name": "adb_pair",
+            "value": "ADB 配对"
+        },
+        {
+            "name": "adb_pairing",
+            "value": "正在配对..."
+        },
+        {
+            "name": "adb_pair_address",
+            "value": "配对地址"
+        },
+        {
+            "name": "adb_pair_address_hint",
+            "value": "192.168.1.10:37099"
+        },
+        {
+            "name": "adb_pair_code",
+            "value": "配对码"
+        },
+        {
+            "name": "adb_pair_code_hint",
+            "value": "输入 6 位配对码"
+        },
+        {
+            "name": "adb_pair_fill_required",
+            "value": "请填写配对地址和配对码"
+        },
+        {
+            "name": "adb_pair_success",
+            "value": "配对成功："
+        },
+        {
+            "name": "adb_pair_failed_prefix",
+            "value": "配对失败："
+        },
+        {
+            "name": "adb_pair_failed_generic",
+            "value": "未知配对错误"
+        },
+        {
+            "name": "adb_pair_failed_invalid_address",
+            "value": "配对地址格式不正确"
+        },
+        {
+            "name": "adb_pair_failed_resolve",
+            "value": "无法解析配对地址"
+        },
+        {
+            "name": "adb_pair_failed_refused",
+            "value": "设备拒绝了连接，请确认配对页面仍打开，并使用的是配对端口"
+        },
+        {
+            "name": "adb_pair_failed_timeout",
+            "value": "连接超时，请检查设备和网络"
+        },
+        {
+            "name": "adb_pair_failed_tls",
+            "value": "配对过程中的 TLS 握手失败"
+        },
+        {
+            "name": "adb_pair_failed_code_or_expired",
+            "value": "配对码错误、已过期，或当前配对会话已变化"
+        },
+        {
+            "name": "adb_pair_failed_connect",
+            "value": "无法连接到设备的配对服务"
+        },
+        {
+            "name": "wireless_adb_pairing",
+            "value": "无线 ADB 配对"
+        },
+        {
+            "name": "wireless_adb_pairing_desc",
+            "value": "使用 Android 无线调试的配对码，将本应用与目标设备完成绑定。"
+        },
+        {
+            "name": "wireless_adb_pairing_steps_title",
+            "value": "配对方法"
+        },
+        {
+            "name": "wireless_adb_pairing_step_1",
+            "value": "1. 在 Android 设备上进入开发者选项，开启无线调试。"
+        },
+        {
+            "name": "wireless_adb_pairing_step_2",
+            "value": "2. 点击“使用配对码配对设备”，并保持该页面打开。"
+        },
+        {
+            "name": "wireless_adb_pairing_step_3",
+            "value": "3. 将页面上显示的 IP:端口 和 6 位配对码填入下方。"
+        },
+        {
+            "name": "wireless_adb_pairing_step_4",
+            "value": "4. 配对成功后，将无线调试的连接端口填到设备的 ADB 端口中即可连接。"
+        },
+        {
+            "name": "wireless_adb_pairing_start",
+            "value": "开始配对"
+        },
+        {
             "name": "regenerate_note",
             "value": "注意：重新生成密钥后，所有已连接的设备都需要重新授权。"
         },

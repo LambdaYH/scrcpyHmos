@@ -1,5 +1,6 @@
 export const adbCreate: (ip: string, port: number) => number;
 export const adbConnect: (adbId: number, pubKeyPath: string, priKeyPath: string) => number;
+export const adbPair: (hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string) => Promise<string>;
 export const adbRunCmd: (adbId: number, cmd: string) => string;
 export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => Promise<void>;
 export const adbTcpForward: (adbId: number, port: number) => number;

@@ -65,6 +65,106 @@
             "value": "Custom Keys"
         },
         {
+            "name": "adb_pair",
+            "value": "ADB Pair"
+        },
+        {
+            "name": "adb_pairing",
+            "value": "Pairing..."
+        },
+        {
+            "name": "adb_pair_address",
+            "value": "Pairing Address"
+        },
+        {
+            "name": "adb_pair_address_hint",
+            "value": "192.168.1.10:37099"
+        },
+        {
+            "name": "adb_pair_code",
+            "value": "Pairing Code"
+        },
+        {
+            "name": "adb_pair_code_hint",
+            "value": "Enter the 6-digit pairing code"
+        },
+        {
+            "name": "adb_pair_fill_required",
+            "value": "Please enter pairing address and code"
+        },
+        {
+            "name": "adb_pair_success",
+            "value": "Pair succeeded: "
+        },
+        {
+            "name": "adb_pair_failed_prefix",
+            "value": "Pair failed: "
+        },
+        {
+            "name": "adb_pair_failed_generic",
+            "value": "Unknown pairing error"
+        },
+        {
+            "name": "adb_pair_failed_invalid_address",
+            "value": "Invalid pairing address format"
+        },
+        {
+            "name": "adb_pair_failed_resolve",
+            "value": "Unable to resolve the pairing address"
+        },
+        {
+            "name": "adb_pair_failed_refused",
+            "value": "The device refused the connection. Please confirm the pairing page is still open and use the pairing port"
+        },
+        {
+            "name": "adb_pair_failed_timeout",
+            "value": "Connection timed out. Please check the device and network"
+        },
+        {
+            "name": "adb_pair_failed_tls",
+            "value": "TLS handshake failed during pairing"
+        },
+        {
+            "name": "adb_pair_failed_code_or_expired",
+            "value": "The pairing code is incorrect, expired, or the pairing session has changed"
+        },
+        {
+            "name": "adb_pair_failed_connect",
+            "value": "Unable to connect to the device pairing service"
+        },
+        {
+            "name": "wireless_adb_pairing",
+            "value": "Wireless ADB Pairing"
+        },
+        {
+            "name": "wireless_adb_pairing_desc",
+            "value": "Use Android wireless debugging pairing code to bind this app with the target device."
+        },
+        {
+            "name": "wireless_adb_pairing_steps_title",
+            "value": "How To Pair"
+        },
+        {
+            "name": "wireless_adb_pairing_step_1",
+            "value": "1. On Android, open Developer options and enable Wireless debugging."
+        },
+        {
+            "name": "wireless_adb_pairing_step_2",
+            "value": "2. Tap Pair device with pairing code and keep that screen open."
+        },
+        {
+            "name": "wireless_adb_pairing_step_3",
+            "value": "3. Enter the displayed IP:port and the 6-digit pairing code below."
+        },
+        {
+            "name": "wireless_adb_pairing_step_4",
+            "value": "4. After pairing succeeds, use the wireless debugging connect port as the device ADB port."
+        },
+        {
+            "name": "wireless_adb_pairing_start",
+            "value": "Start Pairing"
+        },
+        {
             "name": "regenerate_note",
             "value": "Note: After regenerating keys, all connected devices will need to be re-authorized."
         },

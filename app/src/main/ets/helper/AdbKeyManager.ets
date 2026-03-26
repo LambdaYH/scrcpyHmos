@@ -2,7 +2,8 @@ import preferences from '@ohos.data.preferences';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import { util } from '@kit.ArkTS';
 import { buffer } from '@kit.ArkTS';
-
+import fs from '@ohos.file.fs';
+import * as libscrcpy from 'libscrcpy_native.so';
 
 import { LoggerAdbKeyManager } from './Logger';
 // RSA公钥解析结果
@@ -475,6 +476,32 @@ export class AdbKeyManager {
   
   async resetKeys(): Promise<void> {
     await this.generateKeyPair();
+  }
+
+  async pairDevice(context: Context, hostPort: string, pairingCode: string): Promise<string> {
+    await this.init(context);
+
+    const tempDir = context.tempDir;
+    const pubKeyPath = tempDir + '/scrcpy_adbkey.pub';
+    const priKeyPath = tempDir + '/scrcpy_adbkey';
+
+    const pubKeyBytes = this.getPublicKeyBytes();
+    const pubFile = await fs.open(pubKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      await fs.write(pubFile.fd, pubKeyBytes as ArrayBuffer);
+    } finally {
+      await fs.close(pubFile.fd);
+    }
+
+    const pemContent = "-----BEGIN PRIVATE KEY-----\n" + this.privateKeyBase64 + "\n-----END PRIVATE KEY-----";
+    const priFile = await fs.open(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      await fs.write(priFile.fd, pemContent);
+    } finally {
+      await fs.close(priFile.fd);
+    }
+
+    return await libscrcpy.adbPair(hostPort, pairingCode, pubKeyPath, priKeyPath);
   }
 
   // 获取公共密钥信息
