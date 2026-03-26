@@ -973,6 +973,11 @@ void Adb::close() {
     handleInRunning_.store(false);
 
     sendRunning_.store(false);
+    if (channel_) {
+        // Close the socket before joining worker threads so any blocking read/write
+        // returns immediately during shutdown.
+        channel_->close();
+    }
     // Send poison pill (empty vector) to wake up thread
     sendQueue_.enqueue(std::vector<uint8_t>());
     if (sendThread_.joinable()) {
@@ -981,10 +986,6 @@ void Adb::close() {
         } else {
              sendThread_.detach();
         }
-    }
-
-    if (channel_) {
-        channel_->close();
     }
 
     std::vector<std::shared_ptr<ReverseBridge>> reverseBridges;
