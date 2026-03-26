@@ -230,6 +230,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
 
     if (message.command == AdbProtocol::CMD_STLS) {
         OH_LOG_INFO(LOG_APP, "ADB: Received STLS, upgrading transport to TLS...");
+        int fd = -1;
         try {
             auto tlsRequest = AdbProtocol::generateTlsRequest();
             channel_->write(tlsRequest.data(), tlsRequest.size());
@@ -239,7 +240,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
                 throw std::runtime_error("STLS requires TcpChannel");
             }
 
-            int fd = tcpChannel->releaseFd();
+            fd = tcpChannel->releaseFd();
             delete channel_;
             channel_ = nullptr;
 
@@ -273,6 +274,10 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
         } catch (const std::exception& e) {
             OH_LOG_ERROR(LOG_APP, "ADB: STLS upgrade failed: %{public}s", e.what());
             setLastConnectError(std::string("stls upgrade failed: ") + e.what());
+            if (fd >= 0) {
+                ::shutdown(fd, SHUT_RDWR);
+                ::close(fd);
+            }
             if (channel_) {
                 channel_->close();
             }

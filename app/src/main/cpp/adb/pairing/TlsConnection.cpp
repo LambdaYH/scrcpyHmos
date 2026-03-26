@@ -36,7 +36,7 @@ public:
         }
         std::vector<uint8_t> out(length);
         if (SSL_export_keying_material(ssl_.get(), out.data(), out.size(), kExportedKeyLabel,
-                                       sizeof(kExportedKeyLabel), nullptr, 0, false) == 0) {
+                                       sizeof(kExportedKeyLabel) - 1, nullptr, 0, false) == 0) {
             return {};
         }
         return out;
