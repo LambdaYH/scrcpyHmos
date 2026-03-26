@@ -1,3 +1,6 @@
 [submodule "app/src/main/cpp/thirdparty/concurrentqueue"]
 	path = app/src/main/cpp/thirdparty/concurrentqueue
 	url = https://github.com/cameron314/concurrentqueue.git
+[submodule "app/src/main/cpp/thirdparty/boringssl"]
+	path = app/src/main/cpp/thirdparty/boringssl
+	url = https://github.com/google/boringssl.git
