@@ -34,9 +34,11 @@ public:
 
     // 获取公钥字节（用于ADB AUTH_TYPE_RSA_PUBLIC）
     const std::vector<uint8_t>& getPublicKeyBytes() const { return publicKeyBytes_; }
+    const std::string& getPrivateKeyPem() const { return privateKeyPem_; }
 
 private:
     std::vector<uint8_t> publicKeyBytes_;  // ADB格式的公钥字符串
+    std::string privateKeyPem_;
     OH_CryptoKeyPair* keyPair_ = nullptr;  // CryptoArchitectureKit密钥对
 
     // 将RSA公钥转换为ADB格式（524字节）

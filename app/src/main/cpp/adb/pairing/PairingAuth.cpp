@@ -1,4 +1,4 @@
-#include "adb/PairingAuth.h"
+#include "adb/pairing/PairingAuth.h"
 
 #include <cstring>
 #include <memory>

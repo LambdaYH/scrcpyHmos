@@ -1,8 +1,8 @@
 // AdbKeyPair - RSA密钥对管理
 // 参考 AdbKeyPair.ets 实现
 // 使用 CryptoArchitectureKit 进行RSA密钥生成和签名
-#include "AdbKeyPair.h"
-#include "AdbBase64.h"
+#include "adb/crypto/AdbKeyPair.h"
+#include "adb/crypto/AdbBase64.h"
 #include <CryptoArchitectureKit/crypto_asym_cipher.h>
 #include <cstring>
 #include <fstream>
@@ -248,6 +248,7 @@ AdbKeyPair AdbKeyPair::read(const std::string& publicKeyPath, const std::string&
         std::ifstream f(privateKeyPath, std::ios::binary);
         if (!f) throw std::runtime_error("Cannot open private key file: " + privateKeyPath);
         std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        kp.privateKeyPem_ = content;
 
         // 解析PEM: 去掉header/footer，base64解码
         std::string data = content;

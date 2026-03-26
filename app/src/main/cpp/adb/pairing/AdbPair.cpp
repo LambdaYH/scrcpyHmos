@@ -1,7 +1,7 @@
-#include "adb/AdbPair.h"
+#include "adb/pairing/AdbPair.h"
 
-#include "adb/PairingAuth.h"
-#include "adb/TlsConnection.h"
+#include "adb/pairing/PairingAuth.h"
+#include "adb/pairing/TlsConnection.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>

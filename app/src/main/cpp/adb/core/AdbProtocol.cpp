@@ -1,6 +1,6 @@
 // AdbProtocol - ADB协议实现
 // 参考 AdbProtocol.ets 实现
-#include "AdbProtocol.h"
+#include "adb/core/AdbProtocol.h"
 #include <stdexcept>
 #include <unistd.h>
 #include <hilog/log.h>
@@ -57,6 +57,10 @@ static const uint8_t CONNECT_PAYLOAD[] = { 0x68, 0x6f, 0x73, 0x74, 0x3a, 0x3a, 0
 std::vector<uint8_t> AdbProtocol::generateConnect() {
     return generateMessage(CMD_CNXN, CONNECT_VERSION, CONNECT_MAXDATA,
                            CONNECT_PAYLOAD, sizeof(CONNECT_PAYLOAD));
+}
+
+std::vector<uint8_t> AdbProtocol::generateTlsRequest() {
+    return generateMessage(CMD_STLS, STLS_VERSION, 0, nullptr, 0);
 }
 
 std::vector<uint8_t> AdbProtocol::generateAuth(uint32_t type, const uint8_t* data, size_t len) {

@@ -37,12 +37,15 @@ public:
     static constexpr uint32_t CMD_OKAY = 0x59414b4f; // "OKAY"
     static constexpr uint32_t CMD_CLSE = 0x45534c43; // "CLSE"
     static constexpr uint32_t CMD_WRTE = 0x45545257; // "WRTE"
+    static constexpr uint32_t CMD_STLS = 0x534c5453; // "STLS"
 
     static constexpr uint32_t CONNECT_VERSION = 0x01000000;
+    static constexpr uint32_t STLS_VERSION = 0x01000000;
     // 当前工程仅走 TCP/IP，主机侧接收窗口宣告为 1 MiB。
     static constexpr uint32_t CONNECT_MAXDATA = 1024 * 1024;
 
     static std::vector<uint8_t> generateConnect();
+    static std::vector<uint8_t> generateTlsRequest();
     static std::vector<uint8_t> generateAuth(uint32_t type, const uint8_t* data, size_t len);
     static std::vector<uint8_t> generateOpen(int32_t localId, const std::string& dest);
     static std::vector<uint8_t> generateWrite(int32_t localId, int32_t remoteId, const uint8_t* data, size_t len);

@@ -1,8 +1,8 @@
 #ifndef SCRCPY_STREAM_IO_H
 #define SCRCPY_STREAM_IO_H
 
-#include "adb/Adb.h"
-#include "adb/AdbChannel.h"
+#include "adb/core/Adb.h"
+#include "adb/core/AdbChannel.h"
 #include "stream/EncodedPacket.h"
 
 #include <cstdint>

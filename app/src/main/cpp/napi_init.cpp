@@ -1,7 +1,7 @@
 #include "napi/native_api.h"
 #include "decoder/VideoDecoderNative.h"
 #include "decoder/AudioDecoderNative.h"
-#include "adb/AdbPair.h"
+#include "adb/pairing/AdbPair.h"
 #include "concurrentqueue/concurrentqueue.h"
 
 
@@ -276,8 +276,8 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
 
 // ============== ADB Module ==============
 
-#include "adb/Adb.h"
-#include "adb/AdbKeyPair.h"
+#include "adb/core/Adb.h"
+#include "adb/crypto/AdbKeyPair.h"
 
 static std::unordered_map<int64_t, std::shared_ptr<Adb>> g_adbInstances;
 static int64_t g_nextAdbId = 1;

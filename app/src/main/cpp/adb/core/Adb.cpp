@@ -1,6 +1,8 @@
 // Adb
-#include "Adb.h"
-#include "TcpChannel.h"
+#include "adb/core/Adb.h"
+#include "adb/channel/TcpChannel.h"
+#include "adb/channel/TlsAdbChannel.h"
+#include "adb/pairing/TlsConnection.h"
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
@@ -12,6 +14,9 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/x509v3.h>
 #include <hilog/log.h>
 
 #undef LOG_TAG
@@ -19,6 +24,10 @@
 
 namespace {
 constexpr size_t MAX_PENDING_WRITE_BYTES = 256 * 1024;
+constexpr int kCertLifetimeSeconds = 10 * 365 * 24 * 60 * 60;
+const char kBasicConstraints[] = "critical,CA:TRUE";
+const char kKeyUsage[] = "critical,keyCertSign,cRLSign,digitalSignature";
+const char kSubjectKeyIdentifier[] = "hash";
 
 int32_t remainingTimeoutMs(const std::chrono::steady_clock::time_point& deadline) {
     auto now = std::chrono::steady_clock::now();
@@ -61,6 +70,93 @@ void writeAllToFd(int fd, const uint8_t* data, size_t len) {
         }
         offset += static_cast<size_t>(n);
     }
+}
+
+bssl::UniquePtr<EVP_PKEY> LoadPrivateKey(std::string_view pem) {
+    bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())));
+    if (!bio) {
+        return nullptr;
+    }
+    return bssl::UniquePtr<EVP_PKEY>(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr));
+}
+
+bool AddExtension(X509* cert, int nid, const char* value) {
+    size_t len = std::strlen(value) + 1;
+    std::vector<char> mutableValue(value, value + len);
+    X509V3_CTX context;
+
+    X509V3_set_ctx_nodb(&context);
+    X509V3_set_ctx(&context, cert, cert, nullptr, nullptr, 0);
+    X509_EXTENSION* ext = X509V3_EXT_nconf_nid(nullptr, &context, nid, mutableValue.data());
+    if (!ext) {
+        return false;
+    }
+
+    X509_add_ext(cert, ext, -1);
+    X509_EXTENSION_free(ext);
+    return true;
+}
+
+std::string PrivateKeyToPem(EVP_PKEY* pkey) {
+    bssl::UniquePtr<BIO> bio(BIO_new(BIO_s_mem()));
+    if (!bio) {
+        throw std::runtime_error("Failed to allocate PEM BIO");
+    }
+    if (PEM_write_bio_PKCS8PrivateKey(bio.get(), pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+        throw std::runtime_error("PEM_write_bio_PKCS8PrivateKey failed");
+    }
+    BUF_MEM* mem = nullptr;
+    BIO_get_mem_ptr(bio.get(), &mem);
+    if (!mem || !mem->data || mem->length == 0) {
+        throw std::runtime_error("BIO_get_mem_ptr failed");
+    }
+    return std::string(mem->data, mem->length);
+}
+
+std::string GenerateCertificatePem(EVP_PKEY* pkey) {
+    bssl::UniquePtr<X509> x509(X509_new());
+    if (!x509) {
+        throw std::runtime_error("Unable to allocate X509");
+    }
+    X509_set_version(x509.get(), 2);
+    ASN1_INTEGER_set(X509_get_serialNumber(x509.get()), 1);
+    X509_gmtime_adj(X509_get_notBefore(x509.get()), 0);
+    X509_gmtime_adj(X509_get_notAfter(x509.get()), kCertLifetimeSeconds);
+    if (!X509_set_pubkey(x509.get(), pkey)) {
+        throw std::runtime_error("Unable to set X509 public key");
+    }
+    X509_NAME* name = X509_get_subject_name(x509.get());
+    if (!name) {
+        throw std::runtime_error("Unable to get X509 subject name");
+    }
+    X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("US"), -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("Android"), -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("Adb"), -1, -1, 0);
+    if (!X509_set_issuer_name(x509.get(), name)) {
+        throw std::runtime_error("Unable to set X509 issuer name");
+    }
+    if (!AddExtension(x509.get(), NID_basic_constraints, kBasicConstraints) ||
+        !AddExtension(x509.get(), NID_key_usage, kKeyUsage) ||
+        !AddExtension(x509.get(), NID_subject_key_identifier, kSubjectKeyIdentifier)) {
+        throw std::runtime_error("Unable to create X509 extensions");
+    }
+    if (X509_sign(x509.get(), pkey, EVP_sha256()) <= 0) {
+        throw std::runtime_error("Unable to sign X509 certificate");
+    }
+
+    bssl::UniquePtr<BIO> bio(BIO_new(BIO_s_mem()));
+    if (!bio) {
+        throw std::runtime_error("Failed to allocate X509 PEM BIO");
+    }
+    if (PEM_write_bio_X509(bio.get(), x509.get()) != 1) {
+        throw std::runtime_error("PEM_write_bio_X509 failed");
+    }
+    BUF_MEM* mem = nullptr;
+    BIO_get_mem_ptr(bio.get(), &mem);
+    if (!mem || !mem->data || mem->length == 0) {
+        throw std::runtime_error("BIO_get_mem_ptr failed");
+    }
+    return std::string(mem->data, mem->length);
 }
 }
 
@@ -129,6 +225,57 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     OH_LOG_INFO(LOG_APP, "ADB: Received response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u payloadLen=%{public}u",
                 message.command, message.arg0, message.arg1, message.payloadLength);
     int authResult = 0; // 0=已授权/无需授权, 1=需要用户确认, -1=失败
+
+    if (message.command == AdbProtocol::CMD_STLS) {
+        OH_LOG_INFO(LOG_APP, "ADB: Received STLS, upgrading transport to TLS...");
+        try {
+            auto tlsRequest = AdbProtocol::generateTlsRequest();
+            channel_->write(tlsRequest.data(), tlsRequest.size());
+
+            auto* tcpChannel = dynamic_cast<TcpChannel*>(channel_);
+            if (!tcpChannel) {
+                throw std::runtime_error("STLS requires TcpChannel");
+            }
+
+            int fd = tcpChannel->releaseFd();
+            delete channel_;
+            channel_ = nullptr;
+
+            const std::string& privateKeyPem = keyPair.getPrivateKeyPem();
+            bssl::UniquePtr<EVP_PKEY> privateKey = LoadPrivateKey(privateKeyPem);
+            if (!privateKey) {
+                throw std::runtime_error("Failed to load ADB private key for TLS");
+            }
+            const std::string certPem = GenerateCertificatePem(privateKey.get());
+            const std::string normalizedPrivateKeyPem = PrivateKeyToPem(privateKey.get());
+
+            auto tlsConnection = scrcpy::pairing::TlsConnection::Create(
+                scrcpy::pairing::TlsConnection::Role::Client,
+                certPem,
+                normalizedPrivateKeyPem,
+                fd
+            );
+            if (!tlsConnection) {
+                throw std::runtime_error("Failed to create TLS connection");
+            }
+            tlsConnection->SetCertVerifyCallback([](X509_STORE_CTX*) { return 1; });
+            if (tlsConnection->DoHandshake() != scrcpy::pairing::TlsConnection::TlsError::Success) {
+                throw std::runtime_error("TLS handshake failed");
+            }
+
+            channel_ = new TlsAdbChannel(std::move(tlsConnection), fd);
+            message = readMessageFromChannel(channel_, 10000);
+            OH_LOG_INFO(LOG_APP,
+                        "ADB: Post-TLS response cmd=0x%{public}x arg0=%{public}u arg1=%{public}u payloadLen=%{public}u",
+                        message.command, message.arg0, message.arg1, message.payloadLength);
+        } catch (const std::exception& e) {
+            OH_LOG_ERROR(LOG_APP, "ADB: STLS upgrade failed: %{public}s", e.what());
+            if (channel_) {
+                channel_->close();
+            }
+            return -1;
+        }
+    }
 
     if (message.command == AdbProtocol::CMD_AUTH) {
         OH_LOG_INFO(LOG_APP, "ADB: Got AUTH challenge, signing payload...");

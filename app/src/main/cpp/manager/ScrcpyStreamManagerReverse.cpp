@@ -1,6 +1,6 @@
 #include "ScrcpyStreamManager.h"
 
-#include "adb/LocalSocketChannel.h"
+#include "adb/channel/LocalSocketChannel.h"
 
 #include <arpa/inet.h>
 #include <cerrno>

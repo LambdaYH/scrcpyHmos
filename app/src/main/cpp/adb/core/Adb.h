@@ -4,10 +4,10 @@
 #ifndef ADB_H
 #define ADB_H
 
-#include "AdbChannel.h"
-#include "AdbProtocol.h"
-#include "AdbKeyPair.h"
-#include "RingBuffer.h"
+#include "adb/core/AdbChannel.h"
+#include "adb/core/AdbProtocol.h"
+#include "adb/crypto/AdbKeyPair.h"
+#include "adb/util/RingBuffer.h"
 
 #include <cstdint>
 #include <string>

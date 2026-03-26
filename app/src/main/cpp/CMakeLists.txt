@@ -39,15 +39,16 @@ add_library(scrcpy_native SHARED
     stream/adapters/ForwardStreamAdapter.cpp
     stream/adapters/ReverseStreamAdapter.cpp
     stream/StreamIO.cpp
-    adb/AdbProtocol.cpp
-    adb/AdbBase64.cpp
-    adb/LocalSocketChannel.cpp
-    adb/TcpChannel.cpp
-    adb/AdbKeyPair.cpp
-    adb/Adb.cpp
-    adb/PairingAuth.cpp
-    adb/TlsConnection.cpp
-    adb/AdbPair.cpp
+    adb/core/AdbProtocol.cpp
+    adb/crypto/AdbBase64.cpp
+    adb/channel/LocalSocketChannel.cpp
+    adb/channel/TcpChannel.cpp
+    adb/channel/TlsAdbChannel.cpp
+    adb/crypto/AdbKeyPair.cpp
+    adb/core/Adb.cpp
+    adb/pairing/PairingAuth.cpp
+    adb/pairing/TlsConnection.cpp
+    adb/pairing/AdbPair.cpp
     napi_init.cpp
 )
 

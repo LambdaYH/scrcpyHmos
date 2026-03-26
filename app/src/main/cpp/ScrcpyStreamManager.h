@@ -3,8 +3,8 @@
 #ifndef SCRCPY_STREAM_MANAGER_H
 #define SCRCPY_STREAM_MANAGER_H
 
-#include "adb/Adb.h"
-#include "adb/AdbChannel.h"
+#include "adb/core/Adb.h"
+#include "adb/core/AdbChannel.h"
 #include "concurrentqueue/blockingconcurrentqueue.h"
 #include "stream/EncodedPacket.h"
 #include "stream/MediaPacketStore.h"

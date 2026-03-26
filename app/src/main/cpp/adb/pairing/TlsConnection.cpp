@@ -1,4 +1,4 @@
-#include "adb/TlsConnection.h"
+#include "adb/pairing/TlsConnection.h"
 
 #include <algorithm>
 #include <climits>
@@ -24,11 +24,7 @@ public:
         privKey_ = EvpPkeyFromPEM(privKey);
     }
 
-    ~TlsConnectionImpl() override {
-        if (ssl_) {
-            SSL_shutdown(ssl_.get());
-        }
-    }
+    ~TlsConnectionImpl() override = default;
 
     void SetCertVerifyCallback(CertVerifyCb cb) override {
         certVerifyCb_ = std::move(cb);

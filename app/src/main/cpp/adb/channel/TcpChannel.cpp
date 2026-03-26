@@ -1,7 +1,7 @@
 // TcpChannel - 基于文件描述符的通道实现
 // 参考 TcpChannel.ets 实现
 // 不实现网络连接逻辑，fd由ArkTS传入
-#include "TcpChannel.h"
+#include "adb/channel/TcpChannel.h"
 #include <cerrno>
 #include <cstring>
 #include <unistd.h>
@@ -290,4 +290,13 @@ void TcpChannel::close() {
 
 bool TcpChannel::isClosed() const {
     return closed_.load();
+}
+
+int TcpChannel::releaseFd() {
+    int fd = fd_;
+    fd_ = -1;
+    closed_.store(true);
+    bufferHead_ = 0;
+    bufferTail_ = 0;
+    return fd;
 }
