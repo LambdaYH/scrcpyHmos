@@ -207,6 +207,7 @@ static AdbMessage readMessageFromChannel(AdbChannel* channel, int timeoutMs = -1
 }
 
 int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
+    clearLastConnectError();
     // 发送CONNECT消息
     OH_LOG_INFO(LOG_APP, "ADB: Sending CONNECT message...");
     auto connectMsg = AdbProtocol::generateConnect();
@@ -218,6 +219,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
         message = readMessageFromChannel(channel_, 10000);
     } catch (const std::exception& e) {
         OH_LOG_ERROR(LOG_APP, "ADB: CONNECT response timeout or error: %{public}s", e.what());
+        setLastConnectError(std::string("connect response failed: ") + e.what());
         channel_->close();
         return -4; // Connect Timeout/Error
     }
@@ -270,6 +272,7 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
                         message.command, message.arg0, message.arg1, message.payloadLength);
         } catch (const std::exception& e) {
             OH_LOG_ERROR(LOG_APP, "ADB: STLS upgrade failed: %{public}s", e.what());
+            setLastConnectError(std::string("stls upgrade failed: ") + e.what());
             if (channel_) {
                 channel_->close();
             }
@@ -332,10 +335,12 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
                  std::string err = e.what();
                  if (err.find("timeout") != std::string::npos) {
                      OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN timeout: %{public}s", err.c_str());
+                     setLastConnectError(std::string("wait for cnxn timeout: ") + err);
                      channel_->close();
                      return -5; // Timeout
                  }
                  OH_LOG_ERROR(LOG_APP, "ADB: Wait for CNXN error (disconnect?): %{public}s", err.c_str());
+                 setLastConnectError(std::string("wait for cnxn failed: ") + err);
                  channel_->close();
                  return -7; // Connection Closed / Error
             }
@@ -343,12 +348,14 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
             // If we are here, we got a message. Check if it is CNXN.
             if (message.command != AdbProtocol::CMD_CNXN) {
                 OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN but got 0x%{public}x", message.command);
+                setLastConnectError("auth flow failed: expected CNXN");
                 channel_->close();
                 return -3;
             }
         }
     } else if (message.command != AdbProtocol::CMD_CNXN) {
          OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN or AUTH but got 0x%{public}x", message.command);
+         setLastConnectError("unexpected initial ADB response");
          channel_->close();
          return -1;
     }
@@ -357,11 +364,13 @@ int Adb::connect(AdbKeyPair& keyPair, AuthCallback onWaitAuth) {
     if (message.command != AdbProtocol::CMD_CNXN) {
         OH_LOG_ERROR(LOG_APP, "ADB: Expected CNXN (0x%{public}x) but got 0x%{public}x",
                      AdbProtocol::CMD_CNXN, message.command);
+        setLastConnectError("expected CNXN after connect");
         channel_->close();
         return -1;
     }
 
 
+    clearLastConnectError();
     maxData_ = std::min<uint32_t>(message.arg1, AdbProtocol::CONNECT_MAXDATA);
     OH_LOG_INFO(LOG_APP,
                 "ADB: connected, peerMaxData=%{public}u, localMaxData=%{public}u, effectiveMaxData=%{public}u",
@@ -1193,6 +1202,21 @@ void Adb::close() {
 
     // 清理流
     // Stream objects are released in ~Adb().
+}
+
+std::string Adb::getLastConnectError() const {
+    std::lock_guard<std::mutex> lock(lastConnectErrorMutex_);
+    return lastConnectError_;
+}
+
+void Adb::setLastConnectError(std::string error) {
+    std::lock_guard<std::mutex> lock(lastConnectErrorMutex_);
+    lastConnectError_ = std::move(error);
+}
+
+void Adb::clearLastConnectError() {
+    std::lock_guard<std::mutex> lock(lastConnectErrorMutex_);
+    lastConnectError_.clear();
 }
 
 void Adb::writeToChannel(const std::vector<uint8_t>& data) {

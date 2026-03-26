@@ -621,6 +621,18 @@
       "value": "Failed to establish native connection to device."
     },
     {
+      "name": "adb_wireless_tls_failed",
+      "value": "Wireless debugging handshake failed. Pair again and make sure you are using the connect port shown on the Wireless debugging screen."
+    },
+    {
+      "name": "adb_wireless_tls_interrupted",
+      "value": "Wireless debugging was interrupted by the device. Make sure pairing is completed, reopen Wireless debugging on Android, and try again."
+    },
+    {
+      "name": "adb_wireless_protocol_failed",
+      "value": "Wireless debugging protocol error. Pair again and make sure the connect port is correct."
+    },
+    {
       "name": "adb_connect_timeout",
       "value": "Connection timed out. Please check network or device status."
     },

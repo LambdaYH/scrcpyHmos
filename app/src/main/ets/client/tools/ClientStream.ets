@@ -72,7 +72,8 @@ export class ClientStream {
           } else if (connectRes === -7) {
              throw new Error('app.string.adb_auth_disconnected');
           } else {
-             throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);
+             const nativeDetail = libscrcpy.adbGetLastConnectError(this.adbId);
+             throw new Error(this.mapNativeConnectError(connectRes, nativeDetail));
           }
       }
       LoggerClientStream.info('[ClientStream] Native ADB connected');
@@ -192,5 +193,26 @@ export class ClientStream {
           this.adbId = -1;
           this.shellStreamId = -1;
       }
+  }
+
+  private mapNativeConnectError(connectRes: number, nativeDetail: string): string {
+    const detail = nativeDetail.toLowerCase();
+    LoggerClientStream.error('[ClientStream] Native ADB connect detail:', nativeDetail);
+
+    if (detail.includes('stls upgrade failed') || detail.includes('tls handshake failed')) {
+      return 'app.string.adb_wireless_tls_failed';
+    }
+    if (detail.includes('tlsadbchannel: read failed')) {
+      return 'app.string.adb_wireless_tls_interrupted';
+    }
+    if (detail.includes('unexpected initial adb response') || detail.includes('expected cnxn')) {
+      return 'app.string.adb_wireless_protocol_failed';
+    }
+    if (detail.includes('connect response failed')) {
+      return 'app.string.adb_connect_timeout';
+    }
+
+    LoggerClientStream.error('[ClientStream] Native ADB connect failed with code:', String(connectRes));
+    return 'app.string.adb_native_connect_failed';
   }
 }

@@ -18,6 +18,7 @@ declare module 'libscrcpy_native.so' {
     // ADB Module
     export function adbCreate(ip: string, port: number): Promise<number>;
     export function adbConnect(adbId: number, pubKeyPath: string, priKeyPath: string, onWaitAuth?: () => void): Promise<number>;
+    export function adbGetLastConnectError(adbId: number): string;
     export function adbPair(hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string): Promise<string>;
     export function adbRunCmd(adbId: number, cmd: string): string;
     export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;

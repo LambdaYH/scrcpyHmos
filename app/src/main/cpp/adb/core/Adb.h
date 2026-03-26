@@ -125,8 +125,12 @@ public:
     // 获取最大数据大小
     uint32_t getMaxData() const { return maxData_; }
 
+    std::string getLastConnectError() const;
+
 private:
     Adb(AdbChannel* channel);
+    void setLastConnectError(std::string error);
+    void clearLastConnectError();
 
     struct ReverseBridge {
         int fd = -1;
@@ -191,6 +195,9 @@ private:
 
     std::mutex reverseBridgesMutex_;
     std::vector<std::shared_ptr<ReverseBridge>> reverseBridges_;
+
+    mutable std::mutex lastConnectErrorMutex_;
+    std::string lastConnectError_;
 
     // channel写入锁 (由sendLoop管理)
     // std::mutex channelWriteMutex_; // Removed, managed by sendLoop

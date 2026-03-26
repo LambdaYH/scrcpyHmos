@@ -665,6 +665,26 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
     return promise;
 }
 
+static napi_value AdbGetLastConnectError(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    napi_get_value_int64(env, args[0], &adbId);
+
+    napi_value result;
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_create_string_utf8(env, "", 0, &result);
+        return result;
+    }
+
+    const std::string error = it->second->getLastConnectError();
+    napi_create_string_utf8(env, error.c_str(), error.size(), &result);
+    return result;
+}
+
 struct AdbPairContext {
     napi_async_work work;
     napi_deferred deferred;
@@ -1870,6 +1890,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         // ADB API
         {"adbCreate", nullptr, AdbCreate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbConnect", nullptr, AdbConnect, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbGetLastConnectError", nullptr, AdbGetLastConnectError, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPair", nullptr, AdbPair, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbRunCmd", nullptr, AdbRunCmd, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},

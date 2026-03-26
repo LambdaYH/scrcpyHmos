@@ -539,6 +539,12 @@ struct ControlPage {
                  errMsg = this.getResString($r('app.string.adb_auth_failed'));
              } else if (errMsg === 'app.string.adb_native_connect_failed') {
                  errMsg = this.getResString($r('app.string.adb_native_connect_failed'));
+             } else if (errMsg === 'app.string.adb_wireless_tls_failed') {
+                 errMsg = this.getResString($r('app.string.adb_wireless_tls_failed'));
+             } else if (errMsg === 'app.string.adb_wireless_tls_interrupted') {
+                 errMsg = this.getResString($r('app.string.adb_wireless_tls_interrupted'));
+             } else if (errMsg === 'app.string.adb_wireless_protocol_failed') {
+                 errMsg = this.getResString($r('app.string.adb_wireless_protocol_failed'));
              } else if (errMsg === 'app.string.server_prepare_failed') {
                  errMsg = this.getResString($r('app.string.server_prepare_failed'));
              } else if (errMsg === 'app.string.adb_connect_timeout') {
