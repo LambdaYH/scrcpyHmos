@@ -514,12 +514,12 @@ struct ControlPage {
       }
       
       this.isConnected = true;
-      await this.setWindowKeepScreenOn(true);
       if (this.hasReceivedFirstFrame) {
         this.applyConnectedStatus();
       } else {
         this.applyWaitingForFirstFrameStatus();
       }
+      void this.setWindowKeepScreenOn(true);
     } catch (err) {
       this.stopStepTimer(); // Stop timer on failure
       await this.setWindowKeepScreenOn(false);

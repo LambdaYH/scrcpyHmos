@@ -24,9 +24,9 @@ type NativeStartReverseStreamsFn = (
   audioSampleRate: number,
   audioChannelCount: number,
   callback: NativeEventCallback
-) => number;
-type AdbReverseFn = (adbId: number, socketName: string, port: number) => number;
-type AdbReverseRemoveFn = (adbId: number, socketName: string) => number;
+) => Promise<number>;
+type AdbReverseFn = (adbId: number, socketName: string, port: number) => Promise<number>;
+type AdbReverseRemoveFn = (adbId: number, socketName: string) => Promise<number>;
 
 export class NativeStreamClient {
   private static readonly REVERSE_READY_TIMEOUT_MS: number = 10000;
@@ -75,9 +75,9 @@ export class NativeStreamClient {
       if (!reverseStarted) {
         LoggerClientStream.info('[NativeStreamClient] Tunnel mode: using forward');
         const args = ServerManager.buildServerArgs(this.device, true);
-        this.clientStream.startServer(args);
+        await this.clientStream.startServer(args);
         await this.openNativeStreams();
-        this.startNativeProcessing(surfaceId, eventCallback);
+        await this.startNativeProcessing(surfaceId, eventCallback);
       }
 
       if (this.device.lightOffOnConnect) {
@@ -124,7 +124,7 @@ export class NativeStreamClient {
     const reverseArgs = ServerManager.buildServerArgs(this.device, false);
     const socketName = ServerManager.getSocketName();
 
-    const reversePort: number = this.callNativeStartReverseStreams(
+    const reversePort: number = await this.callNativeStartReverseStreams(
       this.adbId,
       true,
       this.device.isAudio,
@@ -141,7 +141,7 @@ export class NativeStreamClient {
       return false;
     }
 
-    const reverseResult: number = this.callAdbReverse(this.adbId, socketName, reversePort);
+    const reverseResult: number = await this.callAdbReverse(this.adbId, socketName, reversePort);
     if (reverseResult !== 0) {
       LoggerClientStream.warn(`[NativeStreamClient] adb reverse failed: ${reverseResult}, fallback to forward`);
       libscrcpy.nativeStopStreams();
@@ -150,7 +150,7 @@ export class NativeStreamClient {
 
     LoggerClientStream.info(`[NativeStreamClient] Tunnel mode: using reverse`);
     const reverseReadyPromise = this.waitForReverseReady();
-    this.clientStream.startServer(reverseArgs);
+    await this.clientStream.startServer(reverseArgs);
     try {
       await reverseReadyPromise;
       return true;
@@ -158,7 +158,7 @@ export class NativeStreamClient {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.warn(`[NativeStreamClient] Reverse startup incomplete: ${errMsg}, fallback to forward`);
       await this.clientStream.stopServerAndWait();
-      this.callAdbReverseRemove(this.adbId, socketName);
+      await this.callAdbReverseRemove(this.adbId, socketName);
       libscrcpy.nativeStopStreams();
       await new Promise<void>(resolve => setTimeout(resolve, NativeStreamClient.FALLBACK_SERVER_COOLDOWN_MS));
       return false;
@@ -181,7 +181,7 @@ export class NativeStreamClient {
     // Retry while waiting for the server to listen on the abstract socket.
     let retries = 50; // 50 * 100ms = 5 seconds
     while (retries > 0) {
-      this.videoStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
+      this.videoStreamId = await libscrcpy.adbLocalSocketForward(this.adbId, socketName);
       if (this.videoStreamId >= 0) {
         break;
       }
@@ -200,7 +200,7 @@ export class NativeStreamClient {
 
     // 2. Audio Stream
     if (this.device.isAudio) {
-        this.audioStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
+        this.audioStreamId = await libscrcpy.adbLocalSocketForward(this.adbId, socketName);
         if (this.audioStreamId < 0) {
             LoggerClientStream.warn("Failed to connect Audio stream, disabling audio");
             this.audioStreamId = -1;
@@ -210,7 +210,7 @@ export class NativeStreamClient {
     }
 
     // 3. Control Stream
-    this.controlStreamId = libscrcpy.adbLocalSocketForward(this.adbId, socketName);
+    this.controlStreamId = await libscrcpy.adbLocalSocketForward(this.adbId, socketName);
     if (this.controlStreamId < 0) throw new Error("Failed to connect Control stream");
     LoggerClientStream.info(`[NativeStreamClient] Control Stream Connected`);
   }
@@ -268,11 +268,11 @@ export class NativeStreamClient {
     };
   }
 
-  private startNativeProcessing(
+  private async startNativeProcessing(
     surfaceId: string,
     eventCallback: NativeEventCallback
-  ): void {
-    const res: number = libscrcpy.nativeStartStreams(
+  ): Promise<void> {
+    const res: number = await libscrcpy.nativeStartStreams(
         this.adbId,
         this.videoStreamId,
         this.audioStreamId, // -1 if disabled
@@ -288,7 +288,7 @@ export class NativeStreamClient {
     }
   }
 
-  private callNativeStartReverseStreams(
+  private async callNativeStartReverseStreams(
     adbId: number,
     expectVideo: boolean,
     expectAudio: boolean,
@@ -297,9 +297,9 @@ export class NativeStreamClient {
     audioSampleRate: number,
     audioChannelCount: number,
     callback: NativeEventCallback
-  ): number {
+  ): Promise<number> {
     const nativeStartReverseStreams = libscrcpy.nativeStartReverseStreams as NativeStartReverseStreamsFn;
-    return nativeStartReverseStreams(
+    return await nativeStartReverseStreams(
       adbId,
       expectVideo,
       expectAudio,
@@ -311,14 +311,14 @@ export class NativeStreamClient {
     );
   }
 
-  private callAdbReverse(adbId: number, socketName: string, port: number): number {
+  private async callAdbReverse(adbId: number, socketName: string, port: number): Promise<number> {
     const adbReverse = libscrcpy.adbReverse as AdbReverseFn;
-    return adbReverse(adbId, socketName, port);
+    return await adbReverse(adbId, socketName, port);
   }
 
-  private callAdbReverseRemove(adbId: number, socketName: string): number {
+  private async callAdbReverseRemove(adbId: number, socketName: string): Promise<number> {
     const adbReverseRemove = libscrcpy.adbReverseRemove as AdbReverseRemoveFn;
-    return adbReverseRemove(adbId, socketName);
+    return await adbReverseRemove(adbId, socketName);
   }
 
   private waitForReverseReady(): Promise<void> {

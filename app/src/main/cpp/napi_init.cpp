@@ -6,9 +6,11 @@
 
 #include <hilog/log.h>
 #include <atomic>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 // ============== Video Decoder ==============
 
@@ -582,18 +584,83 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
     napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
     napi_get_value_string_utf8(env, args[2], remotePath, sizeof(remotePath), &pathLen);
 
+    struct AdbPushFileContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        napi_ref dataRef = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        void* fileData = nullptr;
+        size_t fileSize = 0;
+        std::string remotePath;
+        bool success = false;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
-    if (it != g_adbInstances.end()) {
-        try {
-            it->second->pushFile(static_cast<uint8_t*>(data), dataSize, remotePath);
-        } catch (const std::exception& e) {
-            OH_LOG_ERROR(LOG_APP, "[NAPI] AdbPushFile failed: %{public}s", e.what());
-        }
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbPushFile", NAPI_AUTO_LENGTH, &resourceName);
+
+    AdbPushFileContext* context = new AdbPushFileContext();
+    context->adbInstance = it->second;
+    context->remotePath = remotePath;
+    context->fileData = data;
+    context->fileSize = dataSize;
+    napi_create_reference(env, args[1], 1, &context->dataRef);
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbPushFileContext*>(rawData);
+            if (!context->adbInstance) {
+                context->errorMsg = "Adb instance not found or invalid";
+                return;
+            }
+            try {
+                context->adbInstance->pushFile(
+                    static_cast<uint8_t*>(context->fileData),
+                    context->fileSize,
+                    context->remotePath
+                );
+                context->success = true;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbPushFileContext*>(rawData);
+            if (context->success) {
+                napi_value result;
+                napi_get_undefined(env, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbPushFile failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+
+            napi_delete_async_work(env, context->work);
+            if (context->dataRef) {
+                napi_delete_reference(env, context->dataRef);
+            }
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // TCP端口转发 - adbTcpForward(adbId, port) => streamId
@@ -638,21 +705,63 @@ static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
 
-    napi_value result;
+    struct AdbLocalSocketForwardContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        std::string socketName;
+        int32_t streamId = -1;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        napi_create_int32(env, -1, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    try {
-        int32_t streamId = it->second->localSocketForward(socketName);
-        napi_create_int32(env, streamId, &result);
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbLocalSocketForward failed: %{public}s", e.what());
-        napi_create_int32(env, -1, &result);
-    }
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbLocalSocketForward", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* context = new AdbLocalSocketForwardContext();
+    context->adbInstance = it->second;
+    context->socketName = socketName;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbLocalSocketForwardContext*>(rawData);
+            try {
+                context->streamId = context->adbInstance->localSocketForward(context->socketName);
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbLocalSocketForwardContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->streamId, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbLocalSocketForward failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 static napi_value AdbReverse(napi_env env, napi_callback_info info) {
@@ -669,22 +778,67 @@ static napi_value AdbReverse(napi_env env, napi_callback_info info) {
     napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
     napi_get_value_int32(env, args[2], &port);
 
-    napi_value result;
+    struct AdbReverseContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        std::string socketName;
+        int32_t port = 0;
+        int32_t resultCode = -1;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        napi_create_int32(env, -1, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    try {
-        const std::string remote = "localabstract:" + std::string(socketName);
-        const std::string local = "tcp:" + std::to_string(port);
-        napi_create_int32(env, it->second->reverseForward(remote, local) ? 0 : -1, &result);
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverse failed: %{public}s", e.what());
-        napi_create_int32(env, -1, &result);
-    }
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbReverse", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* context = new AdbReverseContext();
+    context->adbInstance = it->second;
+    context->socketName = socketName;
+    context->port = port;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbReverseContext*>(rawData);
+            try {
+                const std::string remote = "localabstract:" + context->socketName;
+                const std::string local = "tcp:" + std::to_string(context->port);
+                context->resultCode = context->adbInstance->reverseForward(remote, local) ? 0 : -1;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbReverseContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->resultCode, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverse failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 static napi_value AdbReverseRemove(napi_env env, napi_callback_info info) {
@@ -699,21 +853,64 @@ static napi_value AdbReverseRemove(napi_env env, napi_callback_info info) {
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
 
-    napi_value result;
+    struct AdbReverseRemoveContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        std::string socketName;
+        int32_t resultCode = -1;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        napi_create_int32(env, -1, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    try {
-        const std::string remote = "localabstract:" + std::string(socketName);
-        napi_create_int32(env, it->second->reverseRemove(remote) ? 0 : -1, &result);
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverseRemove failed: %{public}s", e.what());
-        napi_create_int32(env, -1, &result);
-    }
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbReverseRemove", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* context = new AdbReverseRemoveContext();
+    context->adbInstance = it->second;
+    context->socketName = socketName;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbReverseRemoveContext*>(rawData);
+            try {
+                const std::string remote = "localabstract:" + context->socketName;
+                context->resultCode = context->adbInstance->reverseRemove(remote) ? 0 : -1;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbReverseRemoveContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->resultCode, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbReverseRemove failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // 从流读取 - adbStreamRead(adbId, streamId, size) => ArrayBuffer
@@ -769,18 +966,72 @@ static napi_value AdbStreamWrite(napi_env env, napi_callback_info info) {
     napi_get_value_int32(env, args[1], &streamId);
     napi_get_arraybuffer_info(env, args[2], &data, &dataSize);
 
+    struct AdbStreamWriteContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        int32_t streamId = -1;
+        std::vector<uint8_t> data;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
-    if (it != g_adbInstances.end()) {
-        try {
-            it->second->streamWrite(streamId, static_cast<uint8_t*>(data), dataSize);
-        } catch (const std::exception& e) {
-            OH_LOG_ERROR(LOG_APP, "[NAPI] AdbStreamWrite failed: %{public}s", e.what());
-        }
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    napi_value result;
-    napi_get_undefined(env, &result);
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbStreamWrite", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* context = new AdbStreamWriteContext();
+    context->adbInstance = it->second;
+    context->streamId = streamId;
+    context->data.resize(dataSize);
+    if (dataSize > 0) {
+        std::memcpy(context->data.data(), data, dataSize);
+    }
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbStreamWriteContext*>(rawData);
+            try {
+                context->adbInstance->streamWrite(
+                    context->streamId,
+                    context->data.empty() ? nullptr : context->data.data(),
+                    context->data.size()
+                );
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbStreamWriteContext*>(rawData);
+            if (context->errorMsg.empty()) {
+                napi_value result;
+                napi_get_undefined(env, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbStreamWrite failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // 关闭流 - adbStreamClose(adbId, streamId)
@@ -877,21 +1128,61 @@ static napi_value AdbGetShell(napi_env env, napi_callback_info info) {
     int64_t adbId;
     napi_get_value_int64(env, args[0], &adbId);
 
-    napi_value result;
+    struct AdbGetShellContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        int32_t streamId = -1;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        napi_create_int32(env, -1, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    try {
-        int32_t streamId = it->second->getShell();
-        napi_create_int32(env, streamId, &result);
-    } catch (const std::exception& e) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] AdbGetShell failed: %{public}s", e.what());
-        napi_create_int32(env, -1, &result);
-    }
-    return result;
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbGetShell", NAPI_AUTO_LENGTH, &resourceName);
+
+    auto* context = new AdbGetShellContext();
+    context->adbInstance = it->second;
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbGetShellContext*>(rawData);
+            try {
+                context->streamId = context->adbInstance->getShell();
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbGetShellContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->streamId, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbGetShell failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // 切换TCP模式 - adbRestartOnTcpip(adbId, port) => string
@@ -1247,41 +1538,79 @@ static napi_value NativeStartStreams(napi_env env, napi_callback_info info) {
         return result;
     }
 
+    struct NativeStartStreamsContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        ScrcpyStreamManager::Config config;
+        bool reverse = false;
+        int32_t result = -1;
+        std::string errorMsg;
+    };
+
     // 查找 ADB 实例
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] ADB instance not found: %{public}lld", (long long)adbId);
-        napi_value result;
-        napi_create_int32(env, -2, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    // 清理旧的 stream manager
-    if (g_streamManager) {
-        g_streamManager->stop();
-        delete g_streamManager;
-        g_streamManager = nullptr;
-    }
+    napi_value resourceName;
+    napi_create_string_utf8(env, "NativeStartStreams", NAPI_AUTO_LENGTH, &resourceName);
 
-    // 配置
-    ScrcpyStreamManager::Config config;
-    config.videoStreamId = videoStreamId;
-    config.audioStreamId = audioStreamId;
-    config.controlStreamId = controlStreamId;
-    config.surfaceId = surfaceId;
-    config.audioSampleRate = audioSampleRate;
-    config.audioChannelCount = audioChannelCount;
-    config.reverse = false;
-    config.sendDummyByte = true;
+    auto* context = new NativeStartStreamsContext();
+    context->adbInstance = it->second;
+    context->config.videoStreamId = videoStreamId;
+    context->config.audioStreamId = audioStreamId;
+    context->config.controlStreamId = controlStreamId;
+    context->config.surfaceId = surfaceId;
+    context->config.audioSampleRate = audioSampleRate;
+    context->config.audioChannelCount = audioChannelCount;
+    context->config.reverse = false;
+    context->config.sendDummyByte = true;
 
-    // 创建并启动
-    g_streamManager = new ScrcpyStreamManager();
-    auto eventCallback = CreateNativeStreamEventCallback();
-    int32_t ret = g_streamManager->start(it->second.get(), config, eventCallback);
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
 
-    napi_value result;
-    napi_create_int32(env, ret, &result);
-    return result;
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<NativeStartStreamsContext*>(rawData);
+            try {
+                if (g_streamManager) {
+                    g_streamManager->stop();
+                    delete g_streamManager;
+                    g_streamManager = nullptr;
+                }
+                g_streamManager = new ScrcpyStreamManager();
+                auto eventCallback = CreateNativeStreamEventCallback();
+                context->result = g_streamManager->start(context->adbInstance.get(), context->config, eventCallback);
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<NativeStartStreamsContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->result, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] NativeStartStreams failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 static napi_value NativeStartReverseStreams(napi_env env, napi_callback_info info) {
@@ -1319,40 +1648,80 @@ static napi_value NativeStartReverseStreams(napi_env env, napi_callback_info inf
         return result;
     }
 
+    struct NativeStartReverseStreamsContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        ScrcpyStreamManager::Config config;
+        int32_t result = -1;
+        std::string errorMsg;
+    };
+
     auto it = g_adbInstances.find(adbId);
     if (it == g_adbInstances.end()) {
-        OH_LOG_ERROR(LOG_APP, "[NAPI] ADB instance not found for reverse: %{public}lld", (long long)adbId);
-        napi_value result;
-        napi_create_int32(env, -2, &result);
-        return result;
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
     }
 
-    if (g_streamManager) {
-        g_streamManager->stop();
-        delete g_streamManager;
-        g_streamManager = nullptr;
-    }
+    napi_value resourceName;
+    napi_create_string_utf8(env, "NativeStartReverseStreams", NAPI_AUTO_LENGTH, &resourceName);
 
-    ScrcpyStreamManager::Config config;
-    config.videoStreamId = -1;
-    config.audioStreamId = -1;
-    config.controlStreamId = -1;
-    config.surfaceId = surfaceId;
-    config.audioSampleRate = audioSampleRate;
-    config.audioChannelCount = audioChannelCount;
-    config.reverse = true;
-    config.expectVideo = expectVideo;
-    config.expectAudio = expectAudio;
-    config.expectControl = expectControl;
-    config.sendDummyByte = false;
+    auto* context = new NativeStartReverseStreamsContext();
+    context->adbInstance = it->second;
+    context->config.videoStreamId = -1;
+    context->config.audioStreamId = -1;
+    context->config.controlStreamId = -1;
+    context->config.surfaceId = surfaceId;
+    context->config.audioSampleRate = audioSampleRate;
+    context->config.audioChannelCount = audioChannelCount;
+    context->config.reverse = true;
+    context->config.expectVideo = expectVideo;
+    context->config.expectAudio = expectAudio;
+    context->config.expectControl = expectControl;
+    context->config.sendDummyByte = false;
 
-    g_streamManager = new ScrcpyStreamManager();
-    auto eventCallback = CreateNativeStreamEventCallback();
-    int32_t ret = g_streamManager->startReverse(it->second.get(), config, eventCallback);
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
 
-    napi_value result;
-    napi_create_int32(env, ret, &result);
-    return result;
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<NativeStartReverseStreamsContext*>(rawData);
+            try {
+                if (g_streamManager) {
+                    g_streamManager->stop();
+                    delete g_streamManager;
+                    g_streamManager = nullptr;
+                }
+                g_streamManager = new ScrcpyStreamManager();
+                auto eventCallback = CreateNativeStreamEventCallback();
+                context->result = g_streamManager->startReverse(context->adbInstance.get(), context->config, eventCallback);
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<NativeStartReverseStreamsContext*>(rawData);
+            napi_value result;
+            if (context->errorMsg.empty()) {
+                napi_create_int32(env, context->result, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] NativeStartReverseStreams failed: %{public}s", context->errorMsg.c_str());
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &result);
+                napi_value error;
+                napi_create_error(env, nullptr, result, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // nativeStopStreams()

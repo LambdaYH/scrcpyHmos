@@ -19,15 +19,15 @@ declare module 'libscrcpy_native.so' {
     export function adbCreate(ip: string, port: number): Promise<number>;
     export function adbConnect(adbId: number, pubKeyPath: string, priKeyPath: string, onWaitAuth?: () => void): Promise<number>;
     export function adbRunCmd(adbId: number, cmd: string): string;
-    export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): void;
+    export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;
     export function adbTcpForward(adbId: number, port: number): number;
-    export function adbLocalSocketForward(adbId: number, socketName: string): number;
-    export function adbReverse(adbId: number, socketName: string, port: number): number;
-    export function adbReverseRemove(adbId: number, socketName: string): number;
-    export function adbGetShell(adbId: number): number;
+    export function adbLocalSocketForward(adbId: number, socketName: string): Promise<number>;
+    export function adbReverse(adbId: number, socketName: string, port: number): Promise<number>;
+    export function adbReverseRemove(adbId: number, socketName: string): Promise<number>;
+    export function adbGetShell(adbId: number): Promise<number>;
     export function adbRestartOnTcpip(adbId: number, port: number): string;
     export function adbStreamRead(adbId: number, streamId: number, size: number): ArrayBuffer;
-    export function adbStreamWrite(adbId: number, streamId: number, data: ArrayBuffer): void;
+    export function adbStreamWrite(adbId: number, streamId: number, data: ArrayBuffer): Promise<void>;
     export function adbStreamClose(adbId: number, streamId: number): void;
     export function adbIsStreamClosed(adbId: number, streamId: number): boolean;
     export function adbClose(adbId: number): void;
@@ -44,7 +44,7 @@ declare module 'libscrcpy_native.so' {
         audioSampleRate: number,
         audioChannelCount: number,
         callback: (type: string, data: string) => void
-    ): number;
+    ): Promise<number>;
     export function nativeStartReverseStreams(
         adbId: number,
         expectVideo: boolean,
@@ -54,7 +54,7 @@ declare module 'libscrcpy_native.so' {
         audioSampleRate: number,
         audioChannelCount: number,
         callback: (type: string, data: string) => void
-    ): number;
+    ): Promise<number>;
     export function nativeStopStreams(): void;
     export function nativeSendControl(data: ArrayBuffer): boolean;
 }
