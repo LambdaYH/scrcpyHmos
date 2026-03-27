@@ -126,7 +126,7 @@
     },
     {
       "name": "adb_pair_address_hint",
-      "value": "192.168.1.10:37099"
+      "value": "192.168.1.10:1206"
     },
     {
       "name": "adb_pair_code",
