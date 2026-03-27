@@ -755,13 +755,6 @@ struct ControlPage {
         this.getResString($r('app.string.transfer_notification_preparing'))
       );
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.send_file_start') });
-      await this.updateTransferNotification(
-        'send',
-        this.getResString($r('app.string.send_file_notification_title')),
-        fileName,
-        this.buildTransferProgressText($r('app.string.transfer_notification_sending_prefix'), 0),
-        0
-      );
       await this.pushUriFile(uri, remotePath, (progress: number) => {
         void this.updateTransferNotification(
           'send',
@@ -820,13 +813,6 @@ struct ControlPage {
         this.getResString($r('app.string.transfer_notification_preparing'))
       );
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.install_app_start') });
-      await this.updateTransferNotification(
-        'install',
-        this.getResString($r('app.string.install_app_notification_title')),
-        remoteName,
-        this.buildTransferProgressText($r('app.string.transfer_notification_uploading_prefix'), 0),
-        0
-      );
       const result: libscrcpy.AdbInstallPackageResult = await this.installPackageFromUri(
         uri,
         remoteName,
