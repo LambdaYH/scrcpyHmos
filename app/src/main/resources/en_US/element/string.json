@@ -1053,6 +1053,42 @@
             "value": "Another transfer is in progress"
         },
         {
+            "name": "send_file_notification_title",
+            "value": "Send File"
+        },
+        {
+            "name": "install_app_notification_title",
+            "value": "Install App"
+        },
+        {
+            "name": "transfer_notification_preparing",
+            "value": "Preparing..."
+        },
+        {
+            "name": "transfer_notification_sending_prefix",
+            "value": "Sending"
+        },
+        {
+            "name": "transfer_notification_uploading_prefix",
+            "value": "Uploading"
+        },
+        {
+            "name": "transfer_notification_installing",
+            "value": "Installing..."
+        },
+        {
+            "name": "transfer_notification_completed_prefix",
+            "value": "Completed: "
+        },
+        {
+            "name": "transfer_notification_install_success",
+            "value": "App installed"
+        },
+        {
+            "name": "transfer_notification_failed_prefix",
+            "value": "Failed: "
+        },
+        {
             "name": "file_pick_cancelled",
             "value": "No file selected"
         }

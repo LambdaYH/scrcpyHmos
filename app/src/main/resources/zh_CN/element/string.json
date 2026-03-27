@@ -1177,6 +1177,42 @@
             "value": "已有传输任务正在进行"
         },
         {
+            "name": "send_file_notification_title",
+            "value": "发送文件"
+        },
+        {
+            "name": "install_app_notification_title",
+            "value": "安装应用"
+        },
+        {
+            "name": "transfer_notification_preparing",
+            "value": "准备中..."
+        },
+        {
+            "name": "transfer_notification_sending_prefix",
+            "value": "发送中"
+        },
+        {
+            "name": "transfer_notification_uploading_prefix",
+            "value": "上传中"
+        },
+        {
+            "name": "transfer_notification_installing",
+            "value": "安装中..."
+        },
+        {
+            "name": "transfer_notification_completed_prefix",
+            "value": "已完成："
+        },
+        {
+            "name": "transfer_notification_install_success",
+            "value": "应用安装成功"
+        },
+        {
+            "name": "transfer_notification_failed_prefix",
+            "value": "失败："
+        },
+        {
             "name": "file_pick_cancelled",
             "value": "未选择文件"
         }

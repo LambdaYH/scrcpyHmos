@@ -38,9 +38,30 @@ declare module 'libscrcpy_native.so' {
         adbId: number,
         data: ArrayBuffer,
         remoteName: string,
-        installArgs?: string
+        installArgs?: string,
+        onProgress?: (progress: number) => void
     ): Promise<AdbInstallPackageResult>;
-    export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;
+    export function adbInstallPackageFromFd(
+        adbId: number,
+        fd: number,
+        fileSize: number,
+        remoteName: string,
+        installArgs?: string,
+        onProgress?: (progress: number) => void
+    ): Promise<AdbInstallPackageResult>;
+    export function adbPushFile(
+        adbId: number,
+        data: ArrayBuffer,
+        remotePath: string,
+        onProgress?: (progress: number) => void
+    ): Promise<void>;
+    export function adbPushFileFromFd(
+        adbId: number,
+        fd: number,
+        fileSize: number,
+        remotePath: string,
+        onProgress?: (progress: number) => void
+    ): Promise<void>;
     export function adbTcpForward(adbId: number, port: number): number;
     export function adbLocalSocketForward(
         adbId: number,

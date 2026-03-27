@@ -7,6 +7,7 @@
 
 
 #include <hilog/log.h>
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -14,6 +15,8 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <cerrno>
+#include <unistd.h>
 
 static napi_value CreateShellCommandResult(napi_env env, const AdbShellCommandResult& result) {
     napi_value obj;
@@ -54,6 +57,76 @@ static napi_value CreateInstallPackageResult(
     napi_set_named_property(env, obj, "remotePath", remotePathValue);
 
     return obj;
+}
+
+static std::string BuildErrnoMessage(const std::string& prefix) {
+    return prefix + ": " + std::strerror(errno);
+}
+
+static void ReportProgress(napi_threadsafe_function tsfn, int progress) {
+    if (!tsfn) {
+        return;
+    }
+    auto* value = new int(progress);
+    napi_status status = napi_call_threadsafe_function(tsfn, value, napi_tsfn_nonblocking);
+    if (status != napi_ok) {
+        delete value;
+    }
+}
+
+static bool LooksLikeInstallSuccess(const AdbShellCommandResult& result) {
+    const std::string combinedOutput = result.stdoutText + "\n" + result.stderrText;
+    return combinedOutput.find("Success") != std::string::npos &&
+        combinedOutput.find("Failure") == std::string::npos &&
+        combinedOutput.find("INSTALL_FAILED") == std::string::npos;
+}
+
+static std::string ShellQuote(const std::string& text) {
+    std::string escaped;
+    escaped.reserve(text.size() + 8);
+    escaped.push_back('\'');
+    for (char ch : text) {
+        if (ch == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped.push_back(ch);
+        }
+    }
+    escaped.push_back('\'');
+    return escaped;
+}
+
+static napi_threadsafe_function CreateProgressTsfn(
+    napi_env env,
+    napi_value callback,
+    napi_value resourceName) {
+    napi_threadsafe_function tsfn = nullptr;
+    napi_create_threadsafe_function(
+        env,
+        callback,
+        nullptr,
+        resourceName,
+        0,
+        1,
+        nullptr,
+        nullptr,
+        nullptr,
+        [](napi_env env, napi_value jsCb, void*, void* data) {
+            int* progress = static_cast<int*>(data);
+            if (!env || !jsCb || !progress) {
+                delete progress;
+                return;
+            }
+            napi_value argv[1];
+            napi_create_int32(env, *progress, &argv[0]);
+            napi_value global;
+            napi_get_global(env, &global);
+            napi_call_function(env, global, jsCb, 1, argv, nullptr);
+            delete progress;
+        },
+        &tsfn
+    );
+    return tsfn;
 }
 
 // ============== Video Decoder ==============
@@ -692,8 +765,8 @@ static napi_value AdbExecShell(napi_env env, napi_callback_info info) {
 
 // 安装APK - adbInstallPackage(adbId, data, remoteName, installArgs?) => Promise<{success, remotePath, exitCode, exitCodeReliable, stdout, stderr}>
 static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
-    size_t argc = 4;
-    napi_value args[4];
+    size_t argc = 5;
+    napi_value args[5];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
@@ -715,6 +788,7 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
         napi_async_work work = nullptr;
         napi_deferred deferred = nullptr;
         napi_ref dataRef = nullptr;
+        napi_threadsafe_function tsfn = nullptr;
         std::shared_ptr<Adb> adbInstance;
         void* fileData = nullptr;
         size_t fileSize = 0;
@@ -743,6 +817,14 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
 
     napi_value resourceName;
     napi_create_string_utf8(env, "AdbInstallPackage", NAPI_AUTO_LENGTH, &resourceName);
+
+    if (argc >= 5) {
+        napi_valuetype type;
+        napi_typeof(env, args[4], &type);
+        if (type == napi_function) {
+            context->tsfn = CreateProgressTsfn(env, args[4], resourceName);
+        }
+    }
 
     napi_value promise;
     napi_create_promise(env, &context->deferred, &promise);
@@ -780,8 +862,28 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
                 context->adbInstance->pushFile(
                     static_cast<uint8_t*>(context->fileData),
                     context->fileSize,
-                    context->remotePath
+                    context->remotePath,
+                    [context](int progress) {
+                        if (!context->tsfn) {
+                            return;
+                        }
+                        auto* mappedProgress = new int(std::min((progress * 90) / 100, 90));
+                        napi_status status = napi_call_threadsafe_function(
+                            context->tsfn, mappedProgress, napi_tsfn_nonblocking);
+                        if (status != napi_ok) {
+                            delete mappedProgress;
+                        }
+                    }
                 );
+
+                if (context->tsfn) {
+                    auto* installProgress = new int(95);
+                    napi_status status = napi_call_threadsafe_function(
+                        context->tsfn, installProgress, napi_tsfn_nonblocking);
+                    if (status != napi_ok) {
+                        delete installProgress;
+                    }
+                }
 
                 std::string installCommand = "pm install";
                 if (!context->installArgs.empty()) {
@@ -799,6 +901,14 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
                 const bool shellSucceeded = !context->shellResult.exitCodeReliable ||
                     context->shellResult.exitCode == 0;
                 context->commandSuccess = shellSucceeded && looksSuccessful;
+                if (context->tsfn) {
+                    auto* completedProgress = new int(100);
+                    napi_status status = napi_call_threadsafe_function(
+                        context->tsfn, completedProgress, napi_tsfn_nonblocking);
+                    if (status != napi_ok) {
+                        delete completedProgress;
+                    }
+                }
                 context->completed = true;
             } catch (const std::exception& e) {
                 context->errorMsg = e.what();
@@ -833,6 +943,9 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
             if (context->dataRef) {
                 napi_delete_reference(env, context->dataRef);
             }
+            if (context->tsfn) {
+                napi_release_threadsafe_function(context->tsfn, napi_tsfn_release);
+            }
             delete context;
         },
         context,
@@ -843,10 +956,295 @@ static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
     return promise;
 }
 
-// 推送文件 - adbPushFile(adbId, data, remotePath) => void
+// 推送文件 - adbPushFile(adbId, data, remotePath, onProgress?) => void
+static napi_value AdbPushFileFromFd(napi_env env, napi_callback_info info) {
+    size_t argc = 5;
+    napi_value args[5];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t sourceFd;
+    int64_t fileSize;
+    char remotePath[1024];
+    size_t pathLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &sourceFd);
+    napi_get_value_int64(env, args[2], &fileSize);
+    napi_get_value_string_utf8(env, args[3], remotePath, sizeof(remotePath), &pathLen);
+
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
+    }
+    if (fileSize <= 0) {
+        napi_throw_error(env, nullptr, "Invalid file size");
+        return nullptr;
+    }
+
+    struct AdbPushFileFromFdContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        napi_threadsafe_function tsfn = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        int fd = -1;
+        int64_t fileSize = 0;
+        std::string remotePath;
+        bool success = false;
+        std::string errorMsg;
+    };
+
+    auto* context = new AdbPushFileFromFdContext();
+    context->adbInstance = it->second;
+    context->fd = dup(sourceFd);
+    context->fileSize = fileSize;
+    context->remotePath = remotePath;
+    if (context->fd < 0) {
+        const std::string errorMsg = BuildErrnoMessage("Failed to duplicate source fd");
+        delete context;
+        napi_throw_error(env, nullptr, errorMsg.c_str());
+        return nullptr;
+    }
+
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbPushFileFromFd", NAPI_AUTO_LENGTH, &resourceName);
+
+    if (argc >= 5) {
+        napi_valuetype type;
+        napi_typeof(env, args[4], &type);
+        if (type == napi_function) {
+            context->tsfn = CreateProgressTsfn(env, args[4], resourceName);
+        }
+    }
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbPushFileFromFdContext*>(rawData);
+            if (!context->adbInstance) {
+                context->errorMsg = "Adb instance not found or invalid";
+                return;
+            }
+
+            try {
+                if (lseek(context->fd, 0, SEEK_SET) < 0) {
+                    throw std::runtime_error(BuildErrnoMessage("Failed to seek source file"));
+                }
+                context->adbInstance->pushFileFromFd(
+                    context->fd,
+                    static_cast<uint64_t>(context->fileSize),
+                    context->remotePath,
+                    [context](int progress) {
+                        ReportProgress(context->tsfn, progress);
+                    }
+                );
+                context->success = true;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbPushFileFromFdContext*>(rawData);
+            if (context->success) {
+                napi_value result;
+                napi_get_undefined(env, &result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbPushFileFromFd failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+
+            napi_delete_async_work(env, context->work);
+            if (context->fd >= 0) {
+                close(context->fd);
+            }
+            if (context->tsfn) {
+                napi_release_threadsafe_function(context->tsfn, napi_tsfn_release);
+            }
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
+}
+
+static napi_value AdbInstallPackageFromFd(napi_env env, napi_callback_info info) {
+    size_t argc = 6;
+    napi_value args[6];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    int32_t sourceFd;
+    int64_t fileSize;
+    char remoteName[256];
+    size_t remoteNameLen;
+    char installArgs[1024] = {0};
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_int32(env, args[1], &sourceFd);
+    napi_get_value_int64(env, args[2], &fileSize);
+    napi_get_value_string_utf8(env, args[3], remoteName, sizeof(remoteName), &remoteNameLen);
+    if (argc >= 5) {
+        napi_get_value_string_utf8(env, args[4], installArgs, sizeof(installArgs), nullptr);
+    }
+
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
+    }
+    if (fileSize <= 0) {
+        napi_throw_error(env, nullptr, "Invalid file size");
+        return nullptr;
+    }
+
+    struct AdbInstallPackageFromFdContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        napi_threadsafe_function tsfn = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        int fd = -1;
+        int64_t fileSize = 0;
+        std::string remoteName;
+        std::string installArgs;
+        std::string remotePath;
+        AdbShellCommandResult shellResult;
+        bool commandSuccess = false;
+        bool completed = false;
+        std::string errorMsg;
+    };
+
+    auto* context = new AdbInstallPackageFromFdContext();
+    context->adbInstance = it->second;
+    context->fd = dup(sourceFd);
+    context->fileSize = fileSize;
+    context->remoteName = remoteName;
+    context->installArgs = installArgs;
+    if (context->fd < 0) {
+        const std::string errorMsg = BuildErrnoMessage("Failed to duplicate source fd");
+        delete context;
+        napi_throw_error(env, nullptr, errorMsg.c_str());
+        return nullptr;
+    }
+
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbInstallPackageFromFd", NAPI_AUTO_LENGTH, &resourceName);
+
+    if (argc >= 6) {
+        napi_valuetype type;
+        napi_typeof(env, args[5], &type);
+        if (type == napi_function) {
+            context->tsfn = CreateProgressTsfn(env, args[5], resourceName);
+        }
+    }
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbInstallPackageFromFdContext*>(rawData);
+            if (!context->adbInstance) {
+                context->errorMsg = "Adb instance not found or invalid";
+                return;
+            }
+            if (context->remoteName.empty()) {
+                context->errorMsg = "remoteName is required";
+                return;
+            }
+
+            context->remotePath = "/data/local/tmp/" + context->remoteName;
+
+            try {
+                if (lseek(context->fd, 0, SEEK_SET) < 0) {
+                    throw std::runtime_error(BuildErrnoMessage("Failed to seek source file"));
+                }
+
+                context->adbInstance->pushFileFromFd(
+                    context->fd,
+                    static_cast<uint64_t>(context->fileSize),
+                    context->remotePath,
+                    [context](int progress) {
+                        const int mappedProgress = std::min((progress * 90) / 100, 90);
+                        ReportProgress(context->tsfn, mappedProgress);
+                    }
+                );
+
+                ReportProgress(context->tsfn, 95);
+                std::string installCommand = "pm install";
+                if (!context->installArgs.empty()) {
+                    installCommand += " " + context->installArgs;
+                }
+                installCommand += " " + ShellQuote(context->remotePath);
+
+                context->shellResult = context->adbInstance->execShellCommand(installCommand);
+                const bool shellSucceeded = !context->shellResult.exitCodeReliable ||
+                    context->shellResult.exitCode == 0;
+                context->commandSuccess = shellSucceeded && LooksLikeInstallSuccess(context->shellResult);
+                ReportProgress(context->tsfn, 100);
+                context->completed = true;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+
+            if (!context->remotePath.empty()) {
+                try {
+                    context->adbInstance->execShellCommand("rm -f " + ShellQuote(context->remotePath));
+                } catch (const std::exception&) {
+                }
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbInstallPackageFromFdContext*>(rawData);
+            if (context->completed) {
+                napi_value result = CreateInstallPackageResult(
+                    env,
+                    context->commandSuccess,
+                    context->remotePath,
+                    context->shellResult);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbInstallPackageFromFd failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+
+            napi_delete_async_work(env, context->work);
+            if (context->fd >= 0) {
+                close(context->fd);
+            }
+            if (context->tsfn) {
+                napi_release_threadsafe_function(context->tsfn, napi_tsfn_release);
+            }
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
+}
+
+// 推送文件 - adbPushFile(adbId, data, remotePath, onProgress?) => void
 static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 4;
+    napi_value args[4];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
@@ -863,6 +1261,7 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
         napi_async_work work = nullptr;
         napi_deferred deferred = nullptr;
         napi_ref dataRef = nullptr;
+        napi_threadsafe_function tsfn = nullptr;
         std::shared_ptr<Adb> adbInstance;
         void* fileData = nullptr;
         size_t fileSize = 0;
@@ -887,6 +1286,14 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
     context->fileSize = dataSize;
     napi_create_reference(env, args[1], 1, &context->dataRef);
 
+    if (argc >= 4) {
+        napi_valuetype type;
+        napi_typeof(env, args[3], &type);
+        if (type == napi_function) {
+            context->tsfn = CreateProgressTsfn(env, args[3], resourceName);
+        }
+    }
+
     napi_value promise;
     napi_create_promise(env, &context->deferred, &promise);
 
@@ -902,7 +1309,18 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
                 context->adbInstance->pushFile(
                     static_cast<uint8_t*>(context->fileData),
                     context->fileSize,
-                    context->remotePath
+                    context->remotePath,
+                    [context](int progress) {
+                        if (!context->tsfn) {
+                            return;
+                        }
+                        auto* progressValue = new int(progress);
+                        napi_status status = napi_call_threadsafe_function(
+                            context->tsfn, progressValue, napi_tsfn_nonblocking);
+                        if (status != napi_ok) {
+                            delete progressValue;
+                        }
+                    }
                 );
                 context->success = true;
             } catch (const std::exception& e) {
@@ -927,6 +1345,9 @@ static napi_value AdbPushFile(napi_env env, napi_callback_info info) {
             napi_delete_async_work(env, context->work);
             if (context->dataRef) {
                 napi_delete_reference(env, context->dataRef);
+            }
+            if (context->tsfn) {
+                napi_release_threadsafe_function(context->tsfn, napi_tsfn_release);
             }
             delete context;
         },
@@ -2186,7 +2607,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"adbRunCmd", nullptr, AdbRunCmd, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbExecShell", nullptr, AdbExecShell, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbInstallPackage", nullptr, AdbInstallPackage, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbInstallPackageFromFd", nullptr, AdbInstallPackageFromFd, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbPushFileFromFd", nullptr, AdbPushFileFromFd, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbTcpForward", nullptr, AdbTcpForward, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbLocalSocketForward", nullptr, AdbLocalSocketForward, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbReverse", nullptr, AdbReverse, nullptr, nullptr, nullptr, napi_default, nullptr},

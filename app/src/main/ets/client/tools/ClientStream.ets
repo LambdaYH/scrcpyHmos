@@ -128,10 +128,25 @@ export class ClientStream {
     this.readShellOutputAsync(shellStreamId);
   }
 
-  async pushFile(data: ArrayBuffer, remotePath: string): Promise<void> {
+  async pushFile(
+    data: ArrayBuffer,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
     this.ensureAdbReady();
     LoggerClientStream.info(`[ClientStream] Pushing file to ${remotePath}`);
-    await libscrcpy.adbPushFile(this.adbId, data, remotePath);
+    await libscrcpy.adbPushFile(this.adbId, data, remotePath, onProgress);
+  }
+
+  async pushFileFromFd(
+    fd: number,
+    fileSize: number,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    this.ensureAdbReady();
+    LoggerClientStream.info(`[ClientStream] Pushing file to ${remotePath}`);
+    await libscrcpy.adbPushFileFromFd(this.adbId, fd, fileSize, remotePath, onProgress);
   }
 
   async execShell(cmd: string): Promise<libscrcpy.AdbShellCommandResult> {
@@ -143,11 +158,24 @@ export class ClientStream {
   async installPackage(
     apkData: ArrayBuffer,
     remoteName: string,
-    installArgs: string = '-r'
+    installArgs: string = '-r',
+    onProgress?: (progress: number) => void
   ): Promise<libscrcpy.AdbInstallPackageResult> {
     this.ensureAdbReady();
     LoggerClientStream.info(`[ClientStream] Installing package via ${remoteName}`);
-    return await libscrcpy.adbInstallPackage(this.adbId, apkData, remoteName, installArgs);
+    return await libscrcpy.adbInstallPackage(this.adbId, apkData, remoteName, installArgs, onProgress);
+  }
+
+  async installPackageFromFd(
+    fd: number,
+    fileSize: number,
+    remoteName: string,
+    installArgs: string = '-r',
+    onProgress?: (progress: number) => void
+  ): Promise<libscrcpy.AdbInstallPackageResult> {
+    this.ensureAdbReady();
+    LoggerClientStream.info(`[ClientStream] Installing package via ${remoteName}`);
+    return await libscrcpy.adbInstallPackageFromFd(this.adbId, fd, fileSize, remoteName, installArgs, onProgress);
   }
 
   // 异步读取Shell输出

@@ -126,20 +126,27 @@ export class NativeStreamClient {
     }
   }
 
-  async pushFile(data: ArrayBuffer, remotePath: string): Promise<void> {
-    await this.clientStream.pushFile(data, remotePath);
+  async pushFileFromFd(
+    fd: number,
+    fileSize: number,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    await this.clientStream.pushFileFromFd(fd, fileSize, remotePath, onProgress);
   }
 
   async execShell(cmd: string): Promise<libscrcpy.AdbShellCommandResult> {
     return await this.clientStream.execShell(cmd);
   }
 
-  async installPackage(
-    apkData: ArrayBuffer,
+  async installPackageFromFd(
+    fd: number,
+    fileSize: number,
     remoteName: string,
-    installArgs: string = '-r'
+    installArgs: string = '-r',
+    onProgress?: (progress: number) => void
   ): Promise<libscrcpy.AdbInstallPackageResult> {
-    return await this.clientStream.installPackage(apkData, remoteName, installArgs);
+    return await this.clientStream.installPackageFromFd(fd, fileSize, remoteName, installArgs, onProgress);
   }
 
   private async tryStartReverse(

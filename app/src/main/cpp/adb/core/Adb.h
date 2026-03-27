@@ -80,6 +80,12 @@ public:
     // 推送文件
     void pushFile(const uint8_t* fileData, size_t fileLen,
                   const std::string& remotePath, ProcessCallback callback = nullptr);
+    void pushFileFromFd(int fd, uint64_t fileLen,
+                        const std::string& remotePath, ProcessCallback callback = nullptr);
+    int32_t startPushFile(const std::string& remotePath);
+    void writePushFileChunk(int32_t streamId, const uint8_t* chunkData, size_t chunkLen);
+    void finishPushFile(int32_t streamId);
+    void abortPushFile(int32_t streamId);
 
     // 执行非 shell 的 ADB service 命令
     std::string runServiceCommand(const std::string& destination);

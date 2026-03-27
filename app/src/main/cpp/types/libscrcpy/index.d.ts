@@ -20,9 +20,30 @@ export const adbInstallPackage: (
     adbId: number,
     data: ArrayBuffer,
     remoteName: string,
-    installArgs?: string
+    installArgs?: string,
+    onProgress?: (progress: number) => void
 ) => Promise<AdbInstallPackageResult>;
-export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => Promise<void>;
+export const adbInstallPackageFromFd: (
+    adbId: number,
+    fd: number,
+    fileSize: number,
+    remoteName: string,
+    installArgs?: string,
+    onProgress?: (progress: number) => void
+) => Promise<AdbInstallPackageResult>;
+export const adbPushFile: (
+    adbId: number,
+    data: ArrayBuffer,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+) => Promise<void>;
+export const adbPushFileFromFd: (
+    adbId: number,
+    fd: number,
+    fileSize: number,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+) => Promise<void>;
 export const adbTcpForward: (adbId: number, port: number) => number;
 export const adbLocalSocketForward: (
     adbId: number,

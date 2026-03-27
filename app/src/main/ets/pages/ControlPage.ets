@@ -5,12 +5,14 @@ import { NativeStreamClient, NativeStreamListener } from '../client/tools/Native
 import { ServerManager } from '../helper/ServerManager';
 import { ClientSessionManager } from '../helper/ClientSessionManager';
 import { AdbDeviceService } from '../helper/AdbDeviceService';
+import { TransferNotificationHelper } from '../helper/TransferNotificationHelper';
 import window from '@ohos.window';
 
 import { common } from '@kit.AbilityKit';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
+import * as libscrcpy from 'libscrcpy_native.so';
 
 @Entry
 @Component
@@ -247,6 +249,97 @@ struct ControlPage {
       return ctx.resourceManager.getStringSync(res.id);
     } catch (e) {
       return '';
+    }
+  }
+
+  private getAbilityContext(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  private async showTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.start(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private async updateTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string,
+    progress: number
+  ): Promise<void> {
+    await TransferNotificationHelper.updateProgress(
+      this.getAbilityContext(),
+      type,
+      title,
+      text,
+      statusText,
+      progress
+    );
+  }
+
+  private async completeTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.complete(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private async failTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.fail(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private buildTransferProgressText(prefixRes: Resource, progress: number): string {
+    return `${this.getResString(prefixRes)} ${progress}%`;
+  }
+
+  private async pushUriFile(
+    uri: string,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    const file = await fs.open(uri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = fs.statSync(uri);
+      const fileSize = Number(stat.size);
+      if (!Number.isFinite(fileSize) || fileSize <= 0) {
+        throw new Error('Invalid file size');
+      }
+
+      await AdbDeviceService.pushFileFromFd(file.fd, fileSize, remotePath, onProgress);
+    } finally {
+      await fs.close(file.fd);
+    }
+  }
+
+  private async installPackageFromUri(
+    uri: string,
+    remoteName: string,
+    installArgs: string,
+    onProgress?: (progress: number) => void
+  ): Promise<libscrcpy.AdbInstallPackageResult> {
+    const file = await fs.open(uri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = fs.statSync(uri);
+      const fileSize = Number(stat.size);
+      if (!Number.isFinite(fileSize) || fileSize <= 0) {
+        throw new Error('Invalid file size');
+      }
+
+      return await AdbDeviceService.installPackageFromFd(file.fd, fileSize, remoteName, installArgs, onProgress);
+    } finally {
+      await fs.close(file.fd);
     }
   }
 
@@ -643,26 +736,59 @@ struct ControlPage {
       return;
     }
 
+    let fileName: string = this.getResString($r('app.string.send_file_start'));
     try {
       const uri = await this.pickDocument();
       if (!uri) {
         return;
       }
 
-      const fileName = this.getFileNameFromUri(uri);
+      fileName = this.getFileNameFromUri(uri);
       const remotePath = await this.promptSendFileTargetPath(this.buildDefaultRemotePath(fileName));
       if (!remotePath) {
         return;
       }
+      await this.showTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        this.getResString($r('app.string.transfer_notification_preparing'))
+      );
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.send_file_start') });
-      const fileData = await this.readFileToArrayBuffer(uri);
-      await AdbDeviceService.pushFile(fileData, remotePath);
+      await this.updateTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        this.buildTransferProgressText($r('app.string.transfer_notification_sending_prefix'), 0),
+        0
+      );
+      await this.pushUriFile(uri, remotePath, (progress: number) => {
+        void this.updateTransferNotification(
+          'send',
+          this.getResString($r('app.string.send_file_notification_title')),
+          fileName,
+          this.buildTransferProgressText($r('app.string.transfer_notification_sending_prefix'), progress),
+          progress
+        );
+      });
+      await this.completeTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        `${this.getResString($r('app.string.transfer_notification_completed_prefix'))}${remotePath}`
+      );
       this.getUIContext().getPromptAction().showToast({
         message: `${this.getResString($r('app.string.send_file_success_prefix'))}${remotePath}`
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerControlPage.error('[ControlPage] Send file failed:', errMsg);
+      await this.failTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        `${this.getResString($r('app.string.transfer_notification_failed_prefix'))}${errMsg}`
+      );
       this.getUIContext().getPromptAction().showDialog({
         title: $r('app.string.error_title'),
         message: `${this.getResString($r('app.string.send_file_failed_prefix'))}${errMsg}`,
@@ -679,26 +805,67 @@ struct ControlPage {
       return;
     }
 
+    let remoteName: string = this.getResString($r('app.string.install_app_start'));
     try {
       const uri = await this.pickDocument(['.apk']);
       if (!uri) {
         return;
       }
 
-      const remoteName = this.getFileNameFromUri(uri);
+      remoteName = this.getFileNameFromUri(uri);
+      await this.showTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        this.getResString($r('app.string.transfer_notification_preparing'))
+      );
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.install_app_start') });
-      const apkData = await this.readFileToArrayBuffer(uri);
-      const result = await AdbDeviceService.installPackage(apkData, remoteName, '-r');
+      await this.updateTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        this.buildTransferProgressText($r('app.string.transfer_notification_uploading_prefix'), 0),
+        0
+      );
+      const result: libscrcpy.AdbInstallPackageResult = await this.installPackageFromUri(
+        uri,
+        remoteName,
+        '-r',
+        (progress: number) => {
+          const statusText = progress >= 95
+            ? this.getResString($r('app.string.transfer_notification_installing'))
+            : this.buildTransferProgressText($r('app.string.transfer_notification_uploading_prefix'), progress);
+          void this.updateTransferNotification(
+            'install',
+            this.getResString($r('app.string.install_app_notification_title')),
+            remoteName,
+            statusText,
+            progress
+          );
+        }
+      );
       if (!result.success) {
         const installOutput: string = result.stderr.length > 0
           ? result.stderr
           : (result.stdout.length > 0 ? result.stdout : `exitCode=${result.exitCode}`);
         throw new Error(installOutput);
       }
+      await this.completeTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        this.getResString($r('app.string.transfer_notification_install_success'))
+      );
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.install_app_success') });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerControlPage.error('[ControlPage] Install package failed:', errMsg);
+      await this.failTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        `${this.getResString($r('app.string.transfer_notification_failed_prefix'))}${this.resolveInstallErrorMessage(errMsg)}`
+      );
       this.getUIContext().getPromptAction().showDialog({
         title: $r('app.string.error_title'),
         message: `${this.getResString($r('app.string.install_app_failed_prefix'))}${this.resolveInstallErrorMessage(errMsg)}`,
