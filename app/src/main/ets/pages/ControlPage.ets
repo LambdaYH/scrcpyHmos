@@ -4,10 +4,15 @@ import { LoggerControlPage } from '../helper/Logger';
 import { NativeStreamClient, NativeStreamListener } from '../client/tools/NativeStreamClient';
 import { ServerManager } from '../helper/ServerManager';
 import { ClientSessionManager } from '../helper/ClientSessionManager';
+import { AdbTransferService } from '../helper/AdbTransferService';
+import { TransferNotificationHelper } from '../helper/TransferNotificationHelper';
 import window from '@ohos.window';
 
 import { common } from '@kit.AbilityKit';
+import { picker } from '@kit.CoreFileKit';
+import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
+import * as libscrcpy from 'libscrcpy_native.so';
 
 @Entry
 @Component
@@ -51,6 +56,10 @@ struct ControlPage {
   private dragStartX: number = 0;
   private dragStartY: number = 0;
   private hasReceivedFirstFrame: boolean = false;
+  private isTransferBusy: boolean = false;
+  @State sendFileTargetPath: string = '/sdcard/Download/';
+  @State showSendFilePathDialog: boolean = false;
+  private pendingSendFilePathResolve?: (value: string | undefined) => void;
   @State stepTime: number = 0;
   private stepTimer: number = -1;
 
@@ -165,6 +174,34 @@ struct ControlPage {
           }
         }
       })
+
+    // 发送文件
+    Button() {
+      SymbolGlyph($r('sys.symbol.arrow_right_folder_circle'))
+        .fontSize(20)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(() => {
+      void this.handleSendFile();
+    })
+
+    // 安装应用
+    Button() {
+      SymbolGlyph($r('sys.symbol.more'))
+        .fontSize(20)
+        .fontColor(['#FFFFFF'])
+    }
+    .width(44)
+    .height(44)
+    .backgroundColor('#80000000')
+    .borderRadius(22)
+    .onClick(() => {
+      void this.handleInstallPackage();
+    })
     
     // 断开连接并返回
     Button() {
@@ -212,6 +249,167 @@ struct ControlPage {
       return ctx.resourceManager.getStringSync(res.id);
     } catch (e) {
       return '';
+    }
+  }
+
+  private getAbilityContext(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  private async showTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.start(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private async updateTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string,
+    progress: number
+  ): Promise<void> {
+    await TransferNotificationHelper.updateProgress(
+      this.getAbilityContext(),
+      type,
+      title,
+      text,
+      statusText,
+      progress
+    );
+  }
+
+  private async completeTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.complete(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private async failTransferNotification(
+    type: 'send' | 'install',
+    title: string,
+    text: string,
+    statusText: string
+  ): Promise<void> {
+    await TransferNotificationHelper.fail(this.getAbilityContext(), type, title, text, statusText);
+  }
+
+  private buildTransferProgressText(prefixRes: Resource, progress: number): string {
+    return `${this.getResString(prefixRes)} ${progress}%`;
+  }
+
+  private async runTransferWithWatchdog<T>(
+    transferFactory: (onProgress: (progress: number) => void) => Promise<T>,
+    onProgress: (progress: number) => void,
+    timeoutMs: number = 10000
+  ): Promise<T> {
+    let timerId: number = -1;
+    let settled = false;
+
+    const clearTimer = (): void => {
+      if (timerId !== -1) {
+        clearTimeout(timerId);
+        timerId = -1;
+      }
+    };
+
+    const resetTimer = (reject: (reason?: Object) => void): void => {
+      clearTimer();
+      timerId = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(new Error('Transfer stalled or disconnected'));
+      }, timeoutMs);
+    };
+
+    return await new Promise<T>((resolve, reject) => {
+      const progressHandler = (progress: number): void => {
+        if (settled) {
+          return;
+        }
+        resetTimer(reject);
+        onProgress(progress);
+      };
+
+      resetTimer(reject);
+
+      const transferPromise: Promise<T> = transferFactory(progressHandler);
+      void transferPromise.then((result: T) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer();
+        resolve(result);
+      }).catch((err: Object) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer();
+        reject(err);
+      });
+    });
+  }
+
+  private async pushUriFile(
+    uri: string,
+    remotePath: string,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    const file = await fs.open(uri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = fs.statSync(uri);
+      const fileSize = Number(stat.size);
+      if (!Number.isFinite(fileSize) || fileSize <= 0) {
+        throw new Error('Invalid file size');
+      }
+
+      if (!this.device) {
+        throw new Error('No active device');
+      }
+      await AdbTransferService.pushFileFromFd(this.getAbilityContext(), this.device, file.fd, fileSize, remotePath, onProgress);
+    } finally {
+      await fs.close(file.fd);
+    }
+  }
+
+  private async installPackageFromUri(
+    uri: string,
+    remoteName: string,
+    installArgs: string,
+    onProgress?: (progress: number) => void
+  ): Promise<libscrcpy.AdbInstallPackageResult> {
+    const file = await fs.open(uri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = fs.statSync(uri);
+      const fileSize = Number(stat.size);
+      if (!Number.isFinite(fileSize) || fileSize <= 0) {
+        throw new Error('Invalid file size');
+      }
+
+      if (!this.device) {
+        throw new Error('No active device');
+      }
+      return await AdbTransferService.installPackageFromFd(
+        this.getAbilityContext(),
+        this.device,
+        file.fd,
+        fileSize,
+        remoteName,
+        installArgs,
+        onProgress
+      );
+    } finally {
+      await fs.close(file.fd);
     }
   }
 
@@ -603,6 +801,253 @@ struct ControlPage {
     }
   }
 
+  private async handleSendFile(): Promise<void> {
+    if (!(await this.beginTransfer())) {
+      return;
+    }
+
+    let fileName: string = this.getResString($r('app.string.send_file_start'));
+    try {
+      const uri = await this.pickDocument();
+      if (!uri) {
+        return;
+      }
+
+      fileName = this.getFileNameFromUri(uri);
+      const remotePath = await this.promptSendFileTargetPath(this.buildDefaultRemotePath(fileName));
+      if (!remotePath) {
+        return;
+      }
+      await this.showTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        this.getResString($r('app.string.transfer_notification_preparing'))
+      );
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.send_file_start') });
+      await this.runTransferWithWatchdog<void>((progressHandler: (progress: number) => void) => {
+        return this.pushUriFile(uri, remotePath, progressHandler);
+      }, (progress: number) => {
+        void this.updateTransferNotification(
+          'send',
+          this.getResString($r('app.string.send_file_notification_title')),
+          fileName,
+          this.buildTransferProgressText($r('app.string.transfer_notification_sending_prefix'), progress),
+          progress
+        );
+      });
+      await this.completeTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        `${this.getResString($r('app.string.transfer_notification_completed_prefix'))}${remotePath}`
+      );
+      this.getUIContext().getPromptAction().showToast({
+        message: `${this.getResString($r('app.string.send_file_success_prefix'))}${remotePath}`
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('[ControlPage] Send file failed:', errMsg);
+      await this.failTransferNotification(
+        'send',
+        this.getResString($r('app.string.send_file_notification_title')),
+        fileName,
+        `${this.getResString($r('app.string.transfer_notification_failed_prefix'))}${errMsg}`
+      );
+      this.getUIContext().getPromptAction().showDialog({
+        title: $r('app.string.error_title'),
+        message: `${this.getResString($r('app.string.send_file_failed_prefix'))}${errMsg}`,
+        buttons: [{ text: $r('app.string.confirm'), color: '#007DFF' }]
+      });
+    } finally {
+      this.isTransferBusy = false;
+      this.startAutoHideTimer();
+    }
+  }
+
+  private async handleInstallPackage(): Promise<void> {
+    if (!(await this.beginTransfer())) {
+      return;
+    }
+
+    let remoteName: string = this.getResString($r('app.string.install_app_start'));
+    try {
+      const uri = await this.pickDocument(['.apk']);
+      if (!uri) {
+        return;
+      }
+
+      remoteName = this.getFileNameFromUri(uri);
+      await this.showTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        this.getResString($r('app.string.transfer_notification_preparing'))
+      );
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.install_app_start') });
+      const result: libscrcpy.AdbInstallPackageResult = await this.runTransferWithWatchdog<libscrcpy.AdbInstallPackageResult>((progressHandler: (progress: number) => void) => {
+        return this.installPackageFromUri(uri, remoteName, '-r', progressHandler);
+      }, (progress: number) => {
+        const statusText = progress >= 95
+          ? this.getResString($r('app.string.transfer_notification_installing'))
+          : this.buildTransferProgressText($r('app.string.transfer_notification_uploading_prefix'), progress);
+        void this.updateTransferNotification(
+          'install',
+          this.getResString($r('app.string.install_app_notification_title')),
+          remoteName,
+          statusText,
+          progress
+        );
+      });
+      if (!result.success) {
+        const installOutput: string = result.stderr.length > 0
+          ? result.stderr
+          : (result.stdout.length > 0 ? result.stdout : `exitCode=${result.exitCode}`);
+        throw new Error(installOutput);
+      }
+      await this.completeTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        this.getResString($r('app.string.transfer_notification_install_success'))
+      );
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.install_app_success') });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      LoggerControlPage.error('[ControlPage] Install package failed:', errMsg);
+      await this.failTransferNotification(
+        'install',
+        this.getResString($r('app.string.install_app_notification_title')),
+        remoteName,
+        `${this.getResString($r('app.string.transfer_notification_failed_prefix'))}${this.resolveInstallErrorMessage(errMsg)}`
+      );
+      this.getUIContext().getPromptAction().showDialog({
+        title: $r('app.string.error_title'),
+        message: `${this.getResString($r('app.string.install_app_failed_prefix'))}${this.resolveInstallErrorMessage(errMsg)}`,
+        buttons: [{ text: $r('app.string.confirm'), color: '#007DFF' }]
+      });
+    } finally {
+      this.isTransferBusy = false;
+      this.startAutoHideTimer();
+    }
+  }
+
+  private async beginTransfer(): Promise<boolean> {
+    if (this.isTransferBusy) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.transfer_busy') });
+      return false;
+    }
+    if (!this.nativeClient || !this.isConnected || !this.nativeClient.isAdbReady()) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.control_disconnected') });
+      return false;
+    }
+    this.isTransferBusy = true;
+    this.showControlPanel = false;
+    this.clearAutoHideTimer();
+    return true;
+  }
+
+  private promptSendFileTargetPath(defaultPath: string): Promise<string | undefined> {
+    this.sendFileTargetPath = defaultPath;
+    this.showSendFilePathDialog = true;
+    return new Promise<string | undefined>((resolve) => {
+      this.pendingSendFilePathResolve = resolve;
+    });
+  }
+
+  private closeSendFilePathDialog(result: string | undefined): void {
+    this.showSendFilePathDialog = false;
+    const resolver = this.pendingSendFilePathResolve;
+    this.pendingSendFilePathResolve = undefined;
+    if (resolver) {
+      resolver(result);
+    }
+  }
+
+  private confirmSendFilePath(): void {
+    const targetPath = this.sendFileTargetPath.trim();
+    if (targetPath.length === 0) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.send_file_path_empty') });
+      return;
+    }
+    this.closeSendFilePathDialog(targetPath);
+  }
+
+  private buildDefaultRemotePath(fileName: string): string {
+    const configuredBasePath = this.device?.fileReceivePath?.trim() ?? '';
+    const fallbackPath = '/sdcard/Download/';
+    const basePath = configuredBasePath.length > 0 ? configuredBasePath : fallbackPath;
+    const normalizedBasePath = basePath.endsWith('/') ? basePath : `${basePath}/`;
+    return `${normalizedBasePath}${fileName}`;
+  }
+
+  private resolveInstallErrorMessage(rawMessage: string): string {
+    const normalizedMessage = rawMessage.trim().toLowerCase();
+    if (normalizedMessage.includes('reject adb install')) {
+      return this.getResString($r('app.string.install_app_error_reject_adb'));
+    }
+    if (normalizedMessage.includes('install_failed_user_restricted')) {
+      return this.getResString($r('app.string.install_app_error_user_restricted'));
+    }
+    if (normalizedMessage.includes('install_failed')) {
+      return `${this.getResString($r('app.string.install_app_error_failed_prefix'))}${rawMessage}`;
+    }
+    return rawMessage;
+  }
+
+  private async pickDocument(fileSuffixFilters: Array<string> = []): Promise<string | undefined> {
+    const documentPicker = new picker.DocumentViewPicker();
+    const options = new picker.DocumentSelectOptions();
+    options.maxSelectNumber = 1;
+    if (fileSuffixFilters.length > 0) {
+      options.fileSuffixFilters = fileSuffixFilters;
+    }
+
+    try {
+      const uris = await documentPicker.select(options);
+      if (!uris || uris.length === 0) {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.file_pick_cancelled') });
+        return undefined;
+      }
+      return uris[0];
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.toLowerCase().includes('cancel')) {
+        return undefined;
+      }
+      throw new Error(errMsg);
+    }
+  }
+
+  private async readFileToArrayBuffer(uri: string): Promise<ArrayBuffer> {
+    const file = await fs.open(uri, fs.OpenMode.READ_ONLY);
+    try {
+      const stat = fs.statSync(uri);
+      const fileSize = Number(stat.size);
+      if (!Number.isFinite(fileSize) || fileSize <= 0) {
+        throw new Error('Invalid file size');
+      }
+
+      const fileData = new ArrayBuffer(fileSize);
+      const bytesRead = fs.readSync(file.fd, fileData);
+      if (bytesRead <= 0) {
+        throw new Error('Failed to read file');
+      }
+      return bytesRead === fileSize ? fileData : fileData.slice(0, bytesRead);
+    } finally {
+      await fs.close(file.fd);
+    }
+  }
+
+  private getFileNameFromUri(uri: string): string {
+    const sanitizedUri = uri.split('?')[0];
+    const lastSlash = sanitizedUri.lastIndexOf('/');
+    const encodedName = lastSlash >= 0 ? sanitizedUri.substring(lastSlash + 1) : sanitizedUri;
+    const fileName = decodeURIComponent(encodedName || '').trim();
+    const normalizedFileName = fileName.replace(/[\\/:*?"<>|,]/g, '_');
+    return normalizedFileName.length > 0 ? normalizedFileName : `file-${Date.now()}`;
+  }
+
 
 
   async setFullScreen() {
@@ -717,7 +1162,8 @@ struct ControlPage {
   }
   
   build() {
-    Column() {
+    Stack() {
+      Column() {
       // 主内容区域（视频 + 悬浮按钮）
       Stack() {
         // Loading indicator - 支持深色/浅色模式
@@ -994,9 +1440,71 @@ struct ControlPage {
         .backgroundColor($r('sys.color.ohos_id_color_background'))
       }
     }
+      .width('100%')
+      .height('100%')
+      .backgroundColor($r('sys.color.ohos_id_color_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
+      if (this.showSendFilePathDialog) {
+        Stack() {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#66000000')
+            .onClick(() => {
+              this.closeSendFilePathDialog(undefined);
+            })
+
+          Column({ space: 16 }) {
+            Text($r('app.string.send_file_path_title'))
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('sys.color.ohos_id_color_text_primary'))
+              .width('100%')
+
+            TextInput({ text: this.sendFileTargetPath, placeholder: $r('app.string.send_file_path_hint') })
+              .width('100%')
+              .height(48)
+              .fontSize(14)
+              .backgroundColor($r('app.color.bg_card'))
+              .onChange((value: string) => {
+                this.sendFileTargetPath = value;
+              })
+
+            Row({ space: 12 }) {
+              Button($r('app.string.cancel'))
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.btn_secondary'))
+                .fontColor($r('app.color.text_primary'))
+                .onClick(() => {
+                  this.closeSendFilePathDialog(undefined);
+                })
+
+              Button($r('app.string.confirm'))
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.btn_primary'))
+                .fontColor('#FFFFFF')
+                .onClick(() => {
+                  this.confirmSendFilePath();
+                })
+            }
+            .width('100%')
+          }
+          .width('84%')
+          .padding(20)
+          .backgroundColor($r('sys.color.ohos_id_color_background'))
+          .borderRadius(16)
+          .zIndex(10)
+          .onClick(() => {
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .alignContent(Alignment.Center)
+      }
+    }
     .width('100%')
     .height('100%')
     .backgroundColor($r('sys.color.ohos_id_color_background'))
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

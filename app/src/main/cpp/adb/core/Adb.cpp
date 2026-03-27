@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <utility>
 #include <cerrno>
+#include <cinttypes>
 #include <chrono>
 #include <memory>
 #include <netdb.h>
@@ -28,6 +29,162 @@ constexpr int kCertLifetimeSeconds = 10 * 365 * 24 * 60 * 60;
 const char kBasicConstraints[] = "critical,CA:TRUE";
 const char kKeyUsage[] = "critical,keyCertSign,cRLSign,digitalSignature";
 const char kSubjectKeyIdentifier[] = "hash";
+
+uint32_t readU32LE(const uint8_t* data) {
+    return static_cast<uint32_t>(data[0])
+         | (static_cast<uint32_t>(data[1]) << 8)
+         | (static_cast<uint32_t>(data[2]) << 16)
+         | (static_cast<uint32_t>(data[3]) << 24);
+}
+
+std::string shellSingleQuote(const std::string& text) {
+    std::string escaped;
+    escaped.reserve(text.size() + 8);
+    escaped.push_back('\'');
+    for (char ch : text) {
+        if (ch == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped.push_back(ch);
+        }
+    }
+    escaped.push_back('\'');
+    return escaped;
+}
+
+std::string trimTrailingNewlines(std::string text) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+        text.pop_back();
+    }
+    return text;
+}
+
+enum class ShellProtocolId : uint8_t {
+    Stdin = 0,
+    Stdout = 1,
+    Stderr = 2,
+    Exit = 3,
+    CloseStdin = 4,
+    WindowSizeChange = 5,
+};
+
+AdbShellCommandResult parseShellProtocolPayload(const std::vector<uint8_t>& raw) {
+    AdbShellCommandResult result;
+    size_t offset = 0;
+
+    while (offset < raw.size()) {
+        if (raw.size() - offset < 5) {
+            throw std::runtime_error("shell protocol parse failed: incomplete packet header");
+        }
+
+        const uint8_t id = raw[offset];
+        const uint32_t payloadLength = readU32LE(raw.data() + offset + 1);
+        offset += 5;
+
+        if (raw.size() - offset < payloadLength) {
+            throw std::runtime_error("shell protocol parse failed: truncated packet payload");
+        }
+
+        const char* payload = reinterpret_cast<const char*>(raw.data() + offset);
+        switch (static_cast<ShellProtocolId>(id)) {
+            case ShellProtocolId::Stdout:
+                result.stdoutText.append(payload, payloadLength);
+                break;
+            case ShellProtocolId::Stderr:
+                result.stderrText.append(payload, payloadLength);
+                break;
+            case ShellProtocolId::Exit:
+                if (payloadLength < 1) {
+                    throw std::runtime_error("shell protocol parse failed: missing exit code payload");
+                }
+                result.exitCode = static_cast<uint8_t>(raw[offset]);
+                result.exitCodeReliable = true;
+                break;
+            case ShellProtocolId::Stdin:
+            case ShellProtocolId::CloseStdin:
+            case ShellProtocolId::WindowSizeChange:
+                break;
+            default:
+                throw std::runtime_error("shell protocol parse failed: unknown packet id " + std::to_string(id));
+        }
+
+        offset += payloadLength;
+    }
+
+    result.stdoutText = trimTrailingNewlines(result.stdoutText);
+    result.stderrText = trimTrailingNewlines(result.stderrText);
+    return result;
+}
+
+AdbShellCommandResult parseLegacyShellPayload(const std::string& raw,
+                                             const std::string& rcMarker,
+                                             const std::string& stdoutMarker,
+                                             const std::string& stderrMarker) {
+    AdbShellCommandResult result;
+
+    const size_t rcPos = raw.find(rcMarker);
+    const size_t stdoutPos = raw.find(stdoutMarker);
+    const size_t stderrPos = raw.find(stderrMarker);
+    if (rcPos == std::string::npos || stdoutPos == std::string::npos || stderrPos == std::string::npos ||
+        !(rcPos <= stdoutPos && stdoutPos <= stderrPos)) {
+        throw std::runtime_error("legacy shell parse failed: markers missing");
+    }
+
+    const size_t rcValueStart = rcPos + rcMarker.size();
+    const size_t rcValueEnd = raw.find('\n', rcValueStart);
+    std::string rcText = rcValueEnd == std::string::npos
+        ? raw.substr(rcValueStart)
+        : raw.substr(rcValueStart, rcValueEnd - rcValueStart);
+    rcText = trimTrailingNewlines(rcText);
+
+    try {
+        result.exitCode = std::stoi(rcText);
+        result.exitCodeReliable = true;
+    } catch (...) {
+        throw std::runtime_error("legacy shell parse failed: invalid exit code");
+    }
+
+    const size_t stdoutDataStart = stdoutPos + stdoutMarker.size();
+    const size_t stdoutContentStart = (stdoutDataStart < raw.size() && raw[stdoutDataStart] == '\n')
+        ? stdoutDataStart + 1
+        : stdoutDataStart;
+    size_t stdoutContentEnd = stderrPos;
+    if (stdoutContentEnd > stdoutContentStart && raw[stdoutContentEnd - 1] == '\n') {
+        --stdoutContentEnd;
+    }
+    result.stdoutText = raw.substr(stdoutContentStart, stdoutContentEnd - stdoutContentStart);
+
+    const size_t stderrDataStart = stderrPos + stderrMarker.size();
+    const size_t stderrContentStart = (stderrDataStart < raw.size() && raw[stderrDataStart] == '\n')
+        ? stderrDataStart + 1
+        : stderrDataStart;
+    result.stderrText = trimTrailingNewlines(raw.substr(stderrContentStart));
+
+    return result;
+}
+
+AdbShellCommandResult execShellCommandLegacy(Adb* adb, const std::string& cmd) {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::string rcMarker = "__SCRCPY_SHELL_RC_" + std::to_string(now) + "__";
+    const std::string stdoutMarker = "__SCRCPY_SHELL_STDOUT_" + std::to_string(now + 1) + "__";
+    const std::string stderrMarker = "__SCRCPY_SHELL_STDERR_" + std::to_string(now + 2) + "__";
+
+    const std::string script =
+        "OUT=/data/local/tmp/scrcpy-shell-out-$$; "
+        "ERR=/data/local/tmp/scrcpy-shell-err-$$; "
+        "(" + cmd + ") >\"$OUT\" 2>\"$ERR\"; "
+        "RC=$?; "
+        "printf " + shellSingleQuote(rcMarker) + "; "
+        "printf " + shellSingleQuote("%s\n") + " \"$RC\"; "
+        "printf " + shellSingleQuote(stdoutMarker + "\n") + "; "
+        "cat \"$OUT\" 2>/dev/null; "
+        "printf " + shellSingleQuote("\n" + stderrMarker + "\n") + "; "
+        "cat \"$ERR\" 2>/dev/null; "
+        "rm -f \"$OUT\" \"$ERR\"";
+
+    const std::string raw = adb->runAdbCmd(script);
+    return parseLegacyShellPayload(raw, rcMarker, stdoutMarker, stderrMarker);
+}
 
 int32_t remainingTimeoutMs(const std::chrono::steady_clock::time_point& deadline) {
     auto now = std::chrono::steady_clock::now();
@@ -165,6 +322,24 @@ Adb::Adb(AdbChannel* channel) : channel_(channel) {
     sendThread_ = std::thread(&Adb::sendLoop, this);
 }
 
+std::string Adb::normalizeStreamKind(const std::string& streamKind) {
+    if (streamKind == "video" || streamKind == "audio" || streamKind == "control") {
+        return streamKind;
+    }
+    return "other";
+}
+
+size_t Adb::getReadBufferCapacityForKind(const std::string& streamKind) {
+    const std::string normalizedKind = normalizeStreamKind(streamKind);
+    if (normalizedKind == "video") {
+        return 64 * 1024 * 1024;
+    }
+    if (normalizedKind == "audio") {
+        return 16 * 1024 * 1024;
+    }
+    return 10 * 1024 * 1024;
+}
+
 Adb::~Adb() {
     close();
 
@@ -178,9 +353,10 @@ Adb::~Adb() {
         }
         openStreams_.clear();
         connectionStreams_.clear();
+        pendingOpenStreamKinds_.clear();
+        pendingIncomingStreamKinds_.clear();
         lastStream_ = nullptr;
     }
-
     delete channel_;
 }
 
@@ -462,11 +638,17 @@ void Adb::handleInLoop() {
                         // Known stream already closed; ignore late packets without recreating it.
                         stream = nullptr;
                     } else {
+                        std::string streamKind = "other";
+                        auto pendingKindIt = pendingOpenStreamKinds_.find(static_cast<int32_t>(arg1));
+                        if (pendingKindIt != pendingOpenStreamKinds_.end()) {
+                            streamKind = pendingKindIt->second;
+                        }
                         OH_LOG_DEBUG(LOG_APP, "[ADB] New connection: localId=%{public}u, remoteId=%{public}u",
                                      arg1, arg0);
                         stream = createNewStream(static_cast<int32_t>(arg1),
                                                  static_cast<int32_t>(arg0),
-                                                 static_cast<int32_t>(arg1) > 0);
+                                                 static_cast<int32_t>(arg1) > 0,
+                                                 streamKind);
                         lastStream_ = stream; // Update cache
                         // notifyAll(); // Moved to after command processing to avoid race condition (e.g. notify before CLSE handled)
                     }
@@ -583,13 +765,20 @@ void Adb::handleInLoop() {
     }
 }
 
-int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose) {
+int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose,
+                  const std::string& streamKind) {
     int32_t localId = localIdPool_++;
     if (!canMultipleSend) localId = -localId;
 
+    {
+        std::lock_guard<std::mutex> slock(streamsMutex_);
+        pendingOpenStreamKinds_[localId] = normalizeStreamKind(streamKind);
+    }
+
     auto openMsg = AdbProtocol::generateOpen(localId, destination);
     writeToChannel(std::move(openMsg));
-    OH_LOG_INFO(LOG_APP, "[ADB] OPEN sent: localId=%{public}d dest=%{public}s", localId, destination.c_str());
+    OH_LOG_INFO(LOG_APP, "[ADB] OPEN sent: localId=%{public}d dest=%{public}s kind=%{public}s",
+                localId, destination.c_str(), normalizeStreamKind(streamKind).c_str());
 
     // 等待流建立
     AdbStream* stream = nullptr;
@@ -609,6 +798,8 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool all
     }
 
     if (!stream) {
+        std::lock_guard<std::mutex> slock(streamsMutex_);
+        pendingOpenStreamKinds_.erase(localId);
         throw std::runtime_error("Failed to open stream");
     }
 
@@ -625,6 +816,7 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool all
             // Cleanup
             {
                 std::lock_guard<std::mutex> slock(streamsMutex_);
+                pendingOpenStreamKinds_.erase(localId);
                 auto it = connectionStreams_.find(localId);
                 if (it != connectionStreams_.end()) {
                     connectionStreams_.erase(it);
@@ -697,62 +889,242 @@ bool Adb::reverseRemove(const std::string& remote) {
 
 void Adb::pushFile(const uint8_t* fileData, size_t fileLen,
                    const std::string& remotePath, ProcessCallback callback) {
+    int32_t streamId = startPushFile(remotePath);
+    try {
+        constexpr size_t chunkSize = 64 * 1024;
+        size_t hasSendLen = 0;
+        int lastProcess = 0;
+
+        size_t offset = 0;
+        while (offset < fileLen) {
+            size_t len = std::min(chunkSize, fileLen - offset);
+            writePushFileChunk(streamId, fileData + offset, len);
+
+            hasSendLen += len;
+            int newProcess = static_cast<int>((hasSendLen * 100) / fileLen);
+            if (newProcess != lastProcess) {
+                lastProcess = newProcess;
+                if (callback) callback(lastProcess);
+            }
+            offset += len;
+        }
+        finishPushFile(streamId);
+    } catch (...) {
+        abortPushFile(streamId);
+        throw;
+    }
+}
+
+void Adb::pushFileFromFd(int fd, uint64_t fileLen,
+                         const std::string& remotePath, ProcessCallback callback) {
+    if (fd < 0) {
+        throw std::runtime_error("Invalid source fd");
+    }
+
+    constexpr size_t kChunkSize = 64 * 1024;
+    constexpr int32_t kDefaultFileMode = 0644;
+
+    int32_t streamId = open("sync:", true);
+    AdbStream* stream = getStreamHandle(streamId);
+    if (!stream) {
+        throw std::runtime_error("Failed to open sync stream");
+    }
+
+    const std::string sendString = remotePath + "," + std::to_string(kDefaultFileMode);
+    auto sendHeader = AdbProtocol::generateSyncHeader("SEND", static_cast<int32_t>(sendString.size()));
+
+    auto readExact = [fd](uint8_t* dest, size_t len) {
+        size_t offset = 0;
+        while (offset < len) {
+            ssize_t bytesRead = read(fd, dest + offset, len - offset);
+            if (bytesRead < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                throw std::runtime_error(std::string("Failed to read local file: ") + std::strerror(errno));
+            }
+            if (bytesRead == 0) {
+                throw std::runtime_error("Unexpected EOF while reading local file");
+            }
+            offset += static_cast<size_t>(bytesRead);
+        }
+    };
+
+    try {
+        if (fileLen < kChunkSize) {
+            std::vector<uint8_t> fileData(static_cast<size_t>(fileLen));
+            if (!fileData.empty()) {
+                readExact(fileData.data(), fileData.size());
+            }
+
+            const int64_t nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            const uint32_t mtime = nowSeconds > 0 ? static_cast<uint32_t>(nowSeconds) : 0;
+            auto dataHeader = AdbProtocol::generateSyncHeader("DATA", static_cast<int32_t>(fileData.size()));
+            auto doneHeader = AdbProtocol::generateSyncHeader("DONE", static_cast<int32_t>(mtime));
+
+            std::vector<uint8_t> packet;
+            packet.reserve(sendHeader.size() + sendString.size() + dataHeader.size() + fileData.size() + doneHeader.size());
+            packet.insert(packet.end(), sendHeader.begin(), sendHeader.end());
+            packet.insert(packet.end(), sendString.begin(), sendString.end());
+            packet.insert(packet.end(), dataHeader.begin(), dataHeader.end());
+            packet.insert(packet.end(), fileData.begin(), fileData.end());
+            packet.insert(packet.end(), doneHeader.begin(), doneHeader.end());
+            streamWriteRaw(stream, packet.data(), packet.size());
+            if (callback) {
+                callback(100);
+            }
+        } else {
+            std::vector<uint8_t> sendPacket;
+            sendPacket.reserve(sendHeader.size() + sendString.size());
+            sendPacket.insert(sendPacket.end(), sendHeader.begin(), sendHeader.end());
+            sendPacket.insert(sendPacket.end(), sendString.begin(), sendString.end());
+            streamWriteRaw(stream, sendPacket.data(), sendPacket.size());
+
+            std::vector<uint8_t> chunkBuffer(kChunkSize);
+            uint64_t uploaded = 0;
+            int lastProgress = -1;
+            while (uploaded < fileLen) {
+                size_t toRead = static_cast<size_t>(std::min<uint64_t>(kChunkSize, fileLen - uploaded));
+                readExact(chunkBuffer.data(), toRead);
+
+                auto dataHeader = AdbProtocol::generateSyncHeader("DATA", static_cast<int32_t>(toRead));
+                std::vector<uint8_t> packet;
+                packet.reserve(dataHeader.size() + toRead);
+                packet.insert(packet.end(), dataHeader.begin(), dataHeader.end());
+                packet.insert(packet.end(), chunkBuffer.begin(), chunkBuffer.begin() + static_cast<std::ptrdiff_t>(toRead));
+                streamWriteRaw(stream, packet.data(), packet.size());
+
+                uploaded += toRead;
+                if (callback && fileLen > 0) {
+                    int currentProgress = static_cast<int>((uploaded * 100) / fileLen);
+                    if (currentProgress != lastProgress) {
+                        lastProgress = currentProgress;
+                        callback(currentProgress);
+                    }
+                }
+            }
+
+            const int64_t nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            const uint32_t mtime = nowSeconds > 0 ? static_cast<uint32_t>(nowSeconds) : 0;
+            auto doneHeader = AdbProtocol::generateSyncHeader("DONE", static_cast<int32_t>(mtime));
+            streamWriteRaw(stream, doneHeader.data(), doneHeader.size());
+        }
+
+        const auto responseHeader = streamRead(streamId, 8, 30000, true);
+        if (responseHeader.size() != 8) {
+            abortPushFile(streamId);
+            throw std::runtime_error("sync push failed: invalid response");
+        }
+
+        const std::string responseId(reinterpret_cast<const char*>(responseHeader.data()), 4);
+        const uint32_t responseArg = readU32LE(responseHeader.data() + 4);
+        if (responseId == "FAIL") {
+            std::string errorMessage = "sync push failed";
+            if (responseArg > 0) {
+                const auto errorData = streamRead(streamId, responseArg, 30000, true);
+                errorMessage = "sync push failed: " + std::string(errorData.begin(), errorData.end());
+            }
+            abortPushFile(streamId);
+            throw std::runtime_error(errorMessage);
+        }
+        if (responseId != "OKAY") {
+            abortPushFile(streamId);
+            throw std::runtime_error("sync push failed: unexpected response " + responseId);
+        }
+
+        auto quitHeader = AdbProtocol::generateSyncHeader("QUIT", 0);
+        streamWriteRaw(stream, quitHeader.data(), quitHeader.size());
+        streamClose(streamId);
+    } catch (...) {
+        abortPushFile(streamId);
+        throw;
+    }
+}
+
+int32_t Adb::startPushFile(const std::string& remotePath) {
     int32_t streamId = open("sync:", true);
     AdbStream* stream = nullptr;
     {
         std::lock_guard<std::mutex> lock(streamsMutex_);
         auto it = connectionStreams_.find(streamId);
-        if (it != connectionStreams_.end()) stream = it->second;
+        if (it != connectionStreams_.end()) {
+            stream = it->second;
+        }
     }
-    if (!stream) throw std::runtime_error("Failed to open sync stream");
+    if (!stream) {
+        throw std::runtime_error("Failed to open sync stream");
+    }
 
-    // 发送信令，建立push通道
-    std::string sendString = remotePath + ",33206";
-
+    constexpr int32_t kDefaultFileMode = 0644;
+    const std::string sendString = remotePath + "," + std::to_string(kDefaultFileMode);
     auto sendHeader = AdbProtocol::generateSyncHeader("SEND", static_cast<int32_t>(sendString.size()));
     streamWriteRaw(stream, sendHeader.data(), sendHeader.size());
     streamWriteRaw(stream, reinterpret_cast<const uint8_t*>(sendString.data()), sendString.size());
+    return streamId;
+}
 
-    // 发送文件
-    const size_t chunkSize = 10240 - 8;
-    size_t hasSendLen = 0;
-    int lastProcess = 0;
+void Adb::writePushFileChunk(int32_t streamId, const uint8_t* chunkData, size_t chunkLen) {
+    if (chunkLen == 0) {
+        return;
+    }
+    AdbStream* stream = getStreamHandle(streamId);
+    if (!stream) {
+        throw std::runtime_error("Sync push stream not found");
+    }
+    auto dataHeader = AdbProtocol::generateSyncHeader("DATA", static_cast<int32_t>(chunkLen));
+    streamWriteRaw(stream, dataHeader.data(), dataHeader.size());
+    streamWriteRaw(stream, chunkData, chunkLen);
+}
 
-    size_t offset = 0;
-    while (offset < fileLen) {
-        size_t len = std::min(chunkSize, fileLen - offset);
-
-        auto dataHeader = AdbProtocol::generateSyncHeader("DATA", static_cast<int32_t>(len));
-        streamWriteRaw(stream, dataHeader.data(), dataHeader.size());
-        streamWriteRaw(stream, fileData + offset, len);
-
-        hasSendLen += len;
-        int newProcess = static_cast<int>((hasSendLen * 100) / fileLen);
-        if (newProcess != lastProcess) {
-            lastProcess = newProcess;
-            if (callback) callback(lastProcess);
-        }
-        offset += len;
+void Adb::finishPushFile(int32_t streamId) {
+    AdbStream* stream = getStreamHandle(streamId);
+    if (!stream) {
+        throw std::runtime_error("Sync push stream not found");
     }
 
-    // 传输完成
-    auto doneHeader = AdbProtocol::generateSyncHeader("DONE", 1704038400);
+    const int64_t nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const uint32_t mtime = nowSeconds > 0 ? static_cast<uint32_t>(nowSeconds) : 0;
+    auto doneHeader = AdbProtocol::generateSyncHeader("DONE", static_cast<int32_t>(mtime));
     streamWriteRaw(stream, doneHeader.data(), doneHeader.size());
+
+    const auto responseHeader = streamRead(streamId, 8, 30000, true);
+    if (responseHeader.size() != 8) {
+        abortPushFile(streamId);
+        throw std::runtime_error("sync push failed: invalid response");
+    }
+
+    const std::string responseId(reinterpret_cast<const char*>(responseHeader.data()), 4);
+    const uint32_t responseArg = readU32LE(responseHeader.data() + 4);
+    if (responseId == "FAIL") {
+        std::string errorMessage = "sync push failed";
+        if (responseArg > 0) {
+            const auto errorData = streamRead(streamId, responseArg, 30000, true);
+            errorMessage = "sync push failed: " + std::string(errorData.begin(), errorData.end());
+        }
+        abortPushFile(streamId);
+        throw std::runtime_error(errorMessage);
+    }
+    if (responseId != "OKAY") {
+        abortPushFile(streamId);
+        throw std::runtime_error("sync push failed: unexpected response " + responseId);
+    }
 
     auto quitHeader = AdbProtocol::generateSyncHeader("QUIT", 0);
     streamWriteRaw(stream, quitHeader.data(), quitHeader.size());
+    streamClose(streamId);
+}
 
-    // 等待流关闭
-    {
-        std::unique_lock<std::mutex> lock(waitMutex_);
-        while (!isStreamClosed(streamId) && !isClosed_.load()) {
-            waitCv_.wait_for(lock, std::chrono::milliseconds(100));
-        }
+void Adb::abortPushFile(int32_t streamId) {
+    if (streamId >= 0 && !isStreamClosed(streamId)) {
+        streamClose(streamId);
     }
 }
 
 std::string Adb::runAdbCmd(const std::string& cmd) {
-    int32_t streamId = open("shell:" + cmd, true);
+    int32_t streamId = open("shell:" + cmd, true, true);
 
     {
         std::unique_lock<std::mutex> lock(waitMutex_);
@@ -763,6 +1135,29 @@ std::string Adb::runAdbCmd(const std::string& cmd) {
 
     auto data = streamReadAllBeforeClose(streamId);
     return std::string(data.begin(), data.end());
+}
+
+AdbShellCommandResult Adb::execShellCommand(const std::string& cmd) {
+    try {
+        int32_t streamId = open("shell,v2,raw:" + cmd, true, true);
+
+        {
+            std::unique_lock<std::mutex> lock(waitMutex_);
+            while (!isStreamClosed(streamId) && !isClosed_.load()) {
+                waitCv_.wait_for(lock, std::chrono::milliseconds(100));
+            }
+        }
+
+        const auto raw = streamReadAllBeforeClose(streamId);
+        if (raw.empty()) {
+            throw std::runtime_error("shell protocol failed: empty response");
+        }
+
+        return parseShellProtocolPayload(raw);
+    } catch (const std::exception& e) {
+        OH_LOG_WARN(LOG_APP, "[ADB] shell,v2,raw failed, fallback to legacy shell: %{public}s", e.what());
+        return execShellCommandLegacy(this, cmd);
+    }
 }
 
 int32_t Adb::getShell() {
@@ -777,8 +1172,8 @@ int32_t Adb::tcpForward(int port) {
     return streamId;
 }
 
-int32_t Adb::localSocketForward(const std::string& socketName) {
-    int32_t streamId = open("localabstract:" + socketName, true);
+int32_t Adb::localSocketForward(const std::string& socketName, const std::string& streamKind) {
+    int32_t streamId = open("localabstract:" + socketName, true, false, streamKind);
     if (isStreamClosed(streamId)) {
         throw std::runtime_error("error forward");
     }
@@ -1129,7 +1524,9 @@ std::vector<uint8_t> Adb::streamReadAllBeforeClose(int32_t streamId) {
 
 void Adb::close() {
     bool expected = false;
-    if (!isClosed_.compare_exchange_strong(expected, true)) return;
+    if (!isClosed_.compare_exchange_strong(expected, true)) {
+        return;
+    }
 
     handleInRunning_.store(false);
 
@@ -1290,16 +1687,27 @@ Adb* Adb::create(const std::string& ip, int port) {
     }
 }
 
-AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend) {
-    auto* stream = new AdbStream();
+AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend,
+                                const std::string& streamKind) {
+    const std::string normalizedKind = normalizeStreamKind(streamKind);
+    auto* stream = new AdbStream(getReadBufferCapacityForKind(normalizedKind), normalizedKind);
     stream->localId = localId;
     stream->remoteId = remoteId;
     stream->canMultipleSend = canMultipleSend;
+    pendingOpenStreamKinds_.erase(localId);
 
     connectionStreams_[localId] = stream;
     openStreams_[localId] = stream;
 
     return stream;
+}
+
+void Adb::prepareIncomingStreamKinds(const std::vector<std::string>& streamKinds) {
+    std::lock_guard<std::mutex> lock(streamsMutex_);
+    pendingIncomingStreamKinds_.clear();
+    for (const auto& streamKind : streamKinds) {
+        pendingIncomingStreamKinds_.push_back(normalizeStreamKind(streamKind));
+    }
 }
 
 void Adb::notifyAll() {
@@ -1480,7 +1888,12 @@ bool Adb::handleIncomingOpen(uint32_t remoteId, const std::vector<uint8_t>& payl
     int32_t localId = localIdPool_++;
     {
         std::lock_guard<std::mutex> lock(streamsMutex_);
-        stream = createNewStream(localId, static_cast<int32_t>(remoteId), true);
+        std::string streamKind = "other";
+        if (!pendingIncomingStreamKinds_.empty()) {
+            streamKind = pendingIncomingStreamKinds_.front();
+            pendingIncomingStreamKinds_.pop_front();
+        }
+        stream = createNewStream(localId, static_cast<int32_t>(remoteId), true, streamKind);
         stream->canWrite.store(true);
         lastStream_ = stream;
     }

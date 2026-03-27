@@ -208,6 +208,21 @@ struct DeviceDetail {
           .width('100%')
           .justifyContent(FlexAlign.SpaceBetween)
 
+          Column({ space: 8 }) {
+            Text($r('app.string.file_receive_default_path'))
+              .fontSize(14)
+              .fontColor($r('app.color.text_secondary'))
+            TextInput({
+              text: this.device.fileReceivePath,
+              placeholder: $r('app.string.file_receive_default_path_hint')
+            })
+              .onChange((value: string) => {
+                this.device.fileReceivePath = value;
+              })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
           // 视频设置
           Column({ space: 12 }) {
             Text($r('app.string.video_settings'))

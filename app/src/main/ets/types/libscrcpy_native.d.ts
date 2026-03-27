@@ -1,4 +1,16 @@
 declare module 'libscrcpy_native.so' {
+    export interface AdbShellCommandResult {
+        exitCode: number;
+        exitCodeReliable: boolean;
+        stdout: string;
+        stderr: string;
+    }
+
+    export interface AdbInstallPackageResult extends AdbShellCommandResult {
+        success: boolean;
+        remotePath: string;
+    }
+
     // Audio decoder
     export function createAudioDecoder(): number;
     export function initAudioDecoder(id: number, codecType: string, sampleRate: number, channelCount: number): number;
@@ -21,9 +33,41 @@ declare module 'libscrcpy_native.so' {
     export function adbGetLastConnectError(adbId: number): string;
     export function adbPair(hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string): Promise<string>;
     export function adbRunCmd(adbId: number, cmd: string): string;
-    export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;
+    export function adbExecShell(adbId: number, cmd: string): Promise<AdbShellCommandResult>;
+    export function adbInstallPackage(
+        adbId: number,
+        data: ArrayBuffer,
+        remoteName: string,
+        installArgs?: string,
+        onProgress?: (progress: number) => void
+    ): Promise<AdbInstallPackageResult>;
+    export function adbInstallPackageFromFd(
+        adbId: number,
+        fd: number,
+        fileSize: number,
+        remoteName: string,
+        installArgs?: string,
+        onProgress?: (progress: number) => void
+    ): Promise<AdbInstallPackageResult>;
+    export function adbPushFile(
+        adbId: number,
+        data: ArrayBuffer,
+        remotePath: string,
+        onProgress?: (progress: number) => void
+    ): Promise<void>;
+    export function adbPushFileFromFd(
+        adbId: number,
+        fd: number,
+        fileSize: number,
+        remotePath: string,
+        onProgress?: (progress: number) => void
+    ): Promise<void>;
     export function adbTcpForward(adbId: number, port: number): number;
-    export function adbLocalSocketForward(adbId: number, socketName: string): Promise<number>;
+    export function adbLocalSocketForward(
+        adbId: number,
+        socketName: string,
+        streamKind?: 'video' | 'audio' | 'control' | 'other'
+    ): Promise<number>;
     export function adbReverse(adbId: number, socketName: string, port: number): Promise<number>;
     export function adbReverseRemove(adbId: number, socketName: string): Promise<number>;
     export function adbGetShell(adbId: number): Promise<number>;

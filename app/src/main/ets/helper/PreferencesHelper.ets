@@ -69,6 +69,7 @@ export class PreferencesHelper {
 
     // 显示设置
     target.showBottomNavBar = source.showBottomNavBar ?? false;
+    target.fileReceivePath = source.fileReceivePath ?? '/sdcard/Download/';
 
     // 音频参数
     target.isAudio = source.isAudio ?? true;

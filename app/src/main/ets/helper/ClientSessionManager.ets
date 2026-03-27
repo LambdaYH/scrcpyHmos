@@ -44,7 +44,6 @@ export class ClientSessionManager {
     if (this.currentClient) {
       const client = this.currentClient;
       this.currentClient = undefined;
-      LoggerClientSession.info('[ClientSessionManager] Stopping active client session...');
       try {
         client.stop();
       } catch (e) {
@@ -56,5 +55,9 @@ export class ClientSessionManager {
   // Check if there is an active session
   public hasActiveSession(): boolean {
     return !!this.currentClient;
+  }
+
+  public getCurrentClient(): NativeStreamClient | undefined {
+    return this.currentClient;
   }
 }

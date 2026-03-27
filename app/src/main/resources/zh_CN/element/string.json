@@ -78,7 +78,7 @@
         },
         {
             "name": "adb_pair_address_hint",
-            "value": "192.168.1.10:37099"
+            "value": "192.168.1.10:1206"
         },
         {
             "name": "adb_pair_code",
@@ -689,6 +689,90 @@
             "value": "使用说明"
         },
         {
+            "name": "help_tab_usage",
+            "value": "使用方法"
+        },
+        {
+            "name": "help_tab_config",
+            "value": "配置项说明"
+        },
+        {
+            "name": "help_tab_fab",
+            "value": "悬浮按钮"
+        },
+        {
+            "name": "help_fab_intro",
+            "value": "控制页中的悬浮按钮支持拖动吸边，点击后会展开快捷操作面板。"
+        },
+        {
+            "name": "help_fab_back_title",
+            "value": "返回"
+        },
+        {
+            "name": "help_fab_back_desc",
+            "value": "向 Android 设备发送返回键。"
+        },
+        {
+            "name": "help_fab_home_title",
+            "value": "主页"
+        },
+        {
+            "name": "help_fab_home_desc",
+            "value": "让被控设备回到桌面。"
+        },
+        {
+            "name": "help_fab_recent_title",
+            "value": "多任务"
+        },
+        {
+            "name": "help_fab_recent_desc",
+            "value": "打开被控设备的最近任务界面。"
+        },
+        {
+            "name": "help_fab_rotate_title",
+            "value": "旋转屏幕"
+        },
+        {
+            "name": "help_fab_rotate_desc",
+            "value": "切换当前控制页的横竖屏显示方向。"
+        },
+        {
+            "name": "help_fab_clipboard_title",
+            "value": "同步剪贴板"
+        },
+        {
+            "name": "help_fab_clipboard_desc",
+            "value": "读取本机剪贴板中的文本并发送到 Android 设备。"
+        },
+        {
+            "name": "help_fab_clipboard_badge",
+            "value": "贴"
+        },
+        {
+            "name": "help_fab_send_file_title",
+            "value": "发送文件"
+        },
+        {
+            "name": "help_fab_send_file_desc",
+            "value": "选择本地文件后，可先确认或修改被控设备上的接收路径，再开始发送。"
+        },
+        {
+            "name": "help_fab_install_title",
+            "value": "安装应用"
+        },
+        {
+            "name": "help_fab_install_desc",
+            "value": "选择本地 APK 文件并安装到被控设备。部分 Android 系统需要先在开发者选项中开启“USB 安装”或类似的 ADB 安装授权。"
+        },
+        {
+            "name": "help_fab_disconnect_title",
+            "value": "断开连接"
+        },
+        {
+            "name": "help_fab_disconnect_desc",
+            "value": "关闭当前控制会话并返回设备列表。"
+        },
+        {
             "name": "adb_auth_title",
             "value": "设备连接授权"
         },
@@ -783,6 +867,14 @@
         {
             "name": "show_bottom_nav_bar",
             "value": "底部显示导航栏"
+        },
+        {
+            "name": "file_receive_default_path",
+            "value": "文件接收默认路径"
+        },
+        {
+            "name": "file_receive_default_path_hint",
+            "value": "/sdcard/Download/"
         },
         {
             "name": "help_controlled_end",
@@ -1023,6 +1115,106 @@
         {
             "name": "rotate_screen",
             "value": "旋转屏幕"
+        },
+        {
+            "name": "fab_send_file_short",
+            "value": "传"
+        },
+        {
+            "name": "fab_install_app_short",
+            "value": "装"
+        },
+        {
+            "name": "send_file_start",
+            "value": "正在发送文件..."
+        },
+        {
+            "name": "send_file_success_prefix",
+            "value": "文件已发送到 "
+        },
+        {
+            "name": "send_file_failed_prefix",
+            "value": "文件发送失败："
+        },
+        {
+            "name": "send_file_path_title",
+            "value": "接收路径"
+        },
+        {
+            "name": "send_file_path_hint",
+            "value": "/sdcard/Download/example.txt"
+        },
+        {
+            "name": "send_file_path_empty",
+            "value": "请输入接收路径"
+        },
+        {
+            "name": "install_app_start",
+            "value": "正在安装应用..."
+        },
+        {
+            "name": "install_app_success",
+            "value": "应用安装成功"
+        },
+        {
+            "name": "install_app_failed_prefix",
+            "value": "应用安装失败："
+        },
+        {
+            "name": "install_app_error_reject_adb",
+            "value": "设备拒绝了 ADB 安装。请先在 Android 设备的开发者选项中开启“USB 安装”或同类的 ADB 安装授权，然后重试。"
+        },
+        {
+            "name": "install_app_error_user_restricted",
+            "value": "系统限制了应用安装。请检查 Android 设备的开发者选项、“USB 安装”以及系统安装权限设置。"
+        },
+        {
+            "name": "install_app_error_failed_prefix",
+            "value": "Android 安装器返回："
+        },
+        {
+            "name": "transfer_busy",
+            "value": "已有传输任务正在进行"
+        },
+        {
+            "name": "send_file_notification_title",
+            "value": "发送文件"
+        },
+        {
+            "name": "install_app_notification_title",
+            "value": "安装应用"
+        },
+        {
+            "name": "transfer_notification_preparing",
+            "value": "准备中..."
+        },
+        {
+            "name": "transfer_notification_sending_prefix",
+            "value": "发送中"
+        },
+        {
+            "name": "transfer_notification_uploading_prefix",
+            "value": "上传中"
+        },
+        {
+            "name": "transfer_notification_installing",
+            "value": "安装中..."
+        },
+        {
+            "name": "transfer_notification_completed_prefix",
+            "value": "已完成："
+        },
+        {
+            "name": "transfer_notification_install_success",
+            "value": "应用安装成功"
+        },
+        {
+            "name": "transfer_notification_failed_prefix",
+            "value": "失败："
+        },
+        {
+            "name": "file_pick_cancelled",
+            "value": "未选择文件"
         }
     ]
 }

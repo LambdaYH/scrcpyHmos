@@ -20,6 +20,7 @@
 #include <atomic>
 #include <functional>
 #include <queue> 
+#include <deque>
 #include "concurrentqueue/blockingconcurrentqueue.h"
 
 // 进度回调函数类型
@@ -32,6 +33,7 @@ struct AdbStream {
     int32_t localId = 0;
     int32_t remoteId = 0;
     bool canMultipleSend = false;
+    std::string streamKind = "other";
     std::atomic<bool> closed{false};
     std::atomic<bool> canWrite{false};
     std::mutex writeMutex;
@@ -39,11 +41,19 @@ struct AdbStream {
     size_t pendingWriteOffset = 0;
 
     // 读缓冲区 - 使用 RingBuffer 实现零拷贝。
-    // 视频流可能在较短时间内出现大突发，默认放大到 64 MiB，
-    // 避免 ADB 层过早触发背压。
-    RingBuffer readBuffer{64 * 1024 * 1024};
+    // 容量按流类型区分：
+    // video=64 MiB, audio=16 MiB, other=10 MiB
+    RingBuffer readBuffer;
     
-    AdbStream() = default;
+    explicit AdbStream(size_t readBufferCapacity, std::string kind = "other")
+        : streamKind(std::move(kind)), readBuffer(readBufferCapacity) {}
+};
+
+struct AdbShellCommandResult {
+    int32_t exitCode = 0;
+    bool exitCodeReliable = false;
+    std::string stdoutText;
+    std::string stderrText;
 };
 
 // ADB主类 - 完全参考Adb.ets
@@ -64,9 +74,18 @@ public:
     // 执行ADB命令
     std::string runAdbCmd(const std::string& cmd);
 
+    // 执行 shell 命令并返回结构化结果
+    AdbShellCommandResult execShellCommand(const std::string& cmd);
+
     // 推送文件
     void pushFile(const uint8_t* fileData, size_t fileLen,
                   const std::string& remotePath, ProcessCallback callback = nullptr);
+    void pushFileFromFd(int fd, uint64_t fileLen,
+                        const std::string& remotePath, ProcessCallback callback = nullptr);
+    int32_t startPushFile(const std::string& remotePath);
+    void writePushFileChunk(int32_t streamId, const uint8_t* chunkData, size_t chunkLen);
+    void finishPushFile(int32_t streamId);
+    void abortPushFile(int32_t streamId);
 
     // 执行非 shell 的 ADB service 命令
     std::string runServiceCommand(const std::string& destination);
@@ -82,7 +101,7 @@ public:
     int32_t tcpForward(int port);
 
     // 本地Socket转发 - 返回stream id
-    int32_t localSocketForward(const std::string& socketName);
+    int32_t localSocketForward(const std::string& socketName, const std::string& streamKind = "other");
 
     // 获取Shell流 - 返回stream id
     int32_t getShell();
@@ -126,6 +145,7 @@ public:
     uint32_t getMaxData() const { return maxData_; }
 
     std::string getLastConnectError() const;
+    void prepareIncomingStreamKinds(const std::vector<std::string>& streamKinds);
 
 private:
     Adb(AdbChannel* channel);
@@ -144,7 +164,8 @@ private:
     void handleInLoop();
 
     // 打开一个流
-    int32_t open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose = false);
+    int32_t open(const std::string& destination, bool canMultipleSend,
+                 bool allowImmediateClose = false, const std::string& streamKind = "other");
 
     // 通知机制
     void notifyAll();
@@ -154,12 +175,15 @@ private:
     void writeToChannel(std::vector<uint8_t>&& data);
 
     // 创建新的流
-    AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend);
+    AdbStream* createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend,
+                               const std::string& streamKind = "other");
 
     bool handleIncomingOpen(uint32_t remoteId, const std::vector<uint8_t>& payload);
     int connectLocalTcpPort(uint16_t port);
     void startReverseBridge(AdbStream* stream, int fd);
     static std::string stripTrailingNulls(const std::vector<uint8_t>& payload);
+    static std::string normalizeStreamKind(const std::string& streamKind);
+    static size_t getReadBufferCapacityForKind(const std::string& streamKind);
 
     // 向流的底层channel写入数据（分块）
     void compactPendingWritesLocked(AdbStream* stream);
@@ -177,6 +201,8 @@ private:
     std::mutex streamsMutex_;
     std::unordered_map<int32_t, AdbStream*> connectionStreams_;
     std::unordered_map<int32_t, AdbStream*> openStreams_; // Owner of AdbStream*
+    std::unordered_map<int32_t, std::string> pendingOpenStreamKinds_;
+    std::deque<std::string> pendingIncomingStreamKinds_;
 
     // 后台处理线程
     std::thread handleInThread_;
