@@ -322,6 +322,24 @@ Adb::Adb(AdbChannel* channel) : channel_(channel) {
     sendThread_ = std::thread(&Adb::sendLoop, this);
 }
 
+std::string Adb::normalizeStreamKind(const std::string& streamKind) {
+    if (streamKind == "video" || streamKind == "audio" || streamKind == "control") {
+        return streamKind;
+    }
+    return "other";
+}
+
+size_t Adb::getReadBufferCapacityForKind(const std::string& streamKind) {
+    const std::string normalizedKind = normalizeStreamKind(streamKind);
+    if (normalizedKind == "video") {
+        return 64 * 1024 * 1024;
+    }
+    if (normalizedKind == "audio") {
+        return 16 * 1024 * 1024;
+    }
+    return 10 * 1024 * 1024;
+}
+
 Adb::~Adb() {
     close();
 
@@ -335,9 +353,10 @@ Adb::~Adb() {
         }
         openStreams_.clear();
         connectionStreams_.clear();
+        pendingOpenStreamKinds_.clear();
+        pendingIncomingStreamKinds_.clear();
         lastStream_ = nullptr;
     }
-
     delete channel_;
 }
 
@@ -619,11 +638,17 @@ void Adb::handleInLoop() {
                         // Known stream already closed; ignore late packets without recreating it.
                         stream = nullptr;
                     } else {
+                        std::string streamKind = "other";
+                        auto pendingKindIt = pendingOpenStreamKinds_.find(static_cast<int32_t>(arg1));
+                        if (pendingKindIt != pendingOpenStreamKinds_.end()) {
+                            streamKind = pendingKindIt->second;
+                        }
                         OH_LOG_DEBUG(LOG_APP, "[ADB] New connection: localId=%{public}u, remoteId=%{public}u",
                                      arg1, arg0);
                         stream = createNewStream(static_cast<int32_t>(arg1),
                                                  static_cast<int32_t>(arg0),
-                                                 static_cast<int32_t>(arg1) > 0);
+                                                 static_cast<int32_t>(arg1) > 0,
+                                                 streamKind);
                         lastStream_ = stream; // Update cache
                         // notifyAll(); // Moved to after command processing to avoid race condition (e.g. notify before CLSE handled)
                     }
@@ -740,13 +765,20 @@ void Adb::handleInLoop() {
     }
 }
 
-int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose) {
+int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool allowImmediateClose,
+                  const std::string& streamKind) {
     int32_t localId = localIdPool_++;
     if (!canMultipleSend) localId = -localId;
 
+    {
+        std::lock_guard<std::mutex> slock(streamsMutex_);
+        pendingOpenStreamKinds_[localId] = normalizeStreamKind(streamKind);
+    }
+
     auto openMsg = AdbProtocol::generateOpen(localId, destination);
     writeToChannel(std::move(openMsg));
-    OH_LOG_INFO(LOG_APP, "[ADB] OPEN sent: localId=%{public}d dest=%{public}s", localId, destination.c_str());
+    OH_LOG_INFO(LOG_APP, "[ADB] OPEN sent: localId=%{public}d dest=%{public}s kind=%{public}s",
+                localId, destination.c_str(), normalizeStreamKind(streamKind).c_str());
 
     // 等待流建立
     AdbStream* stream = nullptr;
@@ -766,6 +798,8 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool all
     }
 
     if (!stream) {
+        std::lock_guard<std::mutex> slock(streamsMutex_);
+        pendingOpenStreamKinds_.erase(localId);
         throw std::runtime_error("Failed to open stream");
     }
 
@@ -782,6 +816,7 @@ int32_t Adb::open(const std::string& destination, bool canMultipleSend, bool all
             // Cleanup
             {
                 std::lock_guard<std::mutex> slock(streamsMutex_);
+                pendingOpenStreamKinds_.erase(localId);
                 auto it = connectionStreams_.find(localId);
                 if (it != connectionStreams_.end()) {
                     connectionStreams_.erase(it);
@@ -978,8 +1013,8 @@ int32_t Adb::tcpForward(int port) {
     return streamId;
 }
 
-int32_t Adb::localSocketForward(const std::string& socketName) {
-    int32_t streamId = open("localabstract:" + socketName, true);
+int32_t Adb::localSocketForward(const std::string& socketName, const std::string& streamKind) {
+    int32_t streamId = open("localabstract:" + socketName, true, false, streamKind);
     if (isStreamClosed(streamId)) {
         throw std::runtime_error("error forward");
     }
@@ -1330,7 +1365,9 @@ std::vector<uint8_t> Adb::streamReadAllBeforeClose(int32_t streamId) {
 
 void Adb::close() {
     bool expected = false;
-    if (!isClosed_.compare_exchange_strong(expected, true)) return;
+    if (!isClosed_.compare_exchange_strong(expected, true)) {
+        return;
+    }
 
     handleInRunning_.store(false);
 
@@ -1491,16 +1528,27 @@ Adb* Adb::create(const std::string& ip, int port) {
     }
 }
 
-AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend) {
-    auto* stream = new AdbStream();
+AdbStream* Adb::createNewStream(int32_t localId, int32_t remoteId, bool canMultipleSend,
+                                const std::string& streamKind) {
+    const std::string normalizedKind = normalizeStreamKind(streamKind);
+    auto* stream = new AdbStream(getReadBufferCapacityForKind(normalizedKind), normalizedKind);
     stream->localId = localId;
     stream->remoteId = remoteId;
     stream->canMultipleSend = canMultipleSend;
+    pendingOpenStreamKinds_.erase(localId);
 
     connectionStreams_[localId] = stream;
     openStreams_[localId] = stream;
 
     return stream;
+}
+
+void Adb::prepareIncomingStreamKinds(const std::vector<std::string>& streamKinds) {
+    std::lock_guard<std::mutex> lock(streamsMutex_);
+    pendingIncomingStreamKinds_.clear();
+    for (const auto& streamKind : streamKinds) {
+        pendingIncomingStreamKinds_.push_back(normalizeStreamKind(streamKind));
+    }
 }
 
 void Adb::notifyAll() {
@@ -1681,7 +1729,12 @@ bool Adb::handleIncomingOpen(uint32_t remoteId, const std::vector<uint8_t>& payl
     int32_t localId = localIdPool_++;
     {
         std::lock_guard<std::mutex> lock(streamsMutex_);
-        stream = createNewStream(localId, static_cast<int32_t>(remoteId), true);
+        std::string streamKind = "other";
+        if (!pendingIncomingStreamKinds_.empty()) {
+            streamKind = pendingIncomingStreamKinds_.front();
+            pendingIncomingStreamKinds_.pop_front();
+        }
+        stream = createNewStream(localId, static_cast<int32_t>(remoteId), true, streamKind);
         stream->canWrite.store(true);
         lastStream_ = stream;
     }

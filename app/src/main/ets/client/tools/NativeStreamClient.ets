@@ -27,6 +27,7 @@ type NativeStartReverseStreamsFn = (
 ) => Promise<number>;
 type AdbReverseFn = (adbId: number, socketName: string, port: number) => Promise<number>;
 type AdbReverseRemoveFn = (adbId: number, socketName: string) => Promise<number>;
+type StreamKind = 'video' | 'audio' | 'control' | 'other';
 
 export class NativeStreamClient {
   private static readonly REVERSE_READY_TIMEOUT_MS: number = 10000;
@@ -213,7 +214,7 @@ export class NativeStreamClient {
     // Retry while waiting for the server to listen on the abstract socket.
     let retries = 50; // 50 * 100ms = 5 seconds
     while (retries > 0) {
-      this.videoStreamId = await this.tryOpenLocalSocket(socketName);
+      this.videoStreamId = await this.tryOpenLocalSocket(socketName, 'video');
       if (this.videoStreamId >= 0) {
         break;
       }
@@ -232,7 +233,7 @@ export class NativeStreamClient {
 
     // 2. Audio Stream
     if (this.device.isAudio) {
-        this.audioStreamId = await this.tryOpenLocalSocket(socketName);
+        this.audioStreamId = await this.tryOpenLocalSocket(socketName, 'audio');
         if (this.audioStreamId < 0) {
             LoggerClientStream.warn("Failed to connect Audio stream, disabling audio");
             this.audioStreamId = -1;
@@ -242,14 +243,14 @@ export class NativeStreamClient {
     }
 
     // 3. Control Stream
-    this.controlStreamId = await this.tryOpenLocalSocket(socketName);
+    this.controlStreamId = await this.tryOpenLocalSocket(socketName, 'control');
     if (this.controlStreamId < 0) throw new Error("Failed to connect Control stream");
     LoggerClientStream.info(`[NativeStreamClient] Control Stream Connected`);
   }
 
-  private async tryOpenLocalSocket(socketName: string): Promise<number> {
+  private async tryOpenLocalSocket(socketName: string, streamKind: StreamKind): Promise<number> {
     try {
-      return await libscrcpy.adbLocalSocketForward(this.adbId, socketName);
+      return await libscrcpy.adbLocalSocketForward(this.adbId, socketName, streamKind);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       LoggerClientStream.warn(`[NativeStreamClient] adbLocalSocketForward threw: ${errMsg}`);

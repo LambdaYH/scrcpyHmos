@@ -44,7 +44,6 @@ export class ClientSessionManager {
     if (this.currentClient) {
       const client = this.currentClient;
       this.currentClient = undefined;
-      LoggerClientSession.info('[ClientSessionManager] Stopping active client session...');
       try {
         client.stop();
       } catch (e) {

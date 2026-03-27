@@ -42,7 +42,11 @@ declare module 'libscrcpy_native.so' {
     ): Promise<AdbInstallPackageResult>;
     export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;
     export function adbTcpForward(adbId: number, port: number): number;
-    export function adbLocalSocketForward(adbId: number, socketName: string): Promise<number>;
+    export function adbLocalSocketForward(
+        adbId: number,
+        socketName: string,
+        streamKind?: 'video' | 'audio' | 'control' | 'other'
+    ): Promise<number>;
     export function adbReverse(adbId: number, socketName: string, port: number): Promise<number>;
     export function adbReverseRemove(adbId: number, socketName: string): Promise<number>;
     export function adbGetShell(adbId: number): Promise<number>;

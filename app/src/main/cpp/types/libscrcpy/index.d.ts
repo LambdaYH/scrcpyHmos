@@ -24,7 +24,11 @@ export const adbInstallPackage: (
 ) => Promise<AdbInstallPackageResult>;
 export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => Promise<void>;
 export const adbTcpForward: (adbId: number, port: number) => number;
-export const adbLocalSocketForward: (adbId: number, socketName: string) => Promise<number>;
+export const adbLocalSocketForward: (
+    adbId: number,
+    socketName: string,
+    streamKind?: 'video' | 'audio' | 'control' | 'other'
+) => Promise<number>;
 export const adbReverse: (adbId: number, socketName: string, port: number) => Promise<number>;
 export const adbReverseRemove: (adbId: number, socketName: string) => Promise<number>;
 export const adbGetShell: (adbId: number) => Promise<number>;

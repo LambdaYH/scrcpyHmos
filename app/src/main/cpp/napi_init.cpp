@@ -1069,24 +1069,30 @@ static napi_value AdbTcpForward(napi_env env, napi_callback_info info) {
     return result;
 }
 
-// 本地Socket转发 - adbLocalSocketForward(adbId, socketName) => streamId
+// 本地Socket转发 - adbLocalSocketForward(adbId, socketName, streamKind?) => streamId
 static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 3;
+    napi_value args[3];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t adbId;
     char socketName[256];
+    char streamKind[32] = "other";
     size_t nameLen;
 
     napi_get_value_int64(env, args[0], &adbId);
     napi_get_value_string_utf8(env, args[1], socketName, sizeof(socketName), &nameLen);
+    if (argc >= 3) {
+        size_t kindLen = 0;
+        napi_get_value_string_utf8(env, args[2], streamKind, sizeof(streamKind), &kindLen);
+    }
 
     struct AdbLocalSocketForwardContext {
         napi_async_work work = nullptr;
         napi_deferred deferred = nullptr;
         std::shared_ptr<Adb> adbInstance;
         std::string socketName;
+        std::string streamKind;
         int32_t streamId = -1;
         std::string errorMsg;
     };
@@ -1103,6 +1109,7 @@ static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
     auto* context = new AdbLocalSocketForwardContext();
     context->adbInstance = it->second;
     context->socketName = socketName;
+    context->streamKind = streamKind;
 
     napi_value promise;
     napi_create_promise(env, &context->deferred, &promise);
@@ -1112,7 +1119,7 @@ static napi_value AdbLocalSocketForward(napi_env env, napi_callback_info info) {
         [](napi_env, void* rawData) {
             auto* context = static_cast<AdbLocalSocketForwardContext*>(rawData);
             try {
-                context->streamId = context->adbInstance->localSocketForward(context->socketName);
+                context->streamId = context->adbInstance->localSocketForward(context->socketName, context->streamKind);
             } catch (const std::exception& e) {
                 context->errorMsg = e.what();
             }
@@ -2072,6 +2079,17 @@ static napi_value NativeStartReverseStreams(napi_env env, napi_callback_info inf
                 }
                 g_streamManager = new ScrcpyStreamManager();
                 auto eventCallback = CreateNativeStreamEventCallback();
+                std::vector<std::string> expectedStreamKinds;
+                if (context->config.expectVideo) {
+                    expectedStreamKinds.emplace_back("video");
+                }
+                if (context->config.expectAudio) {
+                    expectedStreamKinds.emplace_back("audio");
+                }
+                if (context->config.expectControl) {
+                    expectedStreamKinds.emplace_back("control");
+                }
+                context->adbInstance->prepareIncomingStreamKinds(expectedStreamKinds);
                 context->result = g_streamManager->startReverse(context->adbInstance.get(), context->config, eventCallback);
             } catch (const std::exception& e) {
                 context->errorMsg = e.what();
