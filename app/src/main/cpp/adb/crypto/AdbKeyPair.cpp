@@ -1,8 +1,8 @@
 // AdbKeyPair - RSA密钥对管理
 // 参考 AdbKeyPair.ets 实现
 // 使用 CryptoArchitectureKit 进行RSA密钥生成和签名
-#include "AdbKeyPair.h"
-#include "AdbBase64.h"
+#include "adb/crypto/AdbKeyPair.h"
+#include "adb/crypto/AdbBase64.h"
 #include <CryptoArchitectureKit/crypto_asym_cipher.h>
 #include <cstring>
 #include <fstream>
@@ -248,6 +248,7 @@ AdbKeyPair AdbKeyPair::read(const std::string& publicKeyPath, const std::string&
         std::ifstream f(privateKeyPath, std::ios::binary);
         if (!f) throw std::runtime_error("Cannot open private key file: " + privateKeyPath);
         std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        kp.privateKeyPem_ = content;
 
         // 解析PEM: 去掉header/footer，base64解码
         std::string data = content;
@@ -305,13 +306,13 @@ void AdbKeyPair::generate(const std::string& publicKeyPath, const std::string& p
     // Base64编码公钥
     std::string pubKeyBase64 = AdbBase64::encodeToString(adbPubKey.data(), adbPubKey.size());
 
-    // 写入公钥文件 (去掉换行 + 追加 " one@Aphone")
+    // 写入公钥文件 (去掉换行 + 追加 comment)
     {
         std::string cleaned;
         for (char c : pubKeyBase64) {
             if (c != '\n') cleaned.push_back(c);
         }
-        cleaned += " one@Aphone";
+        cleaned += " scrcpyHmos@HarmonyOS";
 
         std::ofstream f(publicKeyPath, std::ios::binary | std::ios::trunc);
         if (!f) throw std::runtime_error("Cannot write public key file");

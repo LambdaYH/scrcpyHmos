@@ -372,6 +372,37 @@ struct Index {
           .backgroundColor($r('app.color.bg_card'))
           .borderRadius(12)
           .margin({ bottom: 12 })
+
+          ListItem() {
+            Row() {
+              Row() {
+                SymbolGlyph($r('sys.symbol.wifi'))
+                  .fontSize(24)
+                  .fontColor([$r('app.color.text_secondary')])
+                  .margin({ right: 16 })
+
+                Text($r('app.string.wireless_adb_pairing'))
+                  .fontSize(16)
+                  .fontColor($r('app.color.text_primary'))
+              }
+
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(24)
+                .fontColor([$r('app.color.text_tertiary')])
+            }
+            .width('100%')
+            .height(56)
+            .justifyContent(FlexAlign.SpaceBetween)
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.getUIContext().getRouter().pushUrl({ url: 'pages/WirelessAdbPairPage' }).catch((err: Error) => {
+                LoggerIndex.error('Push url failed:', err);
+              });
+            })
+          }
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ bottom: 12 })
           
           ListItem() {
             Row() {

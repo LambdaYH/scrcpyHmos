@@ -4,7 +4,7 @@
 #ifndef TCP_CHANNEL_H
 #define TCP_CHANNEL_H
 
-#include "AdbChannel.h"
+#include "adb/core/AdbChannel.h"
 #include <atomic>
 #include <mutex>
 
@@ -21,6 +21,7 @@ public:
     void write(const uint8_t* data, size_t len) override;
     void close() override;
     bool isClosed() const override;
+    int releaseFd();
 
 private:
     int fd_;

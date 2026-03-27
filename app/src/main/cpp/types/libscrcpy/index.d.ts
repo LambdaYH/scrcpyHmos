@@ -1,12 +1,14 @@
 export const adbCreate: (ip: string, port: number) => number;
 export const adbConnect: (adbId: number, pubKeyPath: string, priKeyPath: string) => number;
+export const adbGetLastConnectError: (adbId: number) => string;
+export const adbPair: (hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string) => Promise<string>;
 export const adbRunCmd: (adbId: number, cmd: string) => string;
-export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => void;
+export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => Promise<void>;
 export const adbTcpForward: (adbId: number, port: number) => number;
-export const adbLocalSocketForward: (adbId: number, socketName: string) => number;
-export const adbReverse: (adbId: number, socketName: string, port: number) => number;
-export const adbReverseRemove: (adbId: number, socketName: string) => number;
-export const adbGetShell: (adbId: number) => number;
+export const adbLocalSocketForward: (adbId: number, socketName: string) => Promise<number>;
+export const adbReverse: (adbId: number, socketName: string, port: number) => Promise<number>;
+export const adbReverseRemove: (adbId: number, socketName: string) => Promise<number>;
+export const adbGetShell: (adbId: number) => Promise<number>;
 export const adbRestartOnTcpip: (adbId: number, port: number) => string;
 export const adbIsStreamClosed: (adbId: number, streamId: number) => boolean;
 export const adbIsConnected: (adbId: number) => boolean;
@@ -19,7 +21,7 @@ export const nativeStartStreams: (
     audioSampleRate: number,
     audioChannelCount: number,
     cb: (type: string, data: string) => void
-) => number;
+) => Promise<number>;
 export const nativeStartReverseStreams: (
     adbId: number,
     expectVideo: boolean,
@@ -29,12 +31,12 @@ export const nativeStartReverseStreams: (
     audioSampleRate: number,
     audioChannelCount: number,
     cb: (type: string, data: string) => void
-) => number;
+) => Promise<number>;
 export const nativeStopStreams: () => void;
 export const nativeSendControl: (data: ArrayBuffer) => boolean;
 export const adbClose: (adbId: number) => void;
 export const adbStreamRead: (adbId: number, streamId: number, size: number) => ArrayBuffer;
-export const adbStreamWrite: (adbId: number, streamId: number, data: ArrayBuffer) => void;
+export const adbStreamWrite: (adbId: number, streamId: number, data: ArrayBuffer) => Promise<void>;
 export const destroyBufferPool: () => void;
 export const createVideoDecoder: () => number;
 export const initVideoDecoder: (id: number, type: string, surface: string, width: number, height: number) => number;

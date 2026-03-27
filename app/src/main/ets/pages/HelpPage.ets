@@ -63,6 +63,13 @@ struct HelpPage {
             .margin({ bottom: 8, top: 4 })
             .width('100%')
 
+          Text($r('app.string.help_tcpip_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .margin({ bottom: 8, top: 4 })
+            .width('100%')
+
           this.InstructionItem(1, $r('app.string.help_step_1'))
           this.InstructionItem(2, $r('app.string.help_step_2'))
           this.InstructionItem(3, $r('app.string.help_step_3'))
@@ -70,8 +77,18 @@ struct HelpPage {
           Text($r('app.string.help_note'))
             .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
-            .margin({ top: 8, bottom: 16 })
+            .margin({ top: 4, bottom: 12 })
             .width('100%')
+
+          Text($r('app.string.help_wireless_pairing_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .margin({ bottom: 8, top: 12 })
+            .width('100%')
+
+          this.InstructionItem(1, $r('app.string.help_wireless_controlled_step_1'))
+          this.InstructionItem(2, $r('app.string.help_wireless_controlled_step_2'))
 
           // 控制端 (本应用)
           Text($r('app.string.help_control_end'))
@@ -81,7 +98,25 @@ struct HelpPage {
             .margin({ bottom: 8, top: 8 })
             .width('100%')
 
+          Text($r('app.string.help_tcpip_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .margin({ bottom: 8, top: 4 })
+            .width('100%')
+
           this.InstructionItem(1, $r('app.string.help_step_4'))
+
+          Text($r('app.string.help_wireless_pairing_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .margin({ bottom: 8, top: 12 })
+            .width('100%')
+
+          this.InstructionItem(1, $r('app.string.help_wireless_control_step_1'))
+          this.InstructionItem(2, $r('app.string.help_wireless_control_step_2'))
+          this.InstructionItem(3, $r('app.string.help_wireless_control_step_3'))
 
           Row() {
              Text($r('app.string.help_config_intro'))

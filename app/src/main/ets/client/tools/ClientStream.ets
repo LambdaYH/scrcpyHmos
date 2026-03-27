@@ -39,16 +39,16 @@ export class ClientStream {
       
       // Write Public Key
       const pubKeyBytes = keyManager.getPublicKeyBytes();
-      const pubFile = fs.openSync(pubKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      fs.writeSync(pubFile.fd, pubKeyBytes as ArrayBuffer);
-      fs.closeSync(pubFile);
+      const pubFile = await fs.open(pubKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      await fs.write(pubFile.fd, pubKeyBytes as ArrayBuffer);
+      await fs.close(pubFile.fd);
 
       // Write Private Key (PEM)
       const priKeyBase64 = keyManager.getPrivateKeyBase64();
       const pemContent = "-----BEGIN PRIVATE KEY-----\n" + priKeyBase64 + "\n-----END PRIVATE KEY-----";
-      const priFile = fs.openSync(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      fs.writeSync(priFile.fd, pemContent);
-      fs.closeSync(priFile);
+      const priFile = await fs.open(priKeyPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      await fs.write(priFile.fd, pemContent);
+      await fs.close(priFile.fd);
 
       // 2. 连接ADB (Native)
       LoggerClientStream.info(`[ClientStream] Connecting to Native ADB at ${this.device.address}:${this.device.adbPort}`);
@@ -72,7 +72,8 @@ export class ClientStream {
           } else if (connectRes === -7) {
              throw new Error('app.string.adb_auth_disconnected');
           } else {
-             throw new Error(`app.string.adb_native_connect_failed_code_${connectRes}`);
+             const nativeDetail: string = libscrcpy.adbGetLastConnectError(this.adbId);
+             throw new Error(this.mapNativeConnectError(connectRes, nativeDetail));
           }
       }
       LoggerClientStream.info('[ClientStream] Native ADB connected');
@@ -81,7 +82,7 @@ export class ClientStream {
       const serverPath = `/data/local/tmp/scrcpy-server-${ServerManager.getVersion()}`;
       if (serverJarData && serverJarData.byteLength > 0) {
           LoggerClientStream.info(`[ClientStream] Pushing server to ${serverPath}...`);
-          libscrcpy.adbPushFile(this.adbId, serverJarData, serverPath);
+          await libscrcpy.adbPushFile(this.adbId, serverJarData, serverPath);
       } else {
           LoggerClientStream.warn('[ClientStream] No server jar data, skipping push');
       }
@@ -95,20 +96,20 @@ export class ClientStream {
     }
   }
 
-  startServer(args: string): void {
+  async startServer(args: string): Promise<void> {
     const serverPath = `/data/local/tmp/scrcpy-server-${ServerManager.getVersion()}`;
     const cmd = `CLASSPATH=${serverPath} app_process / com.genymobile.scrcpy.Server ${ServerManager.getVersion()} ${args} 2>&1`;
 
     this.stopServer();
 
-    this.shellStreamId = libscrcpy.adbGetShell(this.adbId);
+    this.shellStreamId = await libscrcpy.adbGetShell(this.adbId);
     if (this.shellStreamId < 0) {
       throw new Error('Native ADB Get Shell failed');
     }
     const shellStreamId = this.shellStreamId;
 
     const cmdBytes = buffer.from(cmd + '\n', 'utf-8');
-    libscrcpy.adbStreamWrite(this.adbId, shellStreamId, cmdBytes.buffer);
+    await libscrcpy.adbStreamWrite(this.adbId, shellStreamId, cmdBytes.buffer);
 
     this.readShellOutputAsync(shellStreamId);
   }
@@ -192,5 +193,26 @@ export class ClientStream {
           this.adbId = -1;
           this.shellStreamId = -1;
       }
+  }
+
+  private mapNativeConnectError(connectRes: number, nativeDetail: string): string {
+    const detail = nativeDetail.toLowerCase();
+    LoggerClientStream.error('[ClientStream] Native ADB connect detail:', nativeDetail);
+
+    if (detail.includes('stls upgrade failed') || detail.includes('tls handshake failed')) {
+      return 'app.string.adb_wireless_tls_failed';
+    }
+    if (detail.includes('tlsadbchannel: read failed')) {
+      return 'app.string.adb_wireless_tls_interrupted';
+    }
+    if (detail.includes('unexpected initial adb response') || detail.includes('expected cnxn')) {
+      return 'app.string.adb_wireless_protocol_failed';
+    }
+    if (detail.includes('connect response failed')) {
+      return 'app.string.adb_connect_timeout';
+    }
+
+    LoggerClientStream.error('[ClientStream] Native ADB connect failed with code:', String(connectRes));
+    return 'app.string.adb_native_connect_failed';
   }
 }

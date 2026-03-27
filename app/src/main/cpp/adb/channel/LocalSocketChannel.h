@@ -2,7 +2,7 @@
 #ifndef LOCAL_SOCKET_CHANNEL_H
 #define LOCAL_SOCKET_CHANNEL_H
 
-#include "AdbChannel.h"
+#include "adb/core/AdbChannel.h"
 
 #include <atomic>
 #include <mutex>

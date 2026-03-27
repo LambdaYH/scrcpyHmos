@@ -263,6 +263,9 @@ export class Logger {
     const argsStr = args.map(arg => {
       if (arg === null) return 'null';
       if (arg === undefined) return 'undefined';
+      if (arg instanceof Error) {
+        return arg.stack ? `${arg.message} | ${arg.stack}` : arg.message;
+      }
       if (typeof arg === 'object') {
         try {
           return JSON.stringify(arg);

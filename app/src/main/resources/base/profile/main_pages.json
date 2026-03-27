@@ -4,6 +4,7 @@
     "pages/DeviceDetail",
     "pages/ControlPage",
     "pages/AdbManagePage",
+    "pages/WirelessAdbPairPage",
     "pages/AboutPage",
     "pages/HelpPage",
     "pages/LogPage",
