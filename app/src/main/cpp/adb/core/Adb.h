@@ -46,6 +46,13 @@ struct AdbStream {
     AdbStream() = default;
 };
 
+struct AdbShellCommandResult {
+    int32_t exitCode = 0;
+    bool exitCodeReliable = false;
+    std::string stdoutText;
+    std::string stderrText;
+};
+
 // ADB主类 - 完全参考Adb.ets
 class Adb {
 public:
@@ -63,6 +70,9 @@ public:
 
     // 执行ADB命令
     std::string runAdbCmd(const std::string& cmd);
+
+    // 执行 shell 命令并返回结构化结果
+    AdbShellCommandResult execShellCommand(const std::string& cmd);
 
     // 推送文件
     void pushFile(const uint8_t* fileData, size_t fileLen,

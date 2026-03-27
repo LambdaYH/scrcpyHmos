@@ -1,4 +1,16 @@
 declare module 'libscrcpy_native.so' {
+    export interface AdbShellCommandResult {
+        exitCode: number;
+        exitCodeReliable: boolean;
+        stdout: string;
+        stderr: string;
+    }
+
+    export interface AdbInstallPackageResult extends AdbShellCommandResult {
+        success: boolean;
+        remotePath: string;
+    }
+
     // Audio decoder
     export function createAudioDecoder(): number;
     export function initAudioDecoder(id: number, codecType: string, sampleRate: number, channelCount: number): number;
@@ -21,6 +33,13 @@ declare module 'libscrcpy_native.so' {
     export function adbGetLastConnectError(adbId: number): string;
     export function adbPair(hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string): Promise<string>;
     export function adbRunCmd(adbId: number, cmd: string): string;
+    export function adbExecShell(adbId: number, cmd: string): Promise<AdbShellCommandResult>;
+    export function adbInstallPackage(
+        adbId: number,
+        data: ArrayBuffer,
+        remoteName: string,
+        installArgs?: string
+    ): Promise<AdbInstallPackageResult>;
     export function adbPushFile(adbId: number, data: ArrayBuffer, remotePath: string): Promise<void>;
     export function adbTcpForward(adbId: number, port: number): number;
     export function adbLocalSocketForward(adbId: number, socketName: string): Promise<number>;

@@ -1,6 +1,7 @@
 #include "napi/native_api.h"
 #include "decoder/VideoDecoderNative.h"
 #include "decoder/AudioDecoderNative.h"
+#include "adb/core/Adb.h"
 #include "adb/pairing/AdbPair.h"
 #include "concurrentqueue/concurrentqueue.h"
 
@@ -13,6 +14,47 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+
+static napi_value CreateShellCommandResult(napi_env env, const AdbShellCommandResult& result) {
+    napi_value obj;
+    napi_create_object(env, &obj);
+
+    napi_value exitCode;
+    napi_create_int32(env, result.exitCode, &exitCode);
+    napi_set_named_property(env, obj, "exitCode", exitCode);
+
+    napi_value exitCodeReliable;
+    napi_get_boolean(env, result.exitCodeReliable, &exitCodeReliable);
+    napi_set_named_property(env, obj, "exitCodeReliable", exitCodeReliable);
+
+    napi_value stdoutValue;
+    napi_create_string_utf8(env, result.stdoutText.c_str(), result.stdoutText.size(), &stdoutValue);
+    napi_set_named_property(env, obj, "stdout", stdoutValue);
+
+    napi_value stderrValue;
+    napi_create_string_utf8(env, result.stderrText.c_str(), result.stderrText.size(), &stderrValue);
+    napi_set_named_property(env, obj, "stderr", stderrValue);
+
+    return obj;
+}
+
+static napi_value CreateInstallPackageResult(
+    napi_env env,
+    bool success,
+    const std::string& remotePath,
+    const AdbShellCommandResult& result) {
+    napi_value obj = CreateShellCommandResult(env, result);
+
+    napi_value successValue;
+    napi_get_boolean(env, success, &successValue);
+    napi_set_named_property(env, obj, "success", successValue);
+
+    napi_value remotePathValue;
+    napi_create_string_utf8(env, remotePath.c_str(), remotePath.size(), &remotePathValue);
+    napi_set_named_property(env, obj, "remotePath", remotePathValue);
+
+    return obj;
+}
 
 // ============== Video Decoder ==============
 
@@ -276,7 +318,6 @@ static napi_value ReleaseAudioDecoder(napi_env env, napi_callback_info info) {
 
 // ============== ADB Module ==============
 
-#include "adb/core/Adb.h"
 #include "adb/crypto/AdbKeyPair.h"
 
 static std::unordered_map<int64_t, std::shared_ptr<Adb>> g_adbInstances;
@@ -568,6 +609,238 @@ static napi_value AdbRunCmd(napi_env env, napi_callback_info info) {
         napi_create_string_utf8(env, "", 0, &result);
     }
     return result;
+}
+
+// 执行ADB shell命令并返回结构化结果 - adbExecShell(adbId, cmd) => Promise<{exitCode, exitCodeReliable, stdout, stderr}>
+static napi_value AdbExecShell(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    char cmd[4096];
+    size_t cmdLen;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_value_string_utf8(env, args[1], cmd, sizeof(cmd), &cmdLen);
+
+    struct AdbExecShellContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        std::string command;
+        AdbShellCommandResult result;
+        bool success = false;
+        std::string errorMsg;
+    };
+
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
+    }
+
+    auto* context = new AdbExecShellContext();
+    context->adbInstance = it->second;
+    context->command = cmd;
+
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbExecShell", NAPI_AUTO_LENGTH, &resourceName);
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbExecShellContext*>(rawData);
+            if (!context->adbInstance) {
+                context->errorMsg = "Adb instance not found or invalid";
+                return;
+            }
+            try {
+                context->result = context->adbInstance->execShellCommand(context->command);
+                context->success = true;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbExecShellContext*>(rawData);
+            if (context->success) {
+                napi_value result = CreateShellCommandResult(env, context->result);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbExecShell failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+
+            napi_delete_async_work(env, context->work);
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
+}
+
+// 安装APK - adbInstallPackage(adbId, data, remoteName, installArgs?) => Promise<{success, remotePath, exitCode, exitCodeReliable, stdout, stderr}>
+static napi_value AdbInstallPackage(napi_env env, napi_callback_info info) {
+    size_t argc = 4;
+    napi_value args[4];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int64_t adbId;
+    void* data;
+    size_t dataSize;
+    char remoteName[256];
+    size_t remoteNameLen;
+    char installArgs[1024] = {0};
+    size_t installArgsLen = 0;
+
+    napi_get_value_int64(env, args[0], &adbId);
+    napi_get_arraybuffer_info(env, args[1], &data, &dataSize);
+    napi_get_value_string_utf8(env, args[2], remoteName, sizeof(remoteName), &remoteNameLen);
+    if (argc >= 4) {
+        napi_get_value_string_utf8(env, args[3], installArgs, sizeof(installArgs), &installArgsLen);
+    }
+
+    struct AdbInstallPackageContext {
+        napi_async_work work = nullptr;
+        napi_deferred deferred = nullptr;
+        napi_ref dataRef = nullptr;
+        std::shared_ptr<Adb> adbInstance;
+        void* fileData = nullptr;
+        size_t fileSize = 0;
+        std::string remoteName;
+        std::string installArgs;
+        std::string remotePath;
+        AdbShellCommandResult shellResult;
+        bool commandSuccess = false;
+        bool completed = false;
+        std::string errorMsg;
+    };
+
+    auto it = g_adbInstances.find(adbId);
+    if (it == g_adbInstances.end()) {
+        napi_throw_error(env, nullptr, "Adb instance not found");
+        return nullptr;
+    }
+
+    auto* context = new AdbInstallPackageContext();
+    context->adbInstance = it->second;
+    context->fileData = data;
+    context->fileSize = dataSize;
+    context->remoteName = remoteName;
+    context->installArgs = installArgs;
+    napi_create_reference(env, args[1], 1, &context->dataRef);
+
+    napi_value resourceName;
+    napi_create_string_utf8(env, "AdbInstallPackage", NAPI_AUTO_LENGTH, &resourceName);
+
+    napi_value promise;
+    napi_create_promise(env, &context->deferred, &promise);
+
+    napi_create_async_work(
+        env, nullptr, resourceName,
+        [](napi_env, void* rawData) {
+            auto* context = static_cast<AdbInstallPackageContext*>(rawData);
+            if (!context->adbInstance) {
+                context->errorMsg = "Adb instance not found or invalid";
+                return;
+            }
+            if (context->remoteName.empty()) {
+                context->errorMsg = "remoteName is required";
+                return;
+            }
+
+            auto shellQuote = [](const std::string& text) -> std::string {
+                std::string escaped;
+                escaped.reserve(text.size() + 8);
+                escaped.push_back('\'');
+                for (char ch : text) {
+                    if (ch == '\'') {
+                        escaped += "'\\''";
+                    } else {
+                        escaped.push_back(ch);
+                    }
+                }
+                escaped.push_back('\'');
+                return escaped;
+            };
+
+            context->remotePath = "/data/local/tmp/" + context->remoteName;
+            try {
+                context->adbInstance->pushFile(
+                    static_cast<uint8_t*>(context->fileData),
+                    context->fileSize,
+                    context->remotePath
+                );
+
+                std::string installCommand = "pm install";
+                if (!context->installArgs.empty()) {
+                    installCommand += " " + context->installArgs;
+                }
+                installCommand += " " + shellQuote(context->remotePath);
+
+                context->shellResult = context->adbInstance->execShellCommand(installCommand);
+                const std::string combinedOutput =
+                    context->shellResult.stdoutText + "\n" + context->shellResult.stderrText;
+                const bool looksSuccessful =
+                    combinedOutput.find("Success") != std::string::npos &&
+                    combinedOutput.find("Failure") == std::string::npos &&
+                    combinedOutput.find("INSTALL_FAILED") == std::string::npos;
+                const bool shellSucceeded = !context->shellResult.exitCodeReliable ||
+                    context->shellResult.exitCode == 0;
+                context->commandSuccess = shellSucceeded && looksSuccessful;
+                context->completed = true;
+            } catch (const std::exception& e) {
+                context->errorMsg = e.what();
+            }
+
+            if (!context->remotePath.empty()) {
+                try {
+                    context->adbInstance->execShellCommand("rm -f " + shellQuote(context->remotePath));
+                } catch (const std::exception&) {
+                }
+            }
+        },
+        [](napi_env env, napi_status, void* rawData) {
+            auto* context = static_cast<AdbInstallPackageContext*>(rawData);
+            if (context->completed) {
+                napi_value result = CreateInstallPackageResult(
+                    env,
+                    context->commandSuccess,
+                    context->remotePath,
+                    context->shellResult);
+                napi_resolve_deferred(env, context->deferred, result);
+            } else {
+                OH_LOG_ERROR(LOG_APP, "[NAPI] AdbInstallPackage failed: %{public}s", context->errorMsg.c_str());
+                napi_value errorMsg;
+                napi_create_string_utf8(env, context->errorMsg.c_str(), NAPI_AUTO_LENGTH, &errorMsg);
+                napi_value error;
+                napi_create_error(env, nullptr, errorMsg, &error);
+                napi_reject_deferred(env, context->deferred, error);
+            }
+
+            napi_delete_async_work(env, context->work);
+            if (context->dataRef) {
+                napi_delete_reference(env, context->dataRef);
+            }
+            delete context;
+        },
+        context,
+        &context->work
+    );
+
+    napi_queue_async_work(env, context->work);
+    return promise;
 }
 
 // 推送文件 - adbPushFile(adbId, data, remotePath) => void
@@ -1893,6 +2166,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"adbGetLastConnectError", nullptr, AdbGetLastConnectError, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPair", nullptr, AdbPair, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbRunCmd", nullptr, AdbRunCmd, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbExecShell", nullptr, AdbExecShell, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"adbInstallPackage", nullptr, AdbInstallPackage, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbPushFile", nullptr, AdbPushFile, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbTcpForward", nullptr, AdbTcpForward, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"adbLocalSocketForward", nullptr, AdbLocalSocketForward, nullptr, nullptr, nullptr, napi_default, nullptr},

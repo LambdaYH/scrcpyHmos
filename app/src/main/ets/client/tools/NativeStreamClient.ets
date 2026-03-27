@@ -53,6 +53,14 @@ export class NativeStreamClient {
     this.clientStream = new ClientStream(device);
   }
 
+  getAdbId(): number {
+    return this.clientStream.getAdbId();
+  }
+
+  isAdbReady(): boolean {
+    return this.clientStream.isAdbReady();
+  }
+
   // Start the session
   async start(serverJarData: ArrayBuffer | null, surfaceId: string): Promise<void> {
     try {
@@ -115,6 +123,22 @@ export class NativeStreamClient {
     } catch (err) {
       LoggerClientStream.error('[NativeStreamClient] Stop global error:', err);
     }
+  }
+
+  async pushFile(data: ArrayBuffer, remotePath: string): Promise<void> {
+    await this.clientStream.pushFile(data, remotePath);
+  }
+
+  async execShell(cmd: string): Promise<libscrcpy.AdbShellCommandResult> {
+    return await this.clientStream.execShell(cmd);
+  }
+
+  async installPackage(
+    apkData: ArrayBuffer,
+    remoteName: string,
+    installArgs: string = '-r'
+  ): Promise<libscrcpy.AdbInstallPackageResult> {
+    return await this.clientStream.installPackage(apkData, remoteName, installArgs);
   }
 
   private async tryStartReverse(

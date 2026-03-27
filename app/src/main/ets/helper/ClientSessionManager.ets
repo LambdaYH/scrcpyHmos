@@ -57,4 +57,8 @@ export class ClientSessionManager {
   public hasActiveSession(): boolean {
     return !!this.currentClient;
   }
+
+  public getCurrentClient(): NativeStreamClient | undefined {
+    return this.currentClient;
+  }
 }

@@ -1,8 +1,27 @@
+export interface AdbShellCommandResult {
+    exitCode: number;
+    exitCodeReliable: boolean;
+    stdout: string;
+    stderr: string;
+}
+
+export interface AdbInstallPackageResult extends AdbShellCommandResult {
+    success: boolean;
+    remotePath: string;
+}
+
 export const adbCreate: (ip: string, port: number) => number;
 export const adbConnect: (adbId: number, pubKeyPath: string, priKeyPath: string) => number;
 export const adbGetLastConnectError: (adbId: number) => string;
 export const adbPair: (hostPort: string, pairingCode: string, pubKeyPath: string, priKeyPath: string) => Promise<string>;
 export const adbRunCmd: (adbId: number, cmd: string) => string;
+export const adbExecShell: (adbId: number, cmd: string) => Promise<AdbShellCommandResult>;
+export const adbInstallPackage: (
+    adbId: number,
+    data: ArrayBuffer,
+    remoteName: string,
+    installArgs?: string
+) => Promise<AdbInstallPackageResult>;
 export const adbPushFile: (adbId: number, data: ArrayBuffer, remotePath: string) => Promise<void>;
 export const adbTcpForward: (adbId: number, port: number) => number;
 export const adbLocalSocketForward: (adbId: number, socketName: string) => Promise<number>;

@@ -19,6 +19,20 @@ export class ClientStream {
     this.device = device;
   }
 
+  getAdbId(): number {
+    return this.adbId;
+  }
+
+  isAdbReady(): boolean {
+    return this.adbId >= 0 && libscrcpy.adbIsConnected(this.adbId);
+  }
+
+  private ensureAdbReady(): void {
+    if (!this.isAdbReady()) {
+      throw new Error('ADB is not connected');
+    }
+  }
+
   // 为 Native 模式准备服务端：连接 ADB 并推送服务端。
   async prepareServerForNative(
     context: Context, // 需要Context来获取AdbKeyManager
@@ -112,6 +126,28 @@ export class ClientStream {
     await libscrcpy.adbStreamWrite(this.adbId, shellStreamId, cmdBytes.buffer);
 
     this.readShellOutputAsync(shellStreamId);
+  }
+
+  async pushFile(data: ArrayBuffer, remotePath: string): Promise<void> {
+    this.ensureAdbReady();
+    LoggerClientStream.info(`[ClientStream] Pushing file to ${remotePath}`);
+    await libscrcpy.adbPushFile(this.adbId, data, remotePath);
+  }
+
+  async execShell(cmd: string): Promise<libscrcpy.AdbShellCommandResult> {
+    this.ensureAdbReady();
+    LoggerClientStream.info(`[ClientStream] Exec shell: ${cmd}`);
+    return await libscrcpy.adbExecShell(this.adbId, cmd);
+  }
+
+  async installPackage(
+    apkData: ArrayBuffer,
+    remoteName: string,
+    installArgs: string = '-r'
+  ): Promise<libscrcpy.AdbInstallPackageResult> {
+    this.ensureAdbReady();
+    LoggerClientStream.info(`[ClientStream] Installing package via ${remoteName}`);
+    return await libscrcpy.adbInstallPackage(this.adbId, apkData, remoteName, installArgs);
   }
 
   // 异步读取Shell输出
